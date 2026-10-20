@@ -65,15 +65,17 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalDown, tr
   z-index: 1000;
 }
 
+/* 数值参照 visual-drag-demo ContextMenu.vue：#e4e7ed 边框 / 34px 行 / hover #f5f7fa */
 ul {
   min-width: 176px;
-  margin: 0;
-  padding: 5px 0;
+  margin: 5px 0;
+  padding: 6px 0;
   list-style: none;
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
 }
 
 li {
@@ -81,15 +83,17 @@ li {
   justify-content: space-between;
   align-items: center;
   gap: 24px;
-  padding: 6px 14px;
-  font-size: 13px;
-  color: #cbd5e1;
+  padding: 0 20px;
+  font-size: 14px;
+  height: 34px;
+  line-height: 34px;
+  color: #606266;
   cursor: pointer;
   white-space: nowrap;
 }
 
 li:hover {
-  background: rgba(59, 130, 246, 0.25);
+  background: #f5f7fa;
 }
 
 li.disabled {
@@ -98,23 +102,23 @@ li.disabled {
 }
 
 li.danger:hover {
-  color: #ef4444;
+  color: #f56c6c;
 }
 
 li.sep {
   height: 1px;
   padding: 0;
-  margin: 4px 8px;
-  background: #334155;
+  margin: 4px 12px;
+  background: #e4e7ed;
   cursor: default;
 }
 
 li.sep:hover {
-  background: #334155;
+  background: #e4e7ed;
 }
 
 kbd {
-  color: #64748b;
+  color: #c0c4cc;
   font-size: 11px;
   font-family: inherit;
 }

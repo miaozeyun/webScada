@@ -6,16 +6,12 @@ import { computed } from 'vue'
 import { Hide, Lock, Unlock, View } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { registry } from '@/widgets/registry'
+import WidgetIcon from '@/widgets/WidgetIcon.vue'
 
 const editor = useEditorStore()
 
 // z 大者在上 → 列表顶部
 const layers = computed(() => [...editor.topLevelNodes].sort((a, b) => b.z - a.z))
-
-function iconOf(type: string): string {
-  if (type === 'group') return 'zuhe'
-  return registry.get(type as never)?.icon ?? 'juxing'
-}
 
 function rowClick(e: MouseEvent, id: string): void {
   if (e.ctrlKey || e.metaKey) editor.toggleSelect(id)
@@ -42,7 +38,8 @@ function removeLayer(id: string): void {
       :class="{ actived: editor.selection.includes(node.id), dim: node.visible === false }"
       @click="rowClick($event, node.id)"
     >
-      <span class="iconfont type-icon" :class="'icon-' + iconOf(node.type)"></span>
+      <span v-if="node.type === 'group'" class="iconfont type-icon icon-zuhe"></span>
+      <WidgetIcon v-else :meta="registry.get(node.type) ?? null" class="type-icon" />
       <span class="label" :title="`${node.name}（${node.type}）z=${node.z}`">{{ node.name }}</span>
       <span v-if="node.type === 'group' && node.children" class="children">×{{ node.children.length }}</span>
       <div class="icon-container">
@@ -107,6 +104,8 @@ function removeLayer(id: string): void {
   font-size: 16px;
   margin-right: 4px;
   flex-shrink: 0;
+  display: inline-flex;
+  width: 18px;
 }
 
 .label {

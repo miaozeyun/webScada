@@ -7,6 +7,8 @@ const router = createRouter({
     { path: '/', redirect: '/projects' },
     { path: '/projects', name: 'projects', component: () => import('@/views/ProjectsView.vue'), meta: { requiresAuth: true } },
     { path: '/editor/:id', name: 'editor', component: () => import('@/editor/EditorView.vue'), meta: { requiresAuth: true } },
+    // 分享页（M6）：匿名只读运行态
+    { path: '/s/:token', name: 'share', component: () => import('@/views/ShareView.vue') },
     // 运行态分享页路由 /s/:token（M6）——按阶段加入
     { path: '/:pathMatch(.*)*', redirect: '/projects' },
   ],

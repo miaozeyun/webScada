@@ -15,3 +15,41 @@ body {
   font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* ==== 组件动画（M4：ComponentAnimations，编辑器与运行态共用） ==== */
+
+@keyframes wsBlink {
+  50% { opacity: 0.25; }
+}
+
+@keyframes wsSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes wsFlow {
+  to { background-position-x: -28px; }
+}
+
+/* 闪烁：应用于节点容器（时长 = blink.intervalMs） */
+.ws-anim-blink {
+  animation: wsBlink 1s steps(2, jump-none) infinite;
+}
+
+/* 旋转：应用于节点容器（时长 = rotate.periodMs） */
+.ws-anim-rotate {
+  animation: wsSpin 4s linear infinite;
+}
+
+/* 流动（管道/直线）：条纹覆盖层位移动画，speed 为像素/秒 */
+.ws-anim-flow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    115deg,
+    rgba(255, 255, 255, 0.35) 0 8px,
+    transparent 8px 28px
+  );
+  animation: wsFlow 1s linear infinite;
+}

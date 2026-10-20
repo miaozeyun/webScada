@@ -140,7 +140,7 @@ export interface VariableDef {
 // ============ 页面与组件 ============
 
 export type WidgetType =
-  | 'text' | 'image' | 'table' | 'button' | 'carousel'
+  | 'text' | 'image' | 'rect' | 'circle' | 'line' | 'table' | 'button' | 'carousel'
   | 'flip-counter' | 'line-chart' | 'bar-chart' | 'pie-chart' | 'gauge' | 'progress' | 'trend-chart'
   | 'status-light' | 'motor' | 'pump' | 'valve' | 'pipe'
   | 'group'

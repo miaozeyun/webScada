@@ -349,7 +349,19 @@ watch(
   >
     <div v-if="page" class="canvas-stage" :style="stageStyle">
       <div class="canvas-page" :style="pageStyle">
-        <div class="grid-overlay" />
+        <!-- 网格线（结构/参数参照 visual-drag-demo Grid.vue：7.24 小格 / 36.18 大格） -->
+        <svg class="grid" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="wsSmallGrid" width="7.236328125" height="7.236328125" patternUnits="userSpaceOnUse">
+              <path d="M 7.236328125 0 L 0 0 0 7.236328125" fill="none" stroke="rgba(127, 127, 127, 0.25)" stroke-width="1" />
+            </pattern>
+            <pattern id="wsGrid" width="36.181640625" height="36.181640625" patternUnits="userSpaceOnUse">
+              <rect width="36.181640625" height="36.181640625" fill="url(#wsSmallGrid)" />
+              <path d="M 36.181640625 0 L 0 0 0 36.181640625" fill="none" stroke="rgba(127, 127, 127, 0.5)" stroke-width="1" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#wsGrid)" />
+        </svg>
         <CanvasNode
           v-for="node in page.components"
           :key="node.id"
@@ -375,7 +387,7 @@ watch(
   position: relative;
   flex: 1;
   overflow: hidden;
-  background: #1a2233;
+  background: #f5f5f5; /* 参照 visual-drag-demo .center 背景色 */
   /* pointer 交互接管：禁浏览器手势（拖拽/触摸滚动），全由应用处理 */
   touch-action: none;
 }
@@ -397,7 +409,7 @@ watch(
 }
 
 .canvas-empty {
-  color: #64748b;
+  color: #909399;
   padding: 40px;
 }
 
@@ -406,7 +418,7 @@ watch(
   top: 0;
   bottom: 0;
   width: 1px;
-  background: #22d3ee;
+  background: #59c7f9; /* 参照 MarkLine.vue 标线颜色 */
   pointer-events: none;
 }
 
@@ -415,7 +427,7 @@ watch(
   left: 0;
   right: 0;
   height: 1px;
-  background: #22d3ee;
+  background: #59c7f9;
   pointer-events: none;
 }
 
@@ -423,23 +435,21 @@ watch(
   position: absolute;
   right: 12px;
   bottom: 12px;
-  background: rgba(15, 23, 42, 0.85);
-  color: #94a3b8;
+  background: #fff;
+  border: 1px solid #dcdfe6;
+  color: #909399;
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 12px;
   pointer-events: none;
 }
 
-/* 编辑态网格（20px 间距浅色参考线，不进入 doc） */
-.grid-overlay {
+/* 网格线（结构参照 Grid.vue） */
+.grid {
   position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
-  background-size: 20px 20px;
+  top: 0;
+  left: 0;
   z-index: 0;
+  pointer-events: none;
 }
 </style>

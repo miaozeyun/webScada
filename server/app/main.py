@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from loguru import logger
 
-from app.api.v1 import auth, health, projects
+from app.api.v1 import alarms, auth, health, projects, shares
 from app.core.config import settings
 from app.core.errors import register_handlers
 from app.utils.encrypt import ensure_key
@@ -48,6 +48,8 @@ def create_app() -> FastAPI:
     api.include_router(health.router)
     api.include_router(auth.router)
     api.include_router(projects.router)
+    api.include_router(shares.router)
+    api.include_router(alarms.router)
     app.include_router(api)
     return app
 

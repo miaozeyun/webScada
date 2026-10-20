@@ -34,9 +34,9 @@ const fit = computed(() => String(props.nodeProps.fit ?? 'contain') as 'contain'
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px dashed #475569;
-  color: #64748b;
+  border: 1px dashed #c0c4cc;
+  color: #909399;
   font-size: 13px;
-  background: rgba(30, 58, 138, 0.08);
+  background: #f5f7fa;
 }
 </style>

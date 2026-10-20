@@ -22,6 +22,9 @@ services:
   emqx:
     # Docker tag 固定为当期稳定版本（不支持通配 tag）
     image: emqx/emqx:5.8.6
+    # 8083 = MQTT over WebSocket（M3：浏览器 mqtt 数据源直连入口）
+    ports:
+      - "8083:8083"
     volumes:
       - emqx_data:/opt/emqx/data
       - emqx_log:/opt/emqx/log

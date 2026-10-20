@@ -1,11 +1,17 @@
 <script setup lang="ts">
-/** 组件面板（样式参照 visual-drag-demo ComponentList.vue）：
- * 80×40 图标网格 + iconfont 图标；拖拽（HTML5 DnD）到画布任意位置，或点击放置到当前可视区中心。 */
-import { paletteByCategory, registry } from '@/widgets/registry'
+/** 组件面板（样式参照 visual-drag-demo ComponentList.vue，按 category 分组）：
+ * 80×40 图标网格；拖拽（HTML5 DnD）到画布任意位置，或点击放置到当前可视区中心。 */
 import { useEditorStore } from '@/stores/editor'
+import { paletteByCategory, registry } from '@/widgets/registry'
+import WidgetIcon from '@/widgets/WidgetIcon.vue'
 
 const editor = useEditorStore()
-const basics = paletteByCategory('basic')
+
+const GROUPS = [
+  { label: '基础', category: 'basic' as const },
+  { label: '图表', category: 'chart' as const },
+  { label: '设备', category: 'device' as const },
+]
 
 function onDragStart(e: DragEvent, type: string): void {
   // 双类型写入：标准类型 + text/plain 兜底（Firefox dataTransfer 兼容）
@@ -27,19 +33,21 @@ function onClick(type: string): void {
 
 <template>
   <div class="component-list">
-    <div
-      v-for="meta in basics"
-      :key="meta.type"
-      class="list"
-      draggable="true"
-      :title="meta.name"
-      @dragstart="onDragStart($event, meta.type)"
-      @click="onClick(meta.type)"
-    >
-      <span class="iconfont" :class="'icon-' + meta.icon"></span>
-      <span class="label">{{ meta.name }}</span>
-    </div>
-    <div class="palette-tip">拖入画布任意位置，或点击放到画布中心。图表/设备组件在 M2 阶段注册。</div>
+    <template v-for="g in GROUPS" :key="g.category">
+      <div class="group-title">{{ g.label }}</div>
+      <div
+        v-for="meta in paletteByCategory(g.category)"
+        :key="meta.type"
+        class="list"
+        draggable="true"
+        :title="meta.name"
+        @dragstart="onDragStart($event, meta.type)"
+        @click="onClick(meta.type)"
+      >
+        <WidgetIcon :meta="meta" />
+        <span class="label">{{ meta.name }}</span>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -53,6 +61,17 @@ function onClick(type: string): void {
   grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   align-content: start;
   overflow-y: auto;
+}
+
+.group-title {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: #909399;
+  padding: 4px 2px 0;
+}
+
+.group-title:not(:first-child) {
+  margin-top: 6px;
 }
 
 .list {
@@ -84,12 +103,5 @@ function onClick(type: string): void {
 
 .label {
   font-size: 12px;
-}
-
-.palette-tip {
-  grid-column: 1 / -1;
-  color: #909399;
-  font-size: 12px;
-  line-height: 1.6;
 }
 </style>

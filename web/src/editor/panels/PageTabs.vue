@@ -56,8 +56,8 @@ function scrollTabs(dir: -1 | 1): void {
   display: flex;
   align-items: center;
   height: 32px;
-  background: #111c33;
-  border-bottom: 1px solid #1e293b;
+  background: #fff;
+  border-bottom: 1px solid #dcdfe6;
   padding: 0 4px;
   flex-shrink: 0;
 }
@@ -82,24 +82,24 @@ function scrollTabs(dir: -1 | 1): void {
   padding: 3px 10px;
   border-radius: 4px;
   font-size: 12px;
-  color: #94a3b8;
+  color: #606266;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .page-tab:hover {
-  color: #cbd5e1;
-  background: rgba(59, 130, 246, 0.1);
+  color: #409eff;
+  background: #ecf5ff;
 }
 
 .page-tab.active {
-  color: #60a5fa;
-  background: rgba(59, 130, 246, 0.22);
+  color: #409eff;
+  background: #ecf5ff;
 }
 
 .tab-close {
   opacity: 0;
-  color: #94a3b8;
+  color: #909399;
   padding: 0 2px;
 }
 
@@ -108,12 +108,12 @@ function scrollTabs(dir: -1 | 1): void {
 }
 
 .tab-close:hover {
-  color: #ef4444;
+  color: #f56c6c;
 }
 
 .add-btn,
 .scroll-btn {
-  color: #64748b;
+  color: #909399;
   cursor: pointer;
   padding: 4px;
   flex-shrink: 0;
@@ -121,6 +121,6 @@ function scrollTabs(dir: -1 | 1): void {
 
 .add-btn:hover,
 .scroll-btn:hover {
-  color: #60a5fa;
+  color: #409eff;
 }
 </style>

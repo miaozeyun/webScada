@@ -209,6 +209,28 @@ export const useEditorStore = defineStore('editor', {
       this._markDirty()
     },
 
+    /** 清空当前页全部组件（工具栏"清空画布"，UI 层已确认） */
+    clearPage(): void {
+      const page = this.currentPage
+      if (!page || page.components.length === 0) return
+      this.beginChange()
+      page.components = []
+      this.selection = []
+      this._markDirty()
+    },
+
+    /** 导入 JSON 覆盖当前工程 doc（宽松前端校验，服务端保存时 schema 兜底；跨 doc 替换历史清空） */
+    replaceDoc(doc: ProjectDoc): boolean {
+      if (!doc || !Array.isArray(doc.pages) || doc.pages.length === 0) return false
+      this.doc = doc
+      this.currentPageId = doc.pages[0].id
+      this.selection = []
+      history.clear()
+      this.historyVersion++
+      this._markDirty()
+      return true
+    },
+
     /** 方向键微调（1px，Shift 10px）；长按合并为一条记录 */
     nudgeSelection(dx: number, dy: number): void {
       if (this.selection.length === 0) return

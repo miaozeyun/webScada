@@ -228,7 +228,7 @@ _PROP_PATH_RE = re.compile(r"^(props\.[A-Za-z0-9_]+|style\.[A-Za-z]+|visible|opa
 
 WidgetType = Literal[
     # 基础类
-    "text", "image", "table", "button", "carousel",
+    "text", "image", "rect", "circle", "line", "table", "button", "carousel",
     # 图表类
     "flip-counter", "line-chart", "bar-chart", "pie-chart", "gauge", "progress", "trend-chart",
     # 设备类（SVG）

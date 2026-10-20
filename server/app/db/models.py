@@ -76,7 +76,9 @@ class AlarmRecord(Base):
         Index("idx_alarm_proj_triggered", "project_id", text("triggered_at DESC")),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # 自增主键：PostgreSQL 用 BIGINT（与 alembic 0001 一致）；SQLite 测试环境
+    # 的 autoincrement 仅对 INTEGER PRIMARY KEY 生效，故回落 INTEGER（JSONVariant 同款可移植做法）
+    id: Mapped[int] = mapped_column(Integer().with_variant(BigInteger(), "postgresql"), primary_key=True, autoincrement=True)
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )

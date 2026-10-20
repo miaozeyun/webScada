@@ -8,6 +8,7 @@
 import { computed, nextTick, ref } from 'vue'
 import type { ComponentNode } from '@/types/doc'
 import { useEditorStore } from '@/stores/editor'
+import { animationOf } from '@/utils/animation'
 import WidgetHost from '@/widgets/WidgetHost.vue'
 
 const props = defineProps<{ node: ComponentNode }>()
@@ -21,6 +22,7 @@ const emit = defineEmits<{
 const isLocked = computed(() => props.node.locked === true)
 const isSelected = computed(() => editor.selection.includes(props.node.id))
 const isEditing = computed(() => editor.editingNodeId === props.node.id)
+const anim = computed(() => animationOf(props.node.animations))
 
 const editEl = ref<HTMLDivElement>()
 
@@ -33,6 +35,7 @@ const boxStyle = computed(() => ({
   zIndex: props.node.z,
   opacity: props.node.visible === false ? 0.3 : (props.node.opacity ?? 1),
   cursor: isLocked.value ? 'not-allowed' : 'move',
+  ...anim.value.style,
 }))
 
 function onDown(e: PointerEvent): void {
@@ -84,7 +87,7 @@ function onEditKeydown(e: KeyboardEvent): void {
 <template>
   <div
     class="canvas-node"
-    :class="{ selected: isSelected, group: node.type === 'group', editing: isEditing }"
+    :class="[{ selected: isSelected, group: node.type === 'group', editing: isEditing }, anim.cls]"
     :style="boxStyle"
     @pointerdown.stop="onDown($event)"
     @dblclick.stop="onDblClick"
@@ -103,8 +106,8 @@ function onEditKeydown(e: KeyboardEvent): void {
     >
       {{ node.props.text }}
     </div>
-    <!-- 锁定标识 -->
-    <span v-if="isLocked" class="lock-badge" title="已锁定（可选中，不可拖动）">🔒</span>
+    <!-- 锁定标识（参照 Shape.vue icon-suo） -->
+    <span v-if="isLocked" class="iconfont icon-suo lock-badge" title="已锁定（可选中，不可拖动）"></span>
     <template v-if="node.type === 'group' && node.children">
       <!-- 子组件的按下事件一律上报顶层祖先（M1 约定：选择/拖拽只作用于顶层节点，组为整体） -->
       <CanvasNode v-for="child in node.children" :key="child.id" :node="child" @node-down="(ev, _child) => $emit('node-down', ev, node)" @node-dblclick="$emit('node-dblclick', node)" />
@@ -122,25 +125,21 @@ function onEditKeydown(e: KeyboardEvent): void {
   -webkit-user-drag: none;
 }
 
-.canvas-node:hover {
-  outline: 1px dashed rgba(59, 130, 246, 0.7);
-}
-
+/* 选中态参照 visual-drag-demo Shape.vue .active：outline 1px #70c0ff */
 .canvas-node.selected {
-  outline: 1.5px solid #3b82f6;
+  outline: 1px solid #70c0ff;
 }
 
 .canvas-node.group {
-  background: rgba(59, 130, 246, 0.04);
-  border: 1px dashed rgba(59, 130, 246, 0.35);
+  border: 1px dashed rgba(112, 192, 255, 0.4);
 }
 
 .inline-edit {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.92);
-  color: #e2e8f0;
-  outline: 2px solid #3b82f6;
+  background: #fff;
+  color: #606266;
+  outline: 1px solid #70c0ff;
   padding: 0 6px;
   display: flex;
   align-items: center;
@@ -152,10 +151,10 @@ function onEditKeydown(e: KeyboardEvent): void {
 
 .lock-badge {
   position: absolute;
-  top: 2px;
-  right: 4px;
-  font-size: 12px;
-  opacity: 0.8;
+  top: 0;
+  right: 0;
+  font-size: 16px;
+  color: #909399;
   pointer-events: none;
 }
 </style>

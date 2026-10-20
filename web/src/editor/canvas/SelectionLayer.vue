@@ -24,8 +24,7 @@ const multiBox = computed(() => {
 })
 
 const handleSize = computed(() => 8 / editor.zoom)
-const handleOffset = computed(() => -4 / editor.zoom)
-const rotateOffset = computed(() => -26 / editor.zoom)
+const rotateOffset = computed(() => -34 / editor.zoom)
 
 const DIRS: ResizeDir[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
 
@@ -58,13 +57,13 @@ function handlePos(dir: ResizeDir) {
   <div v-if="primary" class="selection-layer">
     <!-- 主选中框（轴对齐） -->
     <div class="sel-box" :style="{ left: `${primary.x}px`, top: `${primary.y}px`, width: `${primary.w}px`, height: `${primary.h}px` }">
-      <!-- 旋转柄（顶部上方） -->
-      <div
-        class="handle rotate-handle"
-        :style="{ left: `calc(50% - ${handleSize / 2}px)`, top: `${rotateOffset}px`, width: `${handleSize}px`, height: `${handleSize}px` }"
+      <!-- 旋转柄（顶部上方，参照 Shape.vue icon-xiangyouxuanzhuan） -->
+      <span
+        class="iconfont icon-xiangyouxuanzhuan rotate-handle"
+        :style="{ top: `${rotateOffset}px`, fontSize: `${20 / editor.zoom}px` }"
         title="拖动旋转（近 15° 倍数自动吸附）"
         @pointerdown.stop="emit('rotate-start', $event)"
-      />
+      ></span>
       <!-- 8 向缩放柄 -->
       <div
         v-for="dir in DIRS"
@@ -80,32 +79,42 @@ function handlePos(dir: ResizeDir) {
 </template>
 
 <style scoped>
+/* 数值参照 visual-drag-demo Shape.vue：outline 1px #70c0ff、柄 8px 白底圆点 1px #59c7f9 */
 .sel-box {
   position: absolute;
-  border: 1.5px solid #3b82f6;
+  border: 1px solid #70c0ff;
   box-sizing: border-box;
   pointer-events: none;
 }
 
 .multi-box {
   position: absolute;
-  border: 1px dashed rgba(59, 130, 246, 0.8);
+  border: 1px dashed #70c0ff;
   pointer-events: none;
 }
 
 .handle {
   position: absolute;
   background: #fff;
-  border: 1.5px solid #3b82f6;
+  border: 1px solid #59c7f9;
   box-sizing: border-box;
   pointer-events: auto;
   cursor: nwse-resize;
-  border-radius: 2px;
+  border-radius: 50%;
 }
 
 .rotate-handle {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   cursor: grab;
-  border-radius: 50%;
-  background: #3b82f6;
+  color: #59c7f9;
+  font-size: 20px;
+  font-weight: 600;
+  pointer-events: auto;
+}
+
+.rotate-handle:active {
+  cursor: grabbing;
 }
 </style>
