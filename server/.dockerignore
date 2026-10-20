@@ -1,0 +1,7 @@
+# server 构建上下文瘦身（根 .dockerignore 不作用于子目录 context；防 .venv/测试进上下文）
+.venv
+**/__pycache__
+*.egg-info
+.pytest_cache
+tests
+*.md

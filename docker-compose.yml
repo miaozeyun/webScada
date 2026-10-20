@@ -1,0 +1,81 @@
+# webScada P0 部署编排：nginx(前端+反代) / server(FastAPI) / postgres / emqx
+# 设计依据：docs/design/01-整体架构与目录结构.md §2.2 部署拓扑
+name: webscada
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-webscada}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webscada123}
+      POSTGRES_DB: ${POSTGRES_DB:-webscada}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # 健康检查用户与库保持一致，就绪后才允许 server 启动（M0 风险对策：alembic 时序）
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-webscada} -d ${POSTGRES_DB:-webscada}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: always
+
+  emqx:
+    # Docker tag 固定为当期稳定版本（不支持通配 tag）
+    image: emqx/emqx:5.8.6
+    volumes:
+      - emqx_data:/opt/emqx/data
+      - emqx_log:/opt/emqx/log
+    healthcheck:
+      test: ["CMD", "emqx", "ctl", "status"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+    restart: always
+
+  server:
+    build:
+      context: ./server
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-webscada}:${POSTGRES_PASSWORD:-webscada123}@postgres:5432/${POSTGRES_DB:-webscada}
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置 JWT_SECRET}
+      DATASOURCE_SECRET: ${DATASOURCE_SECRET:?请在 .env 中设置 DATASOURCE_SECRET（生成方式见 .env.example）}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请在 .env 中设置 ADMIN_PASSWORD}
+      # 可调参数显式透传（.env.example 同口径；容器内无 .env 文件，缺省会静默用默认值）
+      JWT_EXPIRE_HOURS: ${JWT_EXPIRE_HOURS:-2}
+      LOGIN_LOCKOUT_ATTEMPTS: ${LOGIN_LOCKOUT_ATTEMPTS:-5}
+      LOGIN_LOCKOUT_SECONDS: ${LOGIN_LOCKOUT_SECONDS:-60}
+      ALARM_RETENTION_DAYS: ${ALARM_RETENTION_DAYS:-30}
+      ALARM_MAX_ROWS_PER_PROJECT: ${ALARM_MAX_ROWS_PER_PROJECT:-200000}
+      SHARE_MAX_WS_PER_TOKEN: ${SHARE_MAX_WS_PER_TOKEN:-20}
+      JWT_WS_MAX_PER_USER_PROJECT: ${JWT_WS_MAX_PER_USER_PROJECT:-10}
+      RATE_LIMIT_CONNECT_PER_MIN: ${RATE_LIMIT_CONNECT_PER_MIN:-30}
+      WS_MAX_CONNECTIONS: ${WS_MAX_CONNECTIONS:-50}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # 镜像内无 curl，用 Python 标准库探测（compose healthcheck 依赖 /api/v1/health）
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: always
+
+  nginx:
+    # 前端多阶段构建（node 编译 → nginx 托管），同时作为唯一对外入口反代 /api/v1
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  pgdata:
+  emqx_data:
+  emqx_log:

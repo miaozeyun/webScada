@@ -1,0 +1,202 @@
+"""doc 校验流水线与模板：schemaVersion → 体积 → 结构（Pydantic）→ 引用完整性。
+
+顺序与错误体遵循 03-接口清单 §2.3/§2.4 与 02 §2.13/§4.3：
+- 校验失败统一 422，错误体 {code, message, errors: [{path, message}]}（G20）
+- schemaVersion 必须等于当前支持版本（G8：迁移唯一实现点在前端 migrateDoc()）
+"""
+import json
+import re
+from datetime import datetime, timezone
+
+from pydantic import ValidationError
+
+from app.core.config import settings
+from app.core.errors import AppError, _loc_to_path
+from app.schemas.doc import ComponentNode, ProjectDoc
+
+UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def serialized_size(doc: dict) -> int:
+    return len(json.dumps(doc, ensure_ascii=False).encode("utf-8"))
+
+
+def check_schema_version(doc_raw: dict) -> None:
+    v = doc_raw.get("schemaVersion")
+    if not isinstance(v, int) or v != settings.CURRENT_SCHEMA_VERSION:
+        raise AppError(
+            "version_unsupported",
+            f"schemaVersion 不受支持（当前支持 {settings.CURRENT_SCHEMA_VERSION}；"
+            "旧版本文件请经前端编辑器导入入口，由 migrateDoc() 升级后再提交）",
+            422,
+        )
+
+
+def check_size(doc_raw: dict) -> None:
+    if serialized_size(doc_raw) > settings.DOC_MAX_BYTES:
+        raise AppError(
+            "doc_too_large",
+            f"doc 体积超过 {settings.DOC_MAX_BYTES // (1024 * 1024)}MB 上限（G21）",
+            422,
+        )
+
+
+def validate_structure(doc_raw: dict) -> ProjectDoc:
+    """Pydantic v2 全量结构校验，失败转 G20 错误体。"""
+    try:
+        return ProjectDoc.model_validate(doc_raw)
+    except ValidationError as exc:
+        errors = [{"path": _loc_to_path(e["loc"]), "message": e["msg"]} for e in exc.errors()]
+        raise AppError("doc_invalid", "工程 doc 结构校验失败", 422, errors=errors) from exc
+
+
+def validate_references(model: ProjectDoc) -> None:
+    """跨对象引用完整性（02 §2.13 规则 1~5），单次递归遍历组件树。失败 422 + errors 字段路径。"""
+    errors: list[dict] = []
+
+    def uniq(label: str, pairs: list[tuple[str, str]]) -> None:
+        """pairs: (值, 完整字段路径)；重复时报后出现的位置。"""
+        seen: dict[str, str] = {}
+        for value, path in pairs:
+            if value in seen:
+                errors.append({
+                    "path": path,
+                    "message": f"{label}重复：{value}（首次出现于 {seen[value]}）",
+                })
+            else:
+                seen[value] = path
+
+    var_ids = {v.id for v in model.variables}
+    var_type_by_id = {v.id: v.type for v in model.variables}
+    ds_ids = {d.id for d in model.datasources}
+
+    # ---- 规则 1：唯一性 ----
+    uniq("variables[].id", [(v.id, f"variables[{i}].id") for i, v in enumerate(model.variables)])
+    uniq("variables[].key", [(v.key, f"variables[{i}].key") for i, v in enumerate(model.variables)])
+    uniq("pages[].id", [(p.id, f"pages[{i}].id") for i, p in enumerate(model.pages)])
+    uniq("datasources[].id", [(d.id, f"datasources[{i}].id") for i, d in enumerate(model.datasources)])
+    uniq("alarmRules[].id", [(r.id, f"alarmRules[{i}].id") for i, r in enumerate(model.alarmRules)])
+
+    # 组件 id 全工程唯一（含组内递归）；绑定引用/同 prop 唯一在同一遍历中完成
+    comp_pairs: list[tuple[str, str]] = []
+    binding_pairs: list[tuple[str, str]] = []
+
+    def walk(nodes: list[ComponentNode], prefix: str) -> None:
+        for ci, node in enumerate(nodes):
+            p = f"{prefix}[{ci}]"
+            comp_pairs.append((node.id, f"{p}.id"))
+            seen_props: dict[str, int] = {}
+            for bi, b in enumerate(node.bindings):
+                bp = f"{p}.bindings[{bi}]"
+                binding_pairs.append((b.id, f"{bp}.id"))
+                # 规则 2：绑定引用存在性
+                if b.variableId not in var_ids:
+                    errors.append({"path": f"{bp}.variableId", "message": f"变量 {b.variableId} 不存在"})
+                # 规则 3：同一组件同一 prop 仅一条绑定
+                if b.prop in seen_props:
+                    errors.append({
+                        "path": f"{bp}.prop",
+                        "message": f"同一组件同一 prop 仅允许一条绑定（与 bindings[{seen_props[b.prop]}] 重复：{b.prop}）",
+                    })
+                else:
+                    seen_props[b.prop] = bi
+            if node.children:
+                walk(node.children, f"{p}.children")
+
+    for pi, page in enumerate(model.pages):
+        walk(page.components, f"pages[{pi}].components")
+    uniq("组件 id", comp_pairs)
+    uniq("绑定 id", binding_pairs)
+
+    # ---- 规则 2：变量 → 数据源引用存在性 ----
+    for i, v in enumerate(model.variables):
+        if v.datasourceId not in ds_ids:
+            errors.append({"path": f"variables[{i}].datasourceId", "message": f"数据源 {v.datasourceId} 不存在"})
+
+    # ---- 规则 2/5：报警规则引用与变量类型约束（02 §2.11）----
+    for i, rule in enumerate(model.alarmRules):
+        if rule.variableId not in var_ids:
+            errors.append({"path": f"alarmRules[{i}].variableId", "message": f"变量 {rule.variableId} 不存在"})
+            continue
+        vtype = var_type_by_id[rule.variableId]
+        if vtype == "string":
+            errors.append({"path": f"alarmRules[{i}].variableId", "message": "string 类型变量不允许配置报警规则"})
+        elif vtype == "boolean" and rule.op not in ("==", "!="):
+            errors.append({
+                "path": f"alarmRules[{i}].op",
+                "message": "boolean 变量仅允许 == / !=（threshold 用 1/0 表示 true/false）",
+            })
+
+    # ---- 规则 4：project.id 必须为 UUID 格式（与库内一致性在 project_service 检查）----
+    if not UUID_RE.match(model.project.id or ""):
+        errors.append({"path": "project.id", "message": "project.id 必须为 UUID 格式"})
+
+    if errors:
+        raise AppError("reference_error", "工程 doc 引用完整性校验失败", 422, errors=errors)
+
+
+def validate_full(doc_raw: dict) -> ProjectDoc:
+    """完整流水线（不含凭证处理；凭证合并/置空/加密在 project_service 按场景执行）。"""
+    check_schema_version(doc_raw)
+    check_size(doc_raw)
+    model = validate_structure(doc_raw)
+    validate_references(model)
+    return model
+
+
+def collect_warnings(model: ProjectDoc) -> list[str]:
+    """非阻断告警（02 §2.13 规则 7）：单页组件 > 200（软上限，仅提示）。"""
+
+    def count(nodes: list) -> int:
+        return sum(1 + count(n.children or []) for n in nodes)
+
+    warns: list[str] = []
+    for i, page in enumerate(model.pages):
+        c = count(page.components)
+        if c > 200:
+            warns.append(f"pages[{i}]（{page.name}）组件数 {c} 超过建议上限 200，可能影响运行态性能")
+    return warns
+
+
+def blank_doc(project_id: str, name: str, author: str | None = None) -> dict:
+    """新建工程默认模板：蓝色主题 + 1 个 1920x1080 页面（03-接口清单 §2.3 POST 行为）。"""
+    now = _now_iso()
+    return {
+        "schemaVersion": settings.CURRENT_SCHEMA_VERSION,
+        "project": {
+            "id": project_id,
+            "name": name,
+            "description": None,
+            "author": author,
+            "createdAt": now,
+            "updatedAt": now,
+        },
+        "settings": {
+            "designSize": {"width": 1920, "height": 1080},
+            "adaptive": "fit-contain",
+            "theme": "blue-dark",
+            "primaryColor": "#2563eb",
+            "alarm": {
+                "levelColors": {"info": "#3b82f6", "warn": "#f59e0b", "critical": "#ef4444"},
+                "soundEnabled": True,
+                "soundThrottleSec": 60,
+            },
+        },
+        "datasources": [],
+        "variables": [],
+        "pages": [
+            {
+                "id": "page_1",
+                "name": "主页面",
+                "order": 0,
+                "background": {"color": "#0b1220"},
+                "screen": {"designWidth": 1920, "designHeight": 1080, "mode": "fit-contain"},
+                "components": [],
+            }
+        ],
+        "alarmRules": [],
+    }

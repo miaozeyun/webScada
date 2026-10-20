@@ -1,0 +1,24 @@
+# 依赖与构建产物
+node_modules/
+web/dist/
+server/.venv/
+*.pyc
+__pycache__/
+.pytest_cache/
+.venv/
+
+# 本地环境与密钥（.env 不入库，模板见 .env.example）
+.env
+
+# IDE
+.idea/
+.vscode/
+*.log
+
+# 第三方参考仓库（visual-drag-demo 等，不入库）
+github/
+
+# 测试/调试产物
+artifacts/
+scripts/debug*.py
+scripts/recon_login.py

@@ -1,0 +1,17 @@
+/* webScada 全局主题：蓝色系简洁（设计基调，02 契约 settings.theme 同源） */
+:root {
+  --ws-primary: #2563eb;
+  --ws-bg: #f5f7fa;
+  --ws-header-bg: #1e3a8a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ws-bg);
+  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
