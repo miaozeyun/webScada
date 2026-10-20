@@ -34,11 +34,18 @@ def _iter_sensitive_fields(ds: dict, config: dict):
 
 
 def sanitize_doc_for_output(doc: dict) -> dict:
-    """深拷贝并把全部敏感字段置空字符串——GET 详情 / 导出 / 分享快照统一出口。"""
+    """深拷贝并把全部敏感字段置空字符串——GET 详情 / 导出 / 分享快照统一出口。
+
+    台账缩略图（project.thumbnail，编辑器保存前截图写入的 base64 展示缓存）一并剔除：
+    导出/分享文件不携带大图；编辑器每次保存前会重新截图写回，GET 详情无此字段不影响闭环。
+    """
     out = copy.deepcopy(doc)
     for ds, config in iter_datasource_configs(out):
         for container, key in _iter_sensitive_fields(ds, config):
             container[key] = ""
+    project = out.get("project")
+    if isinstance(project, dict) and project.get("thumbnail") is not None:
+        project.pop("thumbnail")
     return out
 
 
@@ -94,8 +101,13 @@ def _merge_one(container: dict, old_container: dict, key: str) -> None:
 
 
 def clear_credentials_for_import(doc: dict) -> None:
-    """导入凭证一律视为空（02 §4.3 规则③）：安全默认，导入后需在各数据源面板重填。"""
+    """导入凭证一律视为空（02 §4.3 规则③）：安全默认，导入后需在各数据源面板重填。
+
+    同时强制 mqtt cleanSession=true（02 契约：导入工程不继承导出方的持久会话配置）。
+    """
     for ds, config in iter_datasource_configs(doc):
+        if ds.get("type") == "mqtt":
+            config["cleanSession"] = True
         if ds.get("type") == "mqtt" and "password" in config:
             config["password"] = ""
         if ds.get("type") in ("rest", "websocket"):

@@ -6,6 +6,8 @@ requires-python = ">=3.12"
 dependencies = [
     # Web 框架与运行服务
     "fastapi>=0.115",
+    # Modbus TCP 采集客户端（M8 阶段 1 后半）
+    "pymodbus>=3.9",   # 3.9 起读/写统一 device_id= 关键字
     # uvicorn[standard] 含 websockets：既是 WS 协议后端，也是上游 WS 数据源客户端依赖（架构差异 #11）
     "uvicorn[standard]>=0.30",
     # ORM 与数据库（异步 SQLAlchemy 2.0 + Pydantic v2）

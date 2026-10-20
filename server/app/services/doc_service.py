@@ -2,7 +2,9 @@
 
 顺序与错误体遵循 03-接口清单 §2.3/§2.4 与 02 §2.13/§4.3：
 - 校验失败统一 422，错误体 {code, message, errors: [{path, message}]}（G20）
-- schemaVersion 必须等于当前支持版本（G8：迁移唯一实现点在前端 migrateDoc()）
+- schemaVersion 接受兼容窗口 v ∈ [CURRENT-SCHEMA_COMPAT_WINDOW, CURRENT]
+  （M8 契约 §7.2；G8：版本迁移唯一实现点在前端 migrateDoc()，服务端窗口仅灰度缓冲，
+  入库前仍按 CURRENT 结构校验——N-1 与 CURRENT 结构兼容「只增不改」是提版前置条件）
 """
 import json
 import re
@@ -26,12 +28,34 @@ def serialized_size(doc: dict) -> int:
 
 
 def check_schema_version(doc_raw: dict) -> None:
+    """schemaVersion 兼容窗口校验（M8 契约 §7.2，文案区分过低/过高）。
+
+    - 接受 v ∈ [CURRENT - SCHEMA_COMPAT_WINDOW, CURRENT]；
+    - v < 下限：422，文案指引前端 migrateDoc 导入入口（过低）；
+    - v > CURRENT：422，文案提示升级服务端（过高，禁止静默降级）；
+    - 缺失/非整数（含 bool——bool 是 int 子类，True==1 不得冒充 CURRENT）→ 422。
+    """
     v = doc_raw.get("schemaVersion")
-    if not isinstance(v, int) or v != settings.CURRENT_SCHEMA_VERSION:
+    current = settings.CURRENT_SCHEMA_VERSION
+    if isinstance(v, bool) or not isinstance(v, int):
         raise AppError(
             "version_unsupported",
-            f"schemaVersion 不受支持（当前支持 {settings.CURRENT_SCHEMA_VERSION}；"
-            "旧版本文件请经前端编辑器导入入口，由 migrateDoc() 升级后再提交）",
+            "schemaVersion 缺失或非法（应为整数）；"
+            f"旧版本文件请经前端编辑器导入入口，由 migrateDoc() 升级后再提交（当前支持 {current}）",
+            422,
+        )
+    if v > current:
+        raise AppError(
+            "version_unsupported",
+            f"schemaVersion {v} 高于服务端当前支持的 {current}，请升级服务端版本后重试（禁止静默降级）",
+            422,
+        )
+    floor = current - max(settings.SCHEMA_COMPAT_WINDOW, 0)  # 防御负窗口把下限抬到 CURRENT 之上
+    if v < floor:
+        raise AppError(
+            "version_unsupported",
+            f"schemaVersion {v} 低于兼容窗口下限 {floor}（当前支持 {current}）；"
+            "请经前端编辑器导入入口，由 migrateDoc() 升级后再提交",
             422,
         )
 

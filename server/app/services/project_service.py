@@ -10,6 +10,7 @@ import copy
 import uuid as uuidlib
 from datetime import datetime, timezone
 
+from loguru import logger
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -125,6 +126,8 @@ async def update_doc(db: AsyncSession, project: Project, doc_raw: dict, base_rev
         )
     await db.commit()
     await db.refresh(project)
+    # 运行态热更新（M8 工作包 A 钩子）：hub.set_doc + collector.sync 差量重建，值流不中断（03 §3.8）
+    await _runtime_hot_reload(project.id, project.doc)
     return project
 
 
@@ -156,14 +159,37 @@ async def import_project(db: AsyncSession, owner: User, doc_raw: dict) -> Projec
     db.add(project)
     await db.commit()
     await db.refresh(project)
+    # 导入即上线（M8 钩子）：新工程直接装配采集与值池
+    await _runtime_hot_reload(project.id, project.doc)
     return project
 
 
 async def delete_project(db: AsyncSession, project: Project) -> None:
-    """删除：share_links / alarm_records 由外键 ON DELETE CASCADE 级联（M0 无在线连接；
-    M4+ 运行态级联热清理在此挂接）。"""
+    """删除：share_links / alarm_records 由外键 ON DELETE CASCADE 级联；
+    运行态级联热清理（M8 钩子）：hub.remove + collector.remove + 在线连接 error(PROJECT_REMOVED)。"""
     await db.delete(project)
     await db.commit()
+    try:  # 跨包惰性 import（契约 §6.4）：运行态层缺席时不影响删除主流程
+        from app.services import collector, hub, ws_manager
+
+        hub.hub.remove(project.id)
+        await collector.collector.remove(project.id)
+        await ws_manager.manager.broadcast_project_removed(project.id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"工程删除运行态清理失败 project={project.id}：{type(exc).__name__} {exc}")
+
+
+async def _runtime_hot_reload(project_id: uuidlib.UUID, doc: dict) -> None:
+    """保存/导入成功后的运行态热更新钩子：hub 重建索引（保留存续变量现值）+ collector 差量重建。
+    失败仅告警不回滚（保存已提交，运行态可在下次保存/重启恢复）。"""
+    try:  # 跨包惰性 import（契约 §6.4）
+        from app.services import collector, hub
+
+        hub.hub.set_doc(project_id, doc)
+        await collector.collector.sync(project_id, doc)
+        logger.info(f"运行态热更新完成 project={project_id} 数据源任务={len(collector.collector._projects.get(project_id, {}))}")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"运行态热更新失败 project={project_id}：{type(exc).__name__} {exc}")
 
 
 def export_doc(project: Project) -> dict:

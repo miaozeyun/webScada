@@ -20,4 +20,5 @@ done
 alembic upgrade head
 python scripts/create_admin.py
 # --proxy-headers + 信任网段：让 uvicorn 采纳 nginx 的 X-Forwarded-For（M4+ 建连限流依赖真实 client IP）
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="*"
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="*" --no-access-log
+# --no-access-log：uvicorn 访问日志会完整记录 /ws 查询串（含 token）；访问日志统一由 nginx 层输出（ws_masked 已掩码）

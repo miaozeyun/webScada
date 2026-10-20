@@ -27,3 +27,8 @@ scripts/recon_login.py
 .agents/
 .claude/
 skills-lock.json
+
+# 备份与 TLS 私钥（本地生成，严禁入库）
+backup/
+deploy/certs/
+backups/

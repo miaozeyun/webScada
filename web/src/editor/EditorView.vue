@@ -15,6 +15,9 @@ import { downloadJson, fileTimestamp } from '@/utils/download'
 import type { ProjectDoc } from '@/types/doc'
 import { installKeyboard } from '@/editor/keyboard'
 import CanvasStage from '@/editor/canvas/CanvasStage.vue'
+
+/** 画布引用：保存前截取首页缩略图（台账卡片视图） */
+const stageRef = ref<InstanceType<typeof CanvasStage>>()
 import ThemePicker from '@/components/ThemePicker.vue'
 import PreviewOverlay from '@/editor/PreviewOverlay.vue'
 import ComponentPalette from '@/editor/panels/ComponentPalette.vue'
@@ -53,18 +56,28 @@ onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer)
 })
 
-// ---- 自动保存（3s 防抖） ----
+// ---- 自动保存（3s 防抖；保存前刷新首页缩略图，失败不阻断保存链路） ----
+async function saveWithThumbnail(): Promise<boolean> {
+  try {
+    const shot = await stageRef.value?.captureThumbnail()
+    if (shot) editor.setThumbnail(shot)
+  } catch {
+    /* 截图失败保留旧缩略图 */
+  }
+  return editor.save()
+}
+
 watch(
   () => editor.dirtySeq,
   () => {
     if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => editor.save(), 3000)
+    saveTimer = setTimeout(() => void saveWithThumbnail(), 3000)
   },
 )
 
 async function backToList(): Promise<void> {
   if (editor.dirty) {
-    const ok = await editor.save()
+    const ok = await saveWithThumbnail()
     if (!ok) {
       try {
         await ElMessageBox.confirm('当前有未保存的修改且保存失败（断网或冲突）。仍要离开吗？离开将丢失本地修改。', '未保存提醒', { type: 'warning' })
@@ -77,7 +90,7 @@ async function backToList(): Promise<void> {
 }
 
 function manualSave(): void {
-  editor.save().then((ok) => {
+  saveWithThumbnail().then((ok) => {
     if (ok) ElMessage.success('已保存')
   })
 }
@@ -185,7 +198,7 @@ async function confirmImport(): Promise<void> {
 /** 导出：先保存本地修改 → 走服务端脱敏接口（G7）→ 下载 JSON 文件 */
 async function exportJson(): Promise<void> {
   if (editor.dirty) {
-    const ok = await editor.save()
+    const ok = await saveWithThumbnail()
     if (!ok) {
       ElMessage.warning('本地有未保存修改且保存失败（断网或冲突），请先处理再导出')
       return
@@ -218,7 +231,7 @@ async function clearCanvas(): Promise<void> {
 async function shareProject(): Promise<void> {
   // 先保存，保证分享快照包含最新修改
   if (editor.dirty) {
-    const ok = await editor.save()
+    const ok = await saveWithThumbnail()
     if (!ok) {
       ElMessage.warning('本地有未保存修改且保存失败，请先处理再分享')
       return
@@ -335,9 +348,12 @@ async function shareProject(): Promise<void> {
       <section class="center" :style="rightList ? undefined : 'margin-right:10px'">
         <PageTabs />
         <div class="content">
-          <div v-if="loading" class="loading-block">正在载入工程…</div>
+          <div v-if="loading" class="loading-block">
+            <span class="ws-spinner" role="status" aria-label="加载中" />
+            <span>正在载入工程…</span>
+          </div>
           <div v-else-if="loadError" class="loading-block error">{{ loadError }}</div>
-          <CanvasStage v-else />
+          <CanvasStage v-else ref="stageRef" />
         </div>
       </section>
 
@@ -711,8 +727,10 @@ main {
 .loading-block {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   color: var(--ws-text-3);
   font-size: 13px;
 }

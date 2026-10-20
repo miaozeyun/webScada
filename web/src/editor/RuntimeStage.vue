@@ -1,16 +1,18 @@
 <script setup lang="ts">
 /**
- * 运行态舞台（M3/M4/M6/M7 共用）：编辑器预览与分享页的公共渲染层。
+ * 运行态舞台（M3/M4/M6/M7 共用，M8 扩展 server 模式）：编辑器预览与分享页的公共渲染层。
  * 职责：启动/停止 RuntimeEngine、页面切换、按 screen.mode 自适应缩放、
- * 报警呈现（通知 + 声音 + 右上徽标 + 服务端记录上报）。
+ * 报警呈现（通知 + 声音 + 右上徽标）。
  * M7：提供 RuntimeApi/事件执行注入（反控与事件行为）、lockPan 画面锁定、embed 纯画面嵌入。
+ * M8：server 模式——值流/报警由服务端 WS 驱动（浏览器直连数据源仅保留编辑器连接测试）。
+ * 分享页传 serverToken（shareToken）；编辑器预览有 reportProjectId + 本地 JWT 时自动启用。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Close } from '@element-plus/icons-vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Close, FullScreen } from '@element-plus/icons-vue'
 import { ElNotification } from 'element-plus'
 import type { ProjectDoc } from '@/types/doc'
-import { RuntimeEngine } from '@/runtime/engine'
-import { useRuntimeStore } from '@/runtime/store'
+import { RuntimeEngine, type ServerRuntimeOptions } from '@/runtime/engine'
+import { useRuntimeStore, type ServerStatus } from '@/runtime/store'
 import { provideRuntime } from '@/runtime/actions'
 import { addAlarmRecord } from '@/api/alarms'
 import PreviewNode from './PreviewNode.vue'
@@ -19,8 +21,10 @@ const props = withDefaults(
   defineProps<{
     doc: ProjectDoc
     title: string
-    /** 登录态下的预览才上报报警记录（分享页匿名不上报） */
+    /** 登录态下的预览（同时作为 server 模式的工程 id 来源） */
     reportProjectId?: string
+    /** M8：分享 token（传参即以分享通道连服务端值流，只读） */
+    serverToken?: string
     closable?: boolean
     /** M7：写通道开关（编辑器预览 true；分享页 false 只读）。
      *  注意必须显式默认 true——boolean 类型 prop 未传时 Vue 会转换为 false。 */
@@ -31,7 +35,7 @@ const props = withDefaults(
   { closable: false, writable: true, embed: false },
 )
 
-const emit = defineEmits<{ (e: 'close'): void }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'serverReload'): void }>()
 
 const engine = new RuntimeEngine()
 const runtime = useRuntimeStore()
@@ -39,8 +43,37 @@ const bodyEl = ref<HTMLDivElement>()
 const bodySize = ref({ w: 0, h: 0 })
 const currentPageId = ref(props.doc.pages[0]?.id ?? '')
 
+// ---- 大屏全屏（监控值班场景）：舞台容器自身进入全屏，画面重新自适应 ----
+const stageEl = ref<HTMLDivElement>()
+const isFullscreen = ref(false)
+
+function toggleFullscreen(): void {
+  if (document.fullscreenElement) {
+    void document.exitFullscreen()
+  } else {
+    void stageEl.value?.requestFullscreen?.().catch(() => {
+      /* 浏览器策略拒绝（如未激活的 iframe）时静默 */
+    })
+  }
+}
+
+function onFullscreenChange(): void {
+  isFullscreen.value = document.fullscreenElement === stageEl.value
+  measure()
+}
+
 const pages = computed(() => [...props.doc.pages].sort((a, b) => a.order - b.order))
 const page = computed(() => props.doc.pages.find((p) => p.id === currentPageId.value) ?? null)
+
+// ---- M8：server 模式选项（分享 token 优先；编辑器预览回落本地 JWT） ----
+const serverOpts = computed<ServerRuntimeOptions | null>(() => {
+  if (props.serverToken) {
+    return { projectId: props.doc.project.id, token: props.serverToken, page: currentPageId.value }
+  }
+  const jwt = localStorage.getItem('webscada_token')
+  if (props.reportProjectId && jwt) return { projectId: props.reportProjectId, token: jwt, page: currentPageId.value }
+  return null
+})
 
 // M7：运行态能力注入（事件动作 / 控制组件写通道）；须在 setup 同步调用
 const writable = computed(() => props.writable !== false)
@@ -82,14 +115,33 @@ const pageStyle = computed(() => ({
   transform: `scale(${fit.value.sx}, ${fit.value.sy})`,
 }))
 
+/** 服务端通道状态提示（仅中间态/异常，online 不占视觉） */
+const serverHint = computed<{ text: string; cls: string } | null>(() => {
+  if (!serverOpts.value) return null
+  const s = runtime.serverStatus as ServerStatus
+  if (s === 'connecting') return { text: '实时数据连接中…', cls: 'is-warn' }
+  if (s === 'offline') return { text: '实时数据已断开，自动重连中', cls: 'is-warn' }
+  if (s === 'error') return { text: '实时数据连接失败，请检查登录或链接', cls: 'is-bad' }
+  return null
+})
+
 function measure(): void {
-  const el = bodyEl.value
-  if (el) bodySize.value = { w: el.clientWidth, h: el.clientHeight }
+  const el = bodyEl
+  if (el.value) bodySize.value = { w: el.value.clientWidth, h: el.value.clientHeight }
 }
 
-// ---- 报警呈现：通知 + 声音（rule.sound）+ 服务端记录（登录态预览） ----
+// ---- 报警呈现：通知 + 声音（rule.sound）；M8 起记录入库由服务端报警引擎负责 ----
 
 let audioCtx: AudioContext | null = null
+let lastBeepAt = 0 // soundThrottleSec 节流（02 契约 settings.alarm.soundThrottleSec，默认 60s）
+
+function beepThrottled(level: string): void {
+  const throttleSec = props.doc.settings?.alarm?.soundThrottleSec ?? 60
+  const now = Date.now()
+  if (now - lastBeepAt < throttleSec * 1000) return
+  lastBeepAt = now
+  beep(level)
+}
 
 function beep(level: string): void {
   try {
@@ -119,7 +171,9 @@ function onAlarmEvent(
     duration: 4500,
     position: 'bottom-right', // 避开右上角标题栏的「退出」按钮
   })
-  if (ev.type === 'active') beep(ev.level)
+  if (ev.type === 'active') beepThrottled(ev.level)
+  // server 模式不走旧前端上报：服务端 rules_engine 已入库（02 §7.7 修订）
+  if (serverOpts.value) return
   if (props.reportProjectId && localStorage.getItem('webscada_token')) {
     // 服务端契约 variableKey 非空：按规则变量 id 反查工程内 key
     const variableKey = props.doc.variables.find((v) => v.id === rule?.variableId)?.key ?? 'unknown'
@@ -135,19 +189,47 @@ function onAlarmEvent(
   }
 }
 
+function startEngine(seedValues?: Map<string, string | number | boolean>): void {
+  engine.start(
+    props.doc,
+    {
+      onAlarmEvent,
+      writable: writable.value,
+      server: serverOpts.value ?? undefined,
+      onServerReload: () => emit('serverReload'),
+    },
+    seedValues,
+  )
+}
+
 onMounted(() => {
   measure()
   window.addEventListener('resize', measure)
-  engine.start(props.doc, { onAlarmEvent, writable: writable.value })
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+  startEngine()
 })
+
+// M8：分享 reload → 宿主替换 doc 引用 → 引擎重启。03 §3.8：已收到的变量值缓存保留（seed 透传，画面不闪空白）
+watch(
+  () => props.doc,
+  (doc, old) => {
+    if (doc === old) return
+    currentPageId.value = doc.pages[0]?.id ?? ''
+    const seed = new Map(engine.snapshotValues())
+    engine.stop()
+    startEngine(seed)
+  },
+)
+
 onBeforeUnmount(() => {
   window.removeEventListener('resize', measure)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
   engine.stop()
 })
 </script>
 
 <template>
-  <div class="runtime-stage">
+  <div ref="stageEl" class="runtime-stage" :class="{ 'is-fullscreen': isFullscreen }">
     <header v-if="!embed" class="stage-bar">
       <span class="title">{{ title }}</span>
       <nav class="stage-tabs">
@@ -164,6 +246,14 @@ onBeforeUnmount(() => {
       <span v-if="runtime.activeAlarmCount" class="alarm-badge" title="激活中的报警数">
         ⚠ {{ runtime.activeAlarmCount }}
       </span>
+      <span v-if="serverHint" class="server-hint" :class="serverHint.cls">{{ serverHint.text }}</span>
+      <el-button
+        size="small"
+        :icon="FullScreen"
+        :title="isFullscreen ? '退出全屏' : '全屏（大屏展示）'"
+        :aria-label="isFullscreen ? '退出全屏' : '进入全屏'"
+        @click="toggleFullscreen"
+      />
       <el-button v-if="closable" size="small" :icon="Close" @click="emit('close')">退出</el-button>
     </header>
     <div ref="bodyEl" class="stage-body" :class="{ 'lock-pan': page?.screen.lockPan === true }">
@@ -184,6 +274,11 @@ onBeforeUnmount(() => {
   background: #0d1823;
   display: flex;
   flex-direction: column;
+}
+
+/* 全屏态：舞台即视口（fixed inset:0 依旧成立，画面按 screen.mode 重新自适应） */
+.runtime-stage:fullscreen {
+  background: #0d1823;
 }
 
 /* 运行态顶栏：与控制台一致的深墨蓝，画面内容在其下独立呈现 */
@@ -244,6 +339,18 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* M8：服务端值流通道状态（连接中/断线/失败） */
+.server-hint {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.server-hint.is-warn {
+  color: var(--ws-signal-amber, #f59e0b);
+}
+.server-hint.is-bad {
+  color: var(--ws-signal-red, #ef4444);
 }
 
 .stage-bar :deep(.el-button) {

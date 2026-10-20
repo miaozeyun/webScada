@@ -42,6 +42,8 @@ export interface ProjectMeta {
   author?: string | null
   createdAt: string
   updatedAt: string
+  /** 首页缩略图（JPEG dataURL，编辑器保存前截图写入；出口脱敏/导出时剔除，台账卡片视图专用） */
+  thumbnail?: string | null
 }
 
 // ============ 数据源（四类） ============
@@ -97,6 +99,16 @@ export interface MockConfig {
   defaultIntervalMs?: number
 }
 
+/** Modbus TCP（M8 阶段 1 后半）；变量 address 用 Modbus 惯用区位：4xxxx 保持寄存器/3xxxx 输入寄存器/0xxxx 线圈/1xxxx 离散输入 */
+export interface ModbusConfig {
+  host: string
+  port?: number
+  unitId?: number
+  intervalMs?: number
+  timeoutMs?: number
+  staleTimeoutMs?: number | null
+}
+
 interface DsBase {
   id: string
   name: string
@@ -108,8 +120,9 @@ export interface MqttDataSource extends DsBase { type: 'mqtt'; config: MqttConfi
 export interface WebsocketDataSource extends DsBase { type: 'websocket'; config: WebsocketConfig }
 export interface RestDataSource extends DsBase { type: 'rest'; config: RestConfig }
 export interface MockDataSource extends DsBase { type: 'mock'; config?: MockConfig }
+export interface ModbusDataSource extends DsBase { type: 'modbus'; config: ModbusConfig }
 
-export type DataSource = MqttDataSource | WebsocketDataSource | RestDataSource | MockDataSource
+export type DataSource = MqttDataSource | WebsocketDataSource | RestDataSource | MockDataSource | ModbusDataSource
 
 // ============ 变量字典 ============
 
@@ -322,3 +335,118 @@ export interface ProjectDoc {
   pages: Page[]
   alarmRules: AlarmRule[]
 }
+
+// ============ M8 服务端运行态：WS 帧类型（增量追加，契约 docs/design/03 §3.4 + 实施契约 §5） ============
+
+/** 值质量位：good=有效；stale=超 staleTimeoutMs 未见新帧（值保留）；bad=缺帧/解析失败（v=null） */
+export type ValueQuality = 'good' | 'stale' | 'bad'
+
+/** 值条目：v 为服务端换算后的工程值（bad 时 null）；t 为 epoch 毫秒 */
+export interface WsValueEntry {
+  v: number | boolean | string | null
+  q: ValueQuality
+  t: number
+}
+
+/** S→C snapshot 内嵌的活动报警（结构同 REST 报警列表条目，时间戳为 epoch 毫秒） */
+export interface WsActiveAlarm {
+  id: number
+  ruleId: string
+  variableKey: string
+  level: AlarmLevel
+  message: string
+  value: string | null
+  status: 'triggered' | 'acked' | 'cleared'
+  triggeredAt: number
+  ackedAt?: number | null
+  ackedBy?: string | null
+  ackedNote?: string | null
+  clearedAt?: number | null
+}
+
+export interface WsSnapshotFrame {
+  type: 'snapshot'
+  ts: number
+  /** 键为变量 key；值均为工程值（服务端换算后） */
+  data: Record<string, WsValueEntry>
+  activeAlarms: WsActiveAlarm[]
+  totalActive: number
+  /** 超过 200 条按 critical>warn>info 截断时为 true */
+  truncated: boolean
+}
+
+export interface WsValuesFrame {
+  type: 'values'
+  data: Record<string, WsValueEntry>
+}
+
+export interface WsAlarmFrame {
+  type: 'alarm'
+  alarm: WsActiveAlarm
+}
+
+export interface WsAlarmClearFrame {
+  type: 'alarmClear'
+  alarmId: number
+  recoveredAt: number
+}
+
+export interface WsAlarmAckFrame {
+  type: 'alarmAck'
+  alarmId: number
+  ackedAt: number
+  ackedBy: string
+}
+
+export interface WsPingFrame { type: 'ping' }
+export interface WsPongFrame { type: 'pong' }
+export interface WsReloadFrame { type: 'reload' }
+
+export type WsWriteErrorCode =
+  | 'NOT_WRITABLE'
+  | 'READ_ONLY'
+  | 'FORBIDDEN'
+  | 'VARIABLE_NOT_FOUND'
+  | 'WRITE_FAILED'
+
+export interface WsWriteFrame {
+  type: 'write'
+  reqId: string
+  variableKey: string
+  value: number | boolean | string
+}
+
+export interface WsWriteAckFrame {
+  type: 'writeAck'
+  reqId: string
+  ok: boolean
+  code?: WsWriteErrorCode
+  message?: string
+}
+
+export type WsErrorCode =
+  | 'TOKEN_EXPIRED'
+  | 'PROJECT_REMOVED'
+  | 'SHARE_REVOKED'
+  | 'SHARE_EXPIRED'
+  | 'RATE_LIMITED'
+  | 'PROJECT_MISMATCH'
+  | 'INTERNAL_ERROR'
+
+export interface WsErrorFrame {
+  type: 'error'
+  code: WsErrorCode
+  message?: string
+}
+
+/** S→C 全部帧的判别联合（客户端忽略未知 type） */
+export type WsServerFrame =
+  | WsSnapshotFrame
+  | WsValuesFrame
+  | WsAlarmFrame
+  | WsAlarmClearFrame
+  | WsAlarmAckFrame
+  | WsPingFrame
+  | WsReloadFrame
+  | WsErrorFrame
+  | WsWriteAckFrame

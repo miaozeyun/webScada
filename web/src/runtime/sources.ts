@@ -1,10 +1,17 @@
 /**
- * 四类数据源适配器（M3）：mock / websocket / rest / mqtt（MQTT over WebSocket）。
- * 浏览器直连（02 §2.13 前端承担数据接入），统一 onRaw(variable, raw) 回调；
- * 原始值到工程值的换算（scale/offset/precision/bitIndex，G3）由 engine 执行。
+ * 数据源接入（M3 浏览器直连四源 + M8 服务端 WS 通道）。
+ * M8 起：值流/报警/写通道权威在服务端（/api/v1/ws/runtime），startServerChannel 为运行态主通道；
+ * 浏览器直连适配器（mock/websocket/rest/mqtt）仅保留为编辑器「数据源连接测试」专用（02 §7.1 修订）。
  */
 import mqtt from 'mqtt'
-import type { DataSource, VariableDef } from '@/types/doc'
+import type {
+  DataSource,
+  VariableDef,
+  WsActiveAlarm,
+  WsErrorCode,
+  WsValueEntry,
+  WsWriteAckFrame,
+} from '@/types/doc'
 
 export interface SourceHandle {
   stop(): void
@@ -45,6 +52,9 @@ export function startSource(ds: DataSource, variables: VariableDef[], onRaw: Raw
       return startWebsocket(ds, vars, onRaw)
     case 'rest':
       return startRest(ds, vars, onRaw)
+    case 'modbus':
+      // Modbus 采集在服务端（collector），浏览器无 TCP 能力——no-op（运行态经 WS 取值）
+      return { stop: () => {} }
     case 'mqtt':
       return startMqtt(ds, vars, onRaw)
   }
@@ -273,6 +283,8 @@ export function testConnection(ds: DataSource): Promise<TestResult> {
   switch (ds.type) {
     case 'mock':
       return Promise.resolve({ ok: true, message: 'mock 数据源在浏览器本地生成，无需连接' })
+    case 'modbus':
+      return Promise.resolve({ ok: false, message: 'Modbus TCP 仅支持服务端采集，请用数据源面板「测试连接」' })
     case 'mqtt':
       return new Promise((resolve) => {
         const client = mqtt.connect(ds.config.brokerUrl, {
@@ -322,5 +334,210 @@ export function testConnection(ds: DataSource): Promise<TestResult> {
           message: resp.ok ? `HTTP ${resp.status}（${ds.config.url}）` : `HTTP ${resp.status}（${ds.config.url}）`,
         }))
         .catch((err: Error) => ({ ok: false, message: `请求失败：${err.message}` }))
+  }
+}
+
+// ==================== M8 服务端运行态 WS 通道（/api/v1/ws/runtime，权威通道） ====================
+
+/** 致命 error code：停止重连（03 §3.6；INTERNAL_ERROR 按网络级失败退避重连） */
+const FATAL_WS_CODES: ReadonlySet<string> = new Set([
+  'TOKEN_EXPIRED',
+  'PROJECT_REMOVED',
+  'SHARE_REVOKED',
+  'SHARE_EXPIRED',
+  'RATE_LIMITED',
+])
+
+const SERVER_BACKOFF_MIN_MS = 1000
+const SERVER_BACKOFF_MAX_MS = 30000
+/** 客户端看门狗：30s 无任何入站帧 → 判定假死主动重连（03 §3.5） */
+const SERVER_INBOUND_TIMEOUT_MS = 30000
+/** write 等待 writeAck 超时 */
+const WRITE_ACK_TIMEOUT_MS = 5000
+
+export type ServerChannelStatus = 'connecting' | 'online' | 'offline' | 'error'
+
+export interface ServerChannelCallbacks {
+  /** snapshot/values 值条目（键=变量 key，值=服务端换算后工程值） */
+  onEntry: (key: string, entry: WsValueEntry) => void
+  onAlarm: (alarm: WsActiveAlarm) => void
+  onAlarmClear: (alarmId: number, recoveredAt: number) => void
+  onAlarmAck: (alarmId: number, ackedAt: number, ackedBy: string) => void
+  /** snapshot 内嵌存量活动报警（首连/重连回填横幅、徽标、面板，03 §3.4）；
+   *  truncated=true 表示服务端超 200 条截断，客户端应跳过差集清理防误清 */
+  onSnapshotAlarms: (alarms: WsActiveAlarm[], truncated: boolean) => void
+  onError: (code: WsErrorCode, message: string) => void
+  /** 分享快照被刷新 → 宿主重新拉取 doc 并重建渲染（03 §3.4 reload） */
+  onReload: () => void
+  onStatus: (status: ServerChannelStatus) => void
+}
+
+export interface ServerChannelOptions extends ServerChannelCallbacks {
+  projectId: string
+  token: string
+  page?: string
+}
+
+export interface ServerChannelHandle {
+  /** 反控写：reqId 关联 writeAck；超时/失败 reject（engine 转用户提示） */
+  write(variableKey: string, value: number | boolean | string): Promise<void>
+  stop(): void
+}
+
+/** 服务端 WS 通道：连接序列/合帧值流/心跳/指数退避重连（1s→30s ±20% 抖动，03 §3.5/§3.6）。 */
+export function startServerChannel(opts: ServerChannelOptions): ServerChannelHandle {
+  let stopped = false
+  let ws: WebSocket | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let watchdogTimer: ReturnType<typeof setTimeout> | null = null
+  let delay = SERVER_BACKOFF_MIN_MS
+  const pendingWrites = new Map<string, { resolve: (v: void) => void; reject: (e: Error) => void }>()
+
+  const clearWatchdog = (): void => {
+    if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null }
+  }
+  const armWatchdog = (): void => {
+    clearWatchdog()
+    watchdogTimer = setTimeout(() => {
+      // 30s 无入站帧：假死（TCP 半开/服务端宕机），主动断开走重连
+      try { ws?.close() } catch { /* 已关 */ }
+    }, SERVER_INBOUND_TIMEOUT_MS)
+  }
+
+  const wsUrl = (): string => {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+    const params = new URLSearchParams({ project: opts.projectId, token: opts.token })
+    if (opts.page) params.set('page', opts.page)
+    return `${proto}://${location.host}/api/v1/ws/runtime?${params.toString()}`
+  }
+
+  const scheduleReconnect = (): void => {
+    if (stopped) return
+    opts.onStatus('offline')
+    const jitter = delay * (0.8 + Math.random() * 0.4) // ±20% 抖动防雪崩
+    reconnectTimer = setTimeout(connect, jitter)
+    delay = Math.min(delay * 2, SERVER_BACKOFF_MAX_MS)
+  }
+
+  const onFrame = (frame: Record<string, unknown>): void => {
+    armWatchdog() // 任何入站帧都刷新看门狗
+    switch (frame.type) {
+      case 'snapshot': {
+        const data = (frame.data ?? {}) as Record<string, WsValueEntry>
+        for (const [key, entry] of Object.entries(data)) opts.onEntry(key, entry)
+        // 存量活动报警不可丢弃（03 §3.4 snapshot 语义）：刷新/重连后由引擎回填
+        // 横幅/徽标/面板，并按 snapshot 报警 id 集合做差集清理已消失的报警
+        const alarms = Array.isArray(frame.activeAlarms) ? (frame.activeAlarms as WsActiveAlarm[]) : []
+        opts.onSnapshotAlarms(alarms, frame.truncated === true)
+        break
+      }
+      case 'values': {
+        const data = (frame.data ?? {}) as Record<string, WsValueEntry>
+        for (const [key, entry] of Object.entries(data)) opts.onEntry(key, entry)
+        break
+      }
+      case 'alarm':
+        opts.onAlarm(frame.alarm as WsActiveAlarm)
+        break
+      case 'alarmClear':
+        opts.onAlarmClear(Number(frame.alarmId), Number(frame.recoveredAt))
+        break
+      case 'alarmAck':
+        opts.onAlarmAck(Number(frame.alarmId), Number(frame.ackedAt), String(frame.ackedBy ?? ''))
+        break
+      case 'ping':
+        ws?.send(JSON.stringify({ type: 'pong' }))
+        break
+      case 'reload':
+        opts.onReload()
+        break
+      case 'writeAck': {
+        const ack = frame as unknown as WsWriteAckFrame
+        const pending = ack.reqId ? pendingWrites.get(ack.reqId) : undefined
+        if (pending) {
+          pendingWrites.delete(ack.reqId)
+          if (ack.ok) pending.resolve()
+          else pending.reject(new Error(ack.message || ack.code || '写入被拒绝'))
+        }
+        break
+      }
+      case 'error': {
+        const code = String(frame.code ?? 'INTERNAL_ERROR') as WsErrorCode
+        opts.onError(code, String(frame.message ?? ''))
+        if (FATAL_WS_CODES.has(code)) {
+          // 致命：停止重连，提示人工介入（引擎侧经 onError 呈现）
+          stopped = true
+          opts.onStatus('error')
+        }
+        break
+      }
+      default:
+        break // 未知帧类型忽略（03 §3.4 客户端容错口径）
+    }
+  }
+
+  const connect = (): void => {
+    if (stopped) return
+    opts.onStatus('connecting')
+    let socket: WebSocket
+    try {
+      socket = new WebSocket(wsUrl())
+    } catch {
+      scheduleReconnect()
+      return
+    }
+    ws = socket
+    socket.onopen = () => {
+      delay = SERVER_BACKOFF_MIN_MS
+      opts.onStatus('online')
+      armWatchdog()
+    }
+    socket.onmessage = (ev) => {
+      let frame: Record<string, unknown>
+      try {
+        frame = JSON.parse(String(ev.data)) as Record<string, unknown>
+      } catch {
+        return
+      }
+      onFrame(frame)
+    }
+    socket.onclose = (ev) => {
+      clearWatchdog()
+      // 未服务端指意的关闭（非致命 error 路径 stopped=true）→ 网络级失败，退避重连
+      if (!stopped) scheduleReconnect()
+      else if (ev.code === 4000) opts.onStatus('error')
+    }
+    socket.onerror = () => { /* onclose 跟进，统一走重连 */ }
+  }
+
+  connect()
+
+  return {
+    write: (variableKey, value) =>
+      new Promise<void>((resolve, reject) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          reject(new Error('服务端连接未就绪，写入失败'))
+          return
+        }
+        const reqId = `w_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+        const timer = setTimeout(() => {
+          pendingWrites.delete(reqId)
+          reject(new Error('写入回执超时（writeAck）'))
+        }, WRITE_ACK_TIMEOUT_MS)
+        pendingWrites.set(reqId, {
+          resolve: () => { clearTimeout(timer); resolve() },
+          reject: (e) => { clearTimeout(timer); reject(e) },
+        })
+        ws.send(JSON.stringify({ type: 'write', reqId, variableKey, value }))
+      }),
+    stop: () => {
+      stopped = true
+      clearWatchdog()
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      for (const [, p] of pendingWrites) p.reject(new Error('连接已关闭'))
+      pendingWrites.clear()
+      try { ws?.close() } catch { /* 已关 */ }
+      ws = null
+    },
   }
 }

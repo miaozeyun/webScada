@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * 组件图标（面板/图层共用）：iconfont > Element Plus 图标 > 设备类渲染组件本体缩略图。
+ * 组件图标（面板/图层共用）：Element Plus 图标 > 组件本体缩略渲染（几何/设备类最直观）。
+ * 原 iconfont 字体方案已移除（与 @element-plus/icons-vue 双体系并存，且仅用到十余个字形）。
  */
 import type { WidgetMeta } from './registry'
 
@@ -8,8 +9,7 @@ defineProps<{ meta: WidgetMeta | null }>()
 </script>
 
 <template>
-  <span v-if="meta?.icon" class="iconfont" :class="'icon-' + meta.icon" />
-  <el-icon v-else-if="meta?.epIcon" :size="18"><component :is="meta.epIcon" /></el-icon>
+  <el-icon v-if="meta?.epIcon" :size="18"><component :is="meta.epIcon" /></el-icon>
   <span v-else-if="meta" class="mini-renderer">
     <component :is="meta.renderer" :node-props="meta.defaultProps()" />
   </span>

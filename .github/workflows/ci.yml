@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  server:
+    name: server（FastAPI / PostgreSQL / pytest）
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: webscada
+          POSTGRES_PASSWORD: webscada
+          POSTGRES_DB: webscada_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U webscada -d webscada_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      # 说明：server/tests/conftest.py 目前把测试固定在 SQLite 内存库；
+      # 本 DATABASE_URL 供下方 alembic 迁移冒烟对真实 PG 执行，测试套件切换 PG 后即全量生效
+      DATABASE_URL: postgresql+asyncpg://webscada:webscada@localhost:5432/webscada_test
+      JWT_SECRET: ci-only-secret-not-for-production
+      # CI 专用 Fernet 密钥（仅测试环境，勿用于生产）
+      DATASOURCE_SECRET: RJPY1DmjT3yushp6QkwaWWa0bJV-BfUFqRstpQmsQNs=
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: ci-admin-password
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖（仓库无 uv.lock/requirements.txt，按 pyproject 版本区间安装）
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Alembic 迁移冒烟（upgrade head 对真实 PostgreSQL 执行）
+        run: alembic upgrade head
+
+      - name: pytest
+        run: pytest -q
+
+  web:
+    name: web（vue-tsc 类型检查 + vite 构建）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 安装依赖（npm ci 按锁文件精确安装）
+        run: npm ci
+
+      - name: 类型检查
+        run: npx vue-tsc --noEmit
+
+      - name: 构建
+        run: npx vite build

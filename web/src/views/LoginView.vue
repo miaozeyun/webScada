@@ -11,7 +11,10 @@ const auth = useAuthStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
-const form = reactive({ username: 'admin', password: '' })
+// 不预填用户名：避免向访客暴露有效账号名（admin 为默认管理员）
+const form = reactive({ username: '', password: '' })
+/** 构建期注入的版本号（vite define __APP_VERSION__，取 package.json） */
+const version = __APP_VERSION__
 
 const rules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -120,7 +123,7 @@ async function onSubmit(): Promise<void> {
 
     <footer class="login-foot">
       <span>webScada 组态监控平台</span>
-      <span class="foot-ver">v0.1</span>
+      <span class="foot-ver">v{{ version }}</span>
       <ThemePicker />
     </footer>
   </div>

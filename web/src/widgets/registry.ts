@@ -10,8 +10,11 @@ import {
   CollectionTag,
   Compass,
   DataAnalysis,
+  Document,
   DataLine,
   EditPen,
+  Files,
+  Grid,
   Histogram,
   Monitor,
   Odometer,
@@ -86,9 +89,7 @@ export interface WidgetMeta {
   type: WidgetType
   /** 组件面板显示名 */
   name: string
-  /** iconfont 图标类名（编辑器面板/图层列表共用，参照 visual-drag-demo）；图表类无对应图标时用 epIcon */
-  icon?: string
-  /** Element Plus 图标组件（iconfont 无对应时的兜底，注册时 markRaw） */
+  /** Element Plus 图标组件（注册时 markRaw）；缺省时面板/图层渲染组件本体缩略图 */
   epIcon?: Component
   category: 'basic' | 'chart' | 'device'
   /** 新建默认尺寸（设计 px） */
@@ -111,7 +112,7 @@ function register(meta: WidgetMeta): void {
 register({
   type: 'text',
   name: '文本',
-  icon: 'wenben',
+  epIcon: markRaw(Document),
   category: 'basic',
   defaultSize: { w: 240, h: 48 },
   defaultProps: () => ({ text: '文本内容', ellipsis: true }),
@@ -125,7 +126,6 @@ register({
 register({
   type: 'rect',
   name: '矩形',
-  icon: 'juxing',
   category: 'basic',
   defaultSize: { w: 200, h: 120 },
   defaultProps: () => ({}),
@@ -136,7 +136,6 @@ register({
 register({
   type: 'circle',
   name: '圆形',
-  icon: '24gl-circle',
   category: 'basic',
   defaultSize: { w: 120, h: 120 },
   defaultProps: () => ({}),
@@ -147,7 +146,6 @@ register({
 register({
   type: 'line',
   name: '直线',
-  icon: 'zhixian',
   category: 'basic',
   defaultSize: { w: 200, h: 2 },
   defaultProps: () => ({}),
@@ -158,7 +156,6 @@ register({
 register({
   type: 'button',
   name: '按钮',
-  icon: 'button',
   category: 'basic',
   defaultSize: { w: 120, h: 40 },
   defaultProps: () => ({ text: '按钮' }),
@@ -169,7 +166,7 @@ register({
 register({
   type: 'image',
   name: '图片',
-  icon: 'tupian',
+  epIcon: markRaw(Picture),
   category: 'basic',
   defaultSize: { w: 320, h: 200 },
   defaultProps: () => ({ src: '', fit: 'contain' }),
@@ -193,7 +190,7 @@ register({
 register({
   type: 'table',
   name: '表格',
-  icon: 'biaoge',
+  epIcon: markRaw(Grid),
   category: 'basic',
   defaultSize: { w: 480, h: 260 },
   defaultProps: () => ({ data: '[["参数", "当前值", "单位"], ["出口温度", "86.5", "℃"], ["进口压力", "0.42", "MPa"]]' }),
@@ -206,7 +203,7 @@ register({
 register({
   type: 'carousel',
   name: '轮播',
-  epIcon: markRaw(Picture),
+  epIcon: markRaw(Files),
   category: 'basic',
   defaultSize: { w: 360, h: 240 },
   defaultProps: () => ({ urls: '', intervalSec: 5 }),

@@ -6,6 +6,7 @@
  * 柄尺寸按 1/zoom 缩放保持屏幕视觉恒定。
  */
 import { computed } from 'vue'
+import { RefreshRight } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { nodesBBox } from '@/utils/coord'
 import type { ResizeDir } from './types'
@@ -57,13 +58,13 @@ function handlePos(dir: ResizeDir) {
   <div v-if="primary" class="selection-layer">
     <!-- 主选中框（轴对齐） -->
     <div class="sel-box" :style="{ left: `${primary.x}px`, top: `${primary.y}px`, width: `${primary.w}px`, height: `${primary.h}px` }">
-      <!-- 旋转柄（顶部上方，参照 Shape.vue icon-xiangyouxuanzhuan） -->
-      <span
-        class="iconfont icon-xiangyouxuanzhuan rotate-handle"
+      <!-- 旋转柄（顶部上方） -->
+      <el-icon
+        class="rotate-handle"
         :style="{ top: `${rotateOffset}px`, fontSize: `${20 / editor.zoom}px` }"
         title="拖动旋转（近 15° 倍数自动吸附）"
         @pointerdown.stop="emit('rotate-start', $event)"
-      ></span>
+      ><RefreshRight /></el-icon>
       <!-- 8 向缩放柄 -->
       <div
         v-for="dir in DIRS"

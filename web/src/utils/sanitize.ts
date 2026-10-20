@@ -1,7 +1,7 @@
 /**
  * 导出凭证脱敏（前端二次保险，G6）。
  * 服务端导出端点已统一脱敏；此处再过一遍，保证落盘文件绝不包含凭证
- * （与 server/app/utils/sanitize.py 同一契约）。
+ * （与 server/app/utils/sanitize.py 同一契约；缩略图一并剔除）。
  */
 import type { ProjectDoc } from '@/types/doc'
 
@@ -22,6 +22,11 @@ export function sanitizeDocForExport(doc: ProjectDoc): ProjectDoc {
         }
       }
     }
+  }
+  // 台账缩略图为展示缓存（编辑器保存时自动重建），导出文件不携带
+  if (cloned.project && 'thumbnail' in cloned.project) {
+    const { thumbnail: _omit, ...rest } = cloned.project
+    cloned.project = rest
   }
   return cloned
 }

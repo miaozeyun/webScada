@@ -10,7 +10,7 @@ import { Plus } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { newId } from '@/utils/nanoid'
 import { VIRTUAL_DATASOURCE_ID } from '@/types/doc'
-import { testConnection } from '@/runtime/sources'
+import { testDatasource } from '@/api/datasources'
 import type {
   AlarmLevel,
   AlarmOp,
@@ -34,7 +34,7 @@ function markDirty(): void {
   editor._markDirty()
 }
 
-const TYPE_LABEL: Record<string, string> = { mock: '模拟', websocket: 'WebSocket', rest: 'REST', mqtt: 'MQTT' }
+const TYPE_LABEL: Record<string, string> = { mock: '模拟', websocket: 'WebSocket', rest: 'REST', mqtt: 'MQTT', modbus: 'Modbus TCP' }
 
 // ================= 数据源 =================
 
@@ -53,6 +53,9 @@ const dsForm = reactive({
   writeBodyTemplate: '',
   writeFrameTemplate: '',
   writeQos: 0 as 0 | 1,
+  // Modbus TCP（M8）：host 复用 url 字段
+  mbPort: 502,
+  mbUnitId: 1,
 })
 
 function openDs(ds?: DataSource): void {
@@ -62,16 +65,45 @@ function openDs(ds?: DataSource): void {
     dsForm.name = ds.name
     dsForm.type = ds.type
     dsForm.enabled = ds.enabled !== false
-    dsForm.url = ds.type === 'mqtt' ? ds.config.brokerUrl : ds.type === 'rest' ? ds.config.url : ds.type === 'websocket' ? ds.config.url : ''
+    dsForm.url = ds.type === 'mqtt' ? ds.config.brokerUrl : ds.type === 'modbus' ? ds.config.host : ds.type === 'rest' || ds.type === 'websocket' ? ds.config.url : ''
     dsForm.topics = ds.type === 'mqtt' ? (ds.config.topics ?? []).join(', ') : ''
-    dsForm.intervalMs = ds.type === 'rest' ? ds.config.intervalMs : 1000
+    dsForm.intervalMs = (ds.type === 'rest' || ds.type === 'modbus') ? (ds.config.intervalMs ?? 1000) : 1000
     dsForm.writeUrl = ds.type === 'rest' ? (ds.config.writeUrl ?? '') : ''
     dsForm.writeMethod = ds.type === 'rest' ? (ds.config.writeMethod ?? 'POST') : 'POST'
     dsForm.writeBodyTemplate = ds.type === 'rest' ? (ds.config.writeBodyTemplate ?? '') : ''
     dsForm.writeFrameTemplate = ds.type === 'websocket' ? (ds.config.writeFrameTemplate ?? '') : ''
     dsForm.writeQos = ds.type === 'mqtt' ? (ds.config.writeQos ?? 0) : 0
+    if (ds.type === 'modbus') {
+      dsForm.mbPort = ds.config.port ?? 502
+      dsForm.mbUnitId = ds.config.unitId ?? 1
+    }
   } else {
-    Object.assign(dsForm, { id: '', name: '', type: 'mock', enabled: true, url: '', topics: '', intervalMs: 1000, writeUrl: '', writeMethod: 'POST' as const, writeBodyTemplate: '', writeFrameTemplate: '', writeQos: 0 as const })
+    Object.assign(dsForm, { id: '', name: '', type: 'mock', enabled: true, url: '', topics: '', intervalMs: 1000, writeUrl: '', writeMethod: 'POST' as const, writeBodyTemplate: '', writeFrameTemplate: '', writeQos: 0 as const, mbPort: 502, mbUnitId: 1 })
+  }
+}
+
+// 表单当前值 → 数据源 config（saveDs 与连接测试共用，保证测的就是将保存的）
+function buildConfig(): DataSource['config'] {
+  switch (dsForm.type) {
+    case 'websocket':
+      return { url: dsForm.url, writeFrameTemplate: dsForm.writeFrameTemplate || null }
+    case 'rest':
+      return {
+        url: dsForm.url,
+        intervalMs: dsForm.intervalMs,
+        writeUrl: dsForm.writeUrl || null,
+        writeMethod: dsForm.writeUrl ? dsForm.writeMethod : null,
+        writeBodyTemplate: dsForm.writeBodyTemplate || null,
+      }
+    case 'mqtt':
+      return {
+        brokerUrl: dsForm.url,
+        topics: dsForm.topics.split(/[,\n]/).map((s) => s.trim()).filter(Boolean),
+        writeQos: dsForm.writeQos,
+        password: '',
+      }
+    default:
+      return {}
   }
 }
 
@@ -81,29 +113,6 @@ function saveDs(): void {
     return
   }
   const doc = editor.doc!
-  const buildConfig = (): DataSource['config'] => {
-    switch (dsForm.type) {
-      case 'websocket':
-        return { url: dsForm.url, writeFrameTemplate: dsForm.writeFrameTemplate || null }
-      case 'rest':
-        return {
-          url: dsForm.url,
-          intervalMs: dsForm.intervalMs,
-          writeUrl: dsForm.writeUrl || null,
-          writeMethod: dsForm.writeUrl ? dsForm.writeMethod : null,
-          writeBodyTemplate: dsForm.writeBodyTemplate || null,
-        }
-      case 'mqtt':
-        return {
-          brokerUrl: dsForm.url,
-          topics: dsForm.topics.split(/[,\n]/).map((s) => s.trim()).filter(Boolean),
-          writeQos: dsForm.writeQos,
-          password: '',
-        }
-      default:
-        return {}
-    }
-  }
   if (dsForm.id) {
     const idx = doc.datasources.findIndex((d) => d.id === dsForm.id)
     doc.datasources[idx] = { id: dsForm.id, name: dsForm.name.trim(), type: dsForm.type, enabled: dsForm.enabled, config: buildConfig() } as DataSource
@@ -114,20 +123,34 @@ function saveDs(): void {
   markDirty()
 }
 
-// M7：连接测试（数据源表单内/列表行）
+// M8：连接测试统一走服务端 /datasources/test（浏览器直连受 CORS 限制且库内凭证已脱敏）；
+// 表单草稿用本次明文 config；已保存数据源传 projectId+datasourceId 由服务端注回凭证
 const testing = ref(false)
 
 async function doTest(): Promise<void> {
-  const draft = { id: 'test', name: 'test', type: dsForm.type, enabled: true, config: { brokerUrl: dsForm.url, url: dsForm.url, topics: dsForm.topics.split(/[,\n]/).map((s) => s.trim()).filter(Boolean), intervalMs: dsForm.intervalMs } } as unknown as DataSource
   testing.value = true
-  const r = await testConnection(draft)
-  testing.value = false
-  ElMessage({ type: r.ok ? 'success' : 'error', message: r.message })
+  try {
+    const r = await testDatasource({ type: dsForm.type, config: buildConfig() as Record<string, unknown> })
+    ElMessage({ type: r.ok ? 'success' : 'error', message: r.ok ? `${r.message}（${r.latencyMs}ms）` : r.message })
+  } catch {
+    /* 错误信封已由 http 拦截器提示 */
+  } finally {
+    testing.value = false
+  }
 }
 
 async function doTestRow(ds: DataSource): Promise<void> {
-  const r = await testConnection(ds)
-  ElMessage({ type: r.ok ? 'success' : 'error', message: r.message })
+  try {
+    const r = await testDatasource({
+      type: ds.type,
+      config: ds.config as Record<string, unknown>,
+      projectId: editor.doc?.project.id,
+      datasourceId: ds.id,
+    })
+    ElMessage({ type: r.ok ? 'success' : 'error', message: r.ok ? `${r.message}（${r.latencyMs}ms）` : r.message })
+  } catch {
+    /* 错误信封已由 http 拦截器提示 */
+  }
 }
 
 async function removeDs(ds: DataSource): Promise<void> {
@@ -449,11 +472,25 @@ async function removeAlm(r: AlarmRule): Promise<void> {
             <el-option label="WebSocket" value="websocket" />
             <el-option label="REST 轮询" value="rest" />
             <el-option label="MQTT over WS" value="mqtt" />
+            <el-option label="Modbus TCP" value="modbus" />
           </el-select>
         </el-form-item>
         <template v-if="dsForm.type !== 'mock'">
-          <el-form-item :label="dsForm.type === 'mqtt' ? 'Broker 地址' : 'URL'" required>
-            <el-input v-model="dsForm.url" :placeholder="dsForm.type === 'mqtt' ? 'ws://localhost:8083/mqtt' : 'https://…'" />
+          <el-form-item :label="dsForm.type === 'mqtt' ? 'Broker 地址' : dsForm.type === 'modbus' ? 'PLC/网关 IP' : 'URL'" required>
+            <el-input v-model="dsForm.url" :placeholder="dsForm.type === 'mqtt' ? 'ws://localhost:8083/mqtt' : dsForm.type === 'modbus' ? '192.168.1.10' : 'https://…'" />
+          </el-form-item>
+        </template>
+        <template v-if="dsForm.type === 'modbus'">
+          <el-form-item label="端口">
+            <el-input-number v-model="dsForm.mbPort" :min="1" :max="65535" :step="1" />
+          </el-form-item>
+          <el-form-item label="UnitId">
+            <el-input-number v-model="dsForm.mbUnitId" :min="0" :max="255" :step="1" />
+          </el-form-item>
+          <el-form-item label="轮询间隔">
+            <el-select v-model="dsForm.intervalMs">
+              <el-option v-for="ms in [500, 1000, 2000, 5000]" :key="ms" :label="`${ms} ms`" :value="ms" />
+            </el-select>
           </el-form-item>
         </template>
         <el-form-item v-if="dsForm.type === 'mqtt'" label="订阅 Topic">

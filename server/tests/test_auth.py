@@ -32,7 +32,7 @@ async def test_me_ok(client, auth_headers):
     assert resp.status_code == 200
     body = resp.json()
     assert body["username"] == "admin"
-    assert "role" not in body  # P0 无角色概念（users 表无 role 列，G10）
+    assert body["role"] == "admin"  # M8：me 返回角色（契约 §4.3；存量用户经 0002 迁移全量 admin）
 
 
 async def test_me_without_token_401(client):

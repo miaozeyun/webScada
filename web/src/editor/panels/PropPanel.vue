@@ -53,6 +53,35 @@ function setRect(key: 'x' | 'y' | 'w' | 'h' | 'rotate' | 'z' | 'opacity', value:
   editor.updateNode(node.value.id, { [key]: value }, `rect:${node.value.id}:${key}`)
 }
 
+// ---- 多选批量编辑（updateNodes/updateNodesStyle：单条 undo 覆盖全部选中项） ----
+
+type BatchRectKey = 'x' | 'y' | 'w' | 'h' | 'rotate' | 'opacity'
+const batchRect = reactive<Record<BatchRectKey, number | undefined>>({ x: undefined, y: undefined, w: undefined, h: undefined, rotate: undefined, opacity: undefined })
+const multiSections = ref(['m-geometry', 'm-display'])
+
+/** 全部选中项的公共布尔态（混合态按 false 口径显示，点击即整体设定） */
+const allVisible = computed(() => editor.selectedNodes.length > 0 && editor.selectedNodes.every((n) => n.visible !== false))
+const allLocked = computed(() => editor.selectedNodes.length > 0 && editor.selectedNodes.every((n) => n.locked === true))
+
+function setBatchRect(key: BatchRectKey, value: number | undefined): void {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    batchRect[key] = undefined
+    return
+  }
+  batchRect[key] = value
+  editor.updateNodes({ [key]: value }, `mrect:${key}`)
+}
+
+const MULTI_TEXT_ALIGN = [
+  { label: '左对齐', value: 'left' },
+  { label: '居中', value: 'center' },
+  { label: '右对齐', value: 'right' },
+]
+
+function setBatchStyle(key: StyleKey, value: unknown): void {
+  editor.updateNodesStyle(key, value === '' || value === null ? undefined : value)
+}
+
 function getProp(item: PropSchemaItem): unknown {
   const v = node.value?.props[item.key]
   return v === undefined ? item.defaultValue : v
@@ -288,10 +317,73 @@ function removeEvent(evId: string, actIdx: number): void {
       </div>
     </template>
 
-    <!-- 多选 -->
+    <!-- 多选：批量编辑公共属性（单条 undo 覆盖全部选中项） -->
     <div v-else-if="multi" class="attr-body">
       <p class="attr-title">多选（{{ editor.selectedNodes.length }} 项）</p>
-      <div class="hint">可整体拖动 / 删除 / 成组；属性面板仅支持单选编辑。</div>
+      <div class="hint">以下修改应用到全部选中项；整体拖动 / 删除 / 成组照常可用。</div>
+      <el-collapse v-model="multiSections">
+        <el-collapse-item title="几何（同值覆盖）" name="m-geometry">
+          <div class="grid-2">
+            <div class="field">
+              <span>X</span>
+              <el-input-number :model-value="batchRect.x" :step="1" size="small" controls-position="right" placeholder="—" @change="(v?: number) => setBatchRect('x', v)" />
+            </div>
+            <div class="field">
+              <span>Y</span>
+              <el-input-number :model-value="batchRect.y" :step="1" size="small" controls-position="right" placeholder="—" @change="(v?: number) => setBatchRect('y', v)" />
+            </div>
+            <div class="field">
+              <span>宽</span>
+              <el-input-number :model-value="batchRect.w" :min="1" size="small" controls-position="right" placeholder="—" @change="(v?: number) => setBatchRect('w', v)" />
+            </div>
+            <div class="field">
+              <span>高</span>
+              <el-input-number :model-value="batchRect.h" :min="1" size="small" controls-position="right" placeholder="—" @change="(v?: number) => setBatchRect('h', v)" />
+            </div>
+            <div class="field">
+              <span>角度</span>
+              <el-input-number :model-value="batchRect.rotate" :min="0" :max="359" :step="1" size="small" controls-position="right" placeholder="—" @change="(v?: number) => setBatchRect('rotate', v)" />
+            </div>
+            <div class="field">
+              <span>透明度</span>
+              <el-input-number :model-value="batchRect.opacity" :min="0.05" :max="1" :step="0.05" size="small" controls-position="right" placeholder="—" @change="(v?: number) => setBatchRect('opacity', v)" />
+            </div>
+          </div>
+          <p class="hint" style="margin: 6px 0 0">输入后回车即把该值设置到每个选中项（对齐/分布请用顶部工具栏）。</p>
+        </el-collapse-item>
+
+        <el-collapse-item title="显示" name="m-display">
+          <div class="switch-row">
+            <span>全部显示</span>
+            <el-switch :model-value="allVisible" @change="(v: boolean) => editor.updateNodes({ visible: v }, 'mvis')" />
+          </div>
+          <div class="switch-row">
+            <span>全部锁定</span>
+            <el-switch :model-value="allLocked" @change="(v: boolean) => editor.updateNodes({ locked: v }, 'mlock')" />
+          </div>
+        </el-collapse-item>
+
+        <el-collapse-item title="样式（同值覆盖）" name="m-style">
+          <el-form label-position="left" label-width="60px" size="small">
+            <el-form-item label="文字色">
+              <el-color-picker :model-value="(editor.primarySelected?.style as Record<string, unknown> | undefined)?.color as string" show-alpha @change="(v: string | null) => setBatchStyle('color', v)" />
+            </el-form-item>
+            <el-form-item label="填充">
+              <el-color-picker :model-value="(editor.primarySelected?.style as Record<string, unknown> | undefined)?.fill as string" show-alpha @change="(v: string | null) => setBatchStyle('fill', v)" />
+            </el-form-item>
+            <el-form-item label="字号">
+              <el-input-number :model-value="(editor.primarySelected?.style as Record<string, unknown> | undefined)?.fontSize as number" :min="8" :max="200" :step="1" size="small" @change="(v?: number) => v !== undefined && setBatchStyle('fontSize', v)" />
+            </el-form-item>
+            <el-form-item label="对齐">
+              <el-select :model-value="(editor.primarySelected?.style as Record<string, unknown> | undefined)?.textAlign as string" placeholder="不修改" clearable size="small" @change="(v: string) => setBatchStyle('textAlign', v)">
+                <el-option v-for="o in MULTI_TEXT_ALIGN" :key="o.value" :label="o.label" :value="o.value" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+          <p class="hint" style="margin: 0">颜色取主选中项当前值作参考，确认后应用到全部。</p>
+        </el-collapse-item>
+      </el-collapse>
+
       <el-button size="small" style="margin-top: 8px" @click="editor.groupSelection()">合并成组</el-button>
     </div>
 

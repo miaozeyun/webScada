@@ -1,4 +1,4 @@
-/** 编辑器快捷键：删除/撤销/重做/方向键微调/空格平移/Esc。输入控件聚焦时忽略。 */
+/** 编辑器快捷键：删除/撤销/重做/方向键微调/空格平移/Esc/Ctrl+A 全选。输入控件聚焦时忽略。 */
 import type { useEditorStore } from '@/stores/editor'
 
 type EditorStore = ReturnType<typeof useEditorStore>
@@ -41,9 +41,14 @@ export function installKeyboard(store: EditorStore): () => void {
       store.closeContextMenu()
       return
     }
-    // 复制/剪切/粘贴/直接复制/组合/拆分（快捷键集合参照 visual-drag-demo）
+    // 复制/剪切/粘贴/直接复制/组合/拆分/全选（快捷键集合参照 visual-drag-demo）
     if (mod) {
       const k = e.key.toLowerCase()
+      if (k === 'a') {
+        e.preventDefault()
+        store.select(store.topLevelNodes.map((n) => n.id))
+        return
+      }
       if (k === 'c') {
         e.preventDefault()
         store.copySelection()

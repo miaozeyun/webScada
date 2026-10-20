@@ -171,6 +171,23 @@ body {
   letter-spacing: 0.02em;
 }
 
+/* 加载指示：信号色读数环（编辑器载入 / 分享页加载共用；reduced-motion 下放慢而非停止） */
+.ws-spinner {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--ws-steel-3);
+  border-top-color: var(--ws-signal);
+  border-radius: 50%;
+  animation: wsSpin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
 /* 键盘可访问：统一可见焦点（文本输入沿用 Element 自身的聚焦边框，避免双重描边） */
 button:focus-visible,
 a:focus-visible,

@@ -1,5 +1,7 @@
-# webScada P0 部署编排：nginx(前端+反代) / server(FastAPI) / postgres / emqx
+# webScada 部署编排：nginx(前端+反代) / server(FastAPI) / postgres / emqx
+#   + 两个一次性 init 服务（tls-init 证书补齐、emqx-authn-init MQTT 账号注入，均 exit 0 后不驻留）
 # 设计依据：docs/design/01-整体架构与目录结构.md §2.2 部署拓扑
+# 商用评审止血项：EMQX 禁匿名（blocker #4）、全站 TLS（blocker #4）、备份恢复脚本见 scripts/
 name: webscada
 
 services:
@@ -22,9 +24,25 @@ services:
   emqx:
     # Docker tag 固定为当期稳定版本（不支持通配 tag）
     image: emqx/emqx:5.8.6
-    # 8083 = MQTT over WebSocket（M3：浏览器 mqtt 数据源直连入口）
+    environment:
+      # 禁止匿名 MQTT 连接（映射 mqtt.allow_anonymous；EMQX_ 前缀 + 双下划线层级）。
+      # 写死 false（fail-closed）：EMQX 收口是商用评审 blocker #4，不提供环境变量旁路
+      EMQX_MQTT__ALLOW_ANONYMOUS: "false"
+      # 18083 管理台初始账号（仅首次初始化数据目录时生效；之后改密须进管理台操作）。
+      # 默认值与 .env.example 同口径，生产环境务必在 .env 中覆盖
+      EMQX_DASHBOARD__DEFAULT_USERNAME: ${EMQX_DASHBOARD_USER:-admin}
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:-public12345}
+      # MQTT 客户端默认账号：由 emqx-authn-init 写入内置鉴权数据库，
+      # 供浏览器 mqtt 数据源与（改造中的）服务端采集引擎共用；生产环境务必覆盖
+      EMQX_DEFAULT_USERNAME: ${EMQX_DEFAULT_USERNAME:-webscada_mqtt}
+      EMQX_DEFAULT_PASSWORD: ${EMQX_DEFAULT_PASSWORD:-webscada_mqtt123}
     ports:
-      - "8083:8083"
+      # 8083 = MQTT over WebSocket（M3：浏览器 mqtt 数据源直连入口）。
+      # 商用评审 blocker #4：仅绑定宿主机回环，不对局域网暴露；服务端采集闭环完成后可整体移除
+      - "127.0.0.1:8083:8083"
+      # 18083 = EMQX 管理台，仅保留本机访问（首次配置见 README「EMQX 首次配置」）
+      - "127.0.0.1:18083:18083"
+      # 1883 不对宿主机发布：server 容器经内部网络直连 emqx:1883
     volumes:
       - emqx_data:/opt/emqx/data
       - emqx_log:/opt/emqx/log
@@ -34,6 +52,101 @@ services:
       timeout: 5s
       retries: 12
     restart: always
+
+  emqx-authn-init:
+    # 一次性：向 EMQX 内置鉴权数据库写入默认 MQTT 账号（幂等，已存在即成功）。
+    # EMQX 5.x 不支持用环境变量直接创建 MQTT 客户端凭证，只能经 Management API 落库
+    image: curlimages/curl:8.10.1
+    depends_on:
+      emqx:
+        condition: service_healthy
+    environment:
+      EMQX_DASHBOARD_USER: ${EMQX_DASHBOARD_USER:-admin}
+      EMQX_DASHBOARD_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:-public12345}
+      EMQX_DEFAULT_USERNAME: ${EMQX_DEFAULT_USERNAME:-webscada_mqtt}
+      EMQX_DEFAULT_PASSWORD: ${EMQX_DEFAULT_PASSWORD:-webscada_mqtt123}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        BASE="http://emqx:18083/api/v5"
+        # EMQX 5.x Management API 的 basic auth 走 API Key（非 dashboard 用户）；
+        # dashboard 用户只能 POST /login 换 JWT，之后以 Bearer 调用
+        i=1
+        while [ "$$i" -le 5 ]; do
+          TOKEN=$$(curl -s -X POST "$$BASE/login" -H 'content-type: application/json' \
+            -d "{\"username\":\"$$EMQX_DASHBOARD_USER\",\"password\":\"$$EMQX_DASHBOARD_PASSWORD\"}" \
+            | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+          if [ -z "$$TOKEN" ]; then
+            echo "[emqx-authn-init] 重试 $$i/5（login 失败：管理台用户名/密码不符）"
+            sleep 3; i=$$((i + 1)); continue
+          fi
+          # 1) 确保存在用户名/密码内置数据库鉴权器（5.8 起必填 password_hash_algorithm）；
+          #    2) 写入默认账号（is_superuser 便于全局采集）。URL 中冒号须编码 %3A
+          # 约定：200/201=创建成功；400/409=已存在（幂等目标达成）；其余视为未就绪重试
+          c1=$$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $$TOKEN" \
+            -H 'content-type: application/json' -X POST "$$BASE/authentication" \
+            -d '{"mechanism":"password_based","backend":"built_in_database","user_id_type":"username","password_hash_algorithm":{"name":"sha256","salt_position":"suffix"}}')
+          c2=$$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $$TOKEN" \
+            -H 'content-type: application/json' -X POST "$$BASE/authentication/password_based%3Abuilt_in_database/users" \
+            -d "{\"user_id\":\"$$EMQX_DEFAULT_USERNAME\",\"password\":\"$$EMQX_DEFAULT_PASSWORD\",\"is_superuser\":true}")
+          case "$$c1" in 200|201|400|409) a=1 ;; *) a=0 ;; esac
+          case "$$c2" in 200|201|400|409) b=1 ;; *) b=0 ;; esac
+          if [ "$$a" -eq 1 ] && [ "$$b" -eq 1 ]; then
+            echo "[emqx-authn-init] OK (authenticator=$$c1 user=$$c2)"; exit 0
+          fi
+          echo "[emqx-authn-init] 重试 $$i/5（authenticator=$$c1 user=$$c2；401 多为管理台密码不符）"
+          sleep 3; i=$$((i + 1))
+        done
+        echo "[emqx-authn-init] FAILED：请核对 EMQX_DASHBOARD_USER/PASSWORD 与 EMQX_DEFAULT_USERNAME/PASSWORD" >&2
+        exit 1
+    restart: "no"
+
+  tls-init:
+    # 一次性：./deploy/certs 缺自签证书时自动生成（已存在则跳过），避免 nginx 因缺证书起不来。
+    # 生产环境：用企业 CA / Let's Encrypt 证书同名替换后重启 nginx 即可
+    build:
+      context: ./server
+    entrypoint: ["python", "-c"]
+    command:
+      - |
+        import datetime, ipaddress, os
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        d = "/certs"; crt = os.path.join(d, "selfsigned.crt"); key = os.path.join(d, "selfsigned.key")
+        if os.path.exists(crt) and os.path.exists(key):
+            print("[tls-init] 证书已存在，跳过"); raise SystemExit(0)
+        k = ec.generate_private_key(ec.SECP256R1())
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "webscada.local")])
+        san = x509.SubjectAlternativeName([
+            x509.DNSName("localhost"), x509.DNSName("webscada.local"),
+            x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+        ])
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+                .public_key(k.public_key()).serial_number(x509.random_serial_number())
+                .not_valid_before(now).not_valid_after(now + datetime.timedelta(days=825))
+                .add_extension(san, critical=False)
+                .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+                .sign(k, hashes.SHA256()))
+        os.makedirs(d, exist_ok=True)
+        with open(crt, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+        with open(key, "wb") as f:
+            f.write(k.private_bytes(serialization.Encoding.PEM,
+                                    serialization.PrivateFormat.PKCS8,
+                                    serialization.NoEncryption()))
+        try:
+            os.chmod(key, 0o600)
+        except OSError:
+            pass  # Windows 绑定挂载不支持 chmod，忽略
+        print("[tls-init] 自签证书已生成（825 天；SAN: localhost/webscada.local/127.0.0.1）")
+    volumes:
+      # 证书目录与 nginx 共享；该目录含私钥，严禁提交 Git（.gitignore 建议补 deploy/certs/）
+      - ./deploy/certs:/certs
+    restart: "no"
 
   server:
     build:
@@ -50,6 +163,31 @@ services:
       LOGIN_LOCKOUT_SECONDS: ${LOGIN_LOCKOUT_SECONDS:-60}
       ALARM_RETENTION_DAYS: ${ALARM_RETENTION_DAYS:-30}
       ALARM_MAX_ROWS_PER_PROJECT: ${ALARM_MAX_ROWS_PER_PROJECT:-200000}
+      # ---- M8 服务端闭环新增（与 .env.example 同口径；缺省用默认值）----
+      CURRENT_SCHEMA_VERSION: ${CURRENT_SCHEMA_VERSION:-1}
+      SCHEMA_COMPAT_WINDOW: ${SCHEMA_COMPAT_WINDOW:-1}
+      COLLECTOR_RECONNECT_MIN_MS: ${COLLECTOR_RECONNECT_MIN_MS:-1000}
+      COLLECTOR_RECONNECT_MAX_MS: ${COLLECTOR_RECONNECT_MAX_MS:-30000}
+      COLLECTOR_CONNECT_TIMEOUT_MS: ${COLLECTOR_CONNECT_TIMEOUT_MS:-5000}
+      WS_FRAME_COALESCE_MS: ${WS_FRAME_COALESCE_MS:-100}
+      HISTORY_RETENTION_DAYS: ${HISTORY_RETENTION_DAYS:-30}
+      HISTORY_SAMPLE_INTERVAL_MS: ${HISTORY_SAMPLE_INTERVAL_MS:-5000}
+      HISTORY_WRITE_BATCH: ${HISTORY_WRITE_BATCH:-500}
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+      NOTIFY_WEBHOOK_TIMEOUT_MS: ${NOTIFY_WEBHOOK_TIMEOUT_MS:-5000}
+      NOTIFY_SMTP_HOST: ${NOTIFY_SMTP_HOST:-}
+      NOTIFY_SMTP_PORT: ${NOTIFY_SMTP_PORT:-465}
+      NOTIFY_SMTP_USERNAME: ${NOTIFY_SMTP_USERNAME:-}
+      NOTIFY_SMTP_PASSWORD: ${NOTIFY_SMTP_PASSWORD:-}
+      NOTIFY_SMTP_FROM: ${NOTIFY_SMTP_FROM:-}
+      NOTIFY_SMTP_USE_TLS: ${NOTIFY_SMTP_USE_TLS:-true}
+      ALARM_NOTIFY_MIN_LEVEL: ${ALARM_NOTIFY_MIN_LEVEL:-warn}
+      ALARM_NOTIFY_THROTTLE_SEC: ${ALARM_NOTIFY_THROTTLE_SEC:-300}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      REST_LOGIN_PER_MIN: ${REST_LOGIN_PER_MIN:-10}
+      REST_DATASOURCE_TEST_PER_MIN: ${REST_DATASOURCE_TEST_PER_MIN:-12}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       SHARE_MAX_WS_PER_TOKEN: ${SHARE_MAX_WS_PER_TOKEN:-20}
       JWT_WS_MAX_PER_USER_PROJECT: ${JWT_WS_MAX_PER_USER_PROJECT:-10}
       RATE_LIMIT_CONNECT_PER_MIN: ${RATE_LIMIT_CONNECT_PER_MIN:-30}
@@ -72,10 +210,19 @@ services:
       context: .
       dockerfile: web/Dockerfile
     ports:
+      # 80 保留（存量内网部署平滑期），升级指引见 deploy/nginx/nginx.conf 80 块头注释
       - "${HTTP_PORT:-80}:80"
+      # 443 = TLS 入口（证书挂载 ./deploy/certs；自签生成见 scripts/gen-selfsigned-cert.sh）
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      # 配置以挂载方式覆盖镜像内置副本：改 conf 后 docker compose restart nginx 即生效，无需重建镜像
+      - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
     depends_on:
       server:
         condition: service_healthy
+      tls-init:
+        condition: service_completed_successfully
     restart: always
 
 volumes:

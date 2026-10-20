@@ -135,10 +135,6 @@ function onClick(type: string): void {
   color: var(--ws-signal);
 }
 
-.iconfont {
-  font-size: 18px;
-}
-
 .label {
   font-size: 11.5px;
   white-space: nowrap;

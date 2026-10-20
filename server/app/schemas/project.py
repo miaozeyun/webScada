@@ -35,12 +35,13 @@ class ProjectOut(BaseModel):
 
 
 class ProjectListItem(BaseModel):
-    """列表项（不含 doc，03-接口清单 §2.3）。"""
+    """列表项（不含 doc，03-接口清单 §2.3）；thumbnail 为首页缩略图（卡片视图）。"""
     id: str
     name: str
     description: str | None
     revision: int
     updatedAt: datetime
+    thumbnail: str | None = None
 
 
 class ProjectListOut(BaseModel):

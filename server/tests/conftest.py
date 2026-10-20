@@ -27,7 +27,13 @@ from app.core.security import hash_password  # noqa: E402
 from app.db import models  # noqa: E402,F401  # 注册全部模型
 from app.db.base import Base, get_db  # noqa: E402
 from app.db.models import User  # noqa: E402
-from app.main import app  # noqa: E402
+
+# M8 集成中间态（契约 §8）：六包未合齐时 app.main 顶部 import 缺模块、服务不可启动——预期状态。
+# 此处降级为 app=None，各包自有测试用 mini FastAPI app 不受影响；集成门禁合齐后恢复全量装配。
+try:
+    from app.main import app  # noqa: E402
+except Exception:  # noqa: BLE001
+    app = None
 
 # 当前测试的会话工厂（由 db_env fixture 每测试重建，供 admin_user 与测试直接访库）
 _CTX: dict = {}
@@ -44,10 +50,12 @@ def _new_engine():
 @pytest.fixture(autouse=True)
 async def db_env():
     """每测试：新引擎 + 建表 + 覆盖 get_db；结束后销毁。"""
-    # 清空进程内安全状态（登录锁定/jti 黑名单为模块级内存，跨测试必须重置）
+    # 清空进程内安全状态（登录锁定/jti 黑名单/限流计数为模块级内存，跨测试必须重置）
     from app.core import security
     security._login_state.clear()
     security._revoked.clear()
+    from app.core import rate_limit
+    rate_limit.reset_for_tests()
 
     engine = _new_engine()
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -56,7 +64,8 @@ async def db_env():
         async with factory() as session:
             yield session
 
-    app.dependency_overrides[get_db] = _override_get_db
+    if app is not None:  # 中间态 app.main 未合齐时跳过（各包 mini app 自行装配）
+        app.dependency_overrides[get_db] = _override_get_db
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -66,7 +75,8 @@ async def db_env():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
-    app.dependency_overrides.pop(get_db, None)
+    if app is not None:
+        app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.fixture

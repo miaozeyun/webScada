@@ -6,6 +6,7 @@
  * 双击文本组件 → 行内编辑（contenteditable，blur/Enter 提交；模式参照 visual-drag-demo）。
  */
 import { computed, nextTick, ref } from 'vue'
+import { Lock } from '@element-plus/icons-vue'
 import type { ComponentNode } from '@/types/doc'
 import { useEditorStore } from '@/stores/editor'
 import { animationOf } from '@/utils/animation'
@@ -106,8 +107,8 @@ function onEditKeydown(e: KeyboardEvent): void {
     >
       {{ node.props.text }}
     </div>
-    <!-- 锁定标识（参照 Shape.vue icon-suo） -->
-    <span v-if="isLocked" class="iconfont icon-suo lock-badge" title="已锁定（可选中，不可拖动）"></span>
+    <!-- 锁定标识 -->
+    <el-icon v-if="isLocked" class="lock-badge" :size="12" title="已锁定（可选中，不可拖动）"><Lock /></el-icon>
     <template v-if="node.type === 'group' && node.children">
       <!-- 子组件的按下事件一律上报顶层祖先（M1 约定：选择/拖拽只作用于顶层节点，组为整体） -->
       <CanvasNode v-for="child in node.children" :key="child.id" :node="child" @node-down="(ev, _child) => $emit('node-down', ev, node)" @node-dblclick="$emit('node-dblclick', node)" />

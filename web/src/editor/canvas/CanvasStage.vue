@@ -6,6 +6,7 @@
  * （保证"一次拖拽全程仅 1 条 undo 记录、纯点击零记录"）。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import html2canvas from 'html2canvas'
 import type { ComponentNode } from '@/types/doc'
 import { useEditorStore } from '@/stores/editor'
 import { registry } from '@/widgets/registry'
@@ -20,6 +21,38 @@ import type { ResizeDir } from './types'
 
 const editor = useEditorStore()
 const viewportEl = ref<HTMLDivElement>()
+const pageEl = ref<HTMLDivElement>()
+
+/** 首页缩略图（台账卡片视图）：临时隐藏编辑器装饰层（网格/选框/参考线/行内编辑），
+ *  按设计尺寸整页截图，输出 320px 宽 JPEG dataURL；空页或失败返回 null（保留旧图）。
+ *  供 EditorView 保存前调用，随 doc 一并 PUT。 */
+const THUMB_WIDTH = 320
+
+async function captureThumbnail(): Promise<string | null> {
+  const el = pageEl.value
+  const p = page.value
+  if (!el || !p || p.components.length === 0) return null
+  el.classList.add('capturing')
+  try {
+    const canvas = await html2canvas(el, {
+      width: p.screen.designWidth,
+      height: p.screen.designHeight,
+      windowWidth: p.screen.designWidth,
+      windowHeight: p.screen.designHeight,
+      scale: THUMB_WIDTH / p.screen.designWidth,
+      backgroundColor: p.background.color,
+      logging: false,
+      useCORS: true,
+    })
+    return canvas.toDataURL('image/jpeg', 0.72)
+  } catch {
+    return null
+  } finally {
+    el.classList.remove('capturing')
+  }
+}
+
+defineExpose({ captureThumbnail })
 
 const page = computed(() => editor.currentPage)
 const pageStyle = computed(() => ({
@@ -348,7 +381,7 @@ watch(
     @drop="onDrop"
   >
     <div v-if="page" class="canvas-stage" :style="stageStyle">
-      <div class="canvas-page" :style="pageStyle">
+      <div ref="pageEl" class="canvas-page" :style="pageStyle">
         <!-- 网格线（结构/参数参照 visual-drag-demo Grid.vue：7.24 小格 / 36.18 大格） -->
         <svg class="grid" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
           <defs>
@@ -383,6 +416,17 @@ watch(
 </template>
 
 <style scoped>
+/* 缩略图截图态：隐藏编辑器装饰层（网格/选中框/框选/参考线/行内编辑），只留组件本体 */
+.canvas-page.capturing :deep(.grid),
+.canvas-page.capturing :deep(.selection-layer),
+.canvas-page.capturing :deep(.marquee),
+.canvas-page.capturing :deep(.guide-v),
+.canvas-page.capturing :deep(.guide-h),
+.canvas-page.capturing :deep(.inline-edit),
+.canvas-page.capturing :deep(.lock-badge) {
+  display: none !important;
+}
+
 .canvas-viewport {
   position: relative;
   flex: 1;

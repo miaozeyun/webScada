@@ -2,7 +2,7 @@
 /** 图层面板：z 序降序常驻列表，hover 显示行内操作（上移/下移/显隐/锁定/删除），与画布双向同步。
  * 成组/解组在顶部工具栏与右键菜单。 */
 import { computed } from 'vue'
-import { Hide, Lock, Unlock, View } from '@element-plus/icons-vue'
+import { Bottom, Box, Delete, Hide, Lock, Top, Unlock, View } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { registry } from '@/widgets/registry'
 import WidgetIcon from '@/widgets/WidgetIcon.vue'
@@ -42,13 +42,13 @@ function removeLayer(id: string): void {
         :class="{ actived: editor.selection.includes(node.id), dim: node.visible === false }"
         @click="rowClick($event, node.id)"
       >
-        <span v-if="node.type === 'group'" class="iconfont type-icon icon-zuhe"></span>
+        <el-icon v-if="node.type === 'group'" :size="15" class="type-icon"><Box /></el-icon>
         <WidgetIcon v-else :meta="registry.get(node.type) ?? null" class="type-icon" />
         <span class="label" :title="`${node.name}（${node.type}）z=${node.z}`">{{ node.name }}</span>
         <span v-if="node.type === 'group' && node.children" class="children">×{{ node.children.length }}</span>
         <div class="icon-container">
-          <span class="iconfont icon-shangyi" title="上移一层" @click.stop="moveLayer(node.id, 'forward')"></span>
-          <span class="iconfont icon-xiayi" title="下移一层" @click.stop="moveLayer(node.id, 'backward')"></span>
+          <el-icon :size="14" class="op" title="上移一层" @click.stop="moveLayer(node.id, 'forward')"><Top /></el-icon>
+          <el-icon :size="14" class="op" title="下移一层" @click.stop="moveLayer(node.id, 'backward')"><Bottom /></el-icon>
           <el-icon :size="14" class="op" :class="{ off: node.visible === false }" title="显示/隐藏（编辑器中隐藏以 30% 透明度呈现）"
             @click.stop="editor.updateNode(node.id, { visible: node.visible === false }, `vis:${node.id}`)">
             <Hide v-if="node.visible !== false" />
@@ -59,7 +59,7 @@ function removeLayer(id: string): void {
             <Lock v-if="node.locked" />
             <Unlock v-else />
           </el-icon>
-          <span class="iconfont icon-shanchu" title="删除" @click.stop="removeLayer(node.id)"></span>
+          <el-icon :size="14" class="op" title="删除" @click.stop="removeLayer(node.id)"><Delete /></el-icon>
         </div>
       </div>
       <div v-if="layers.length === 0" class="layer-empty">当前页面暂无组件</div>
@@ -184,12 +184,10 @@ function removeLayer(id: string): void {
   background: var(--ws-signal-soft);
 }
 
-.icon-container .iconfont,
 .icon-container .op {
   cursor: pointer;
 }
 
-.icon-container .iconfont:hover,
 .icon-container .op:hover {
   color: var(--ws-signal);
 }

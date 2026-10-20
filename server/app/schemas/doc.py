@@ -63,6 +63,9 @@ class ProjectMeta(DocModel):
     author: str | None = None
     createdAt: str  # ISO8601
     updatedAt: str  # ISO8601；不作为乐观锁依据（乐观锁 = projects.revision，G2）
+    # 台账卡片缩略图（编辑器保存前截图写入，JPEG dataURL 展示缓存）：
+    # 出口统一剔除（utils/sanitize），仅 /projects 列表项按需读出
+    thumbnail: str | None = Field(default=None, max_length=300_000)
 
 
 # ================= 数据源（四类，discriminated union） =================
@@ -114,6 +117,19 @@ class MockConfig(DocModel):
     defaultIntervalMs: int = Field(default=1000, ge=100)
 
 
+class ModbusConfig(DocModel):
+    """Modbus TCP（M8 阶段 1 后半）：变量 address 用 Modbus 惯用区位十进制字符串——
+    4xxxx=保持寄存器 / 3xxxx=输入寄存器 / 0xxxx(含 5 位补零)=线圈 / 1xxxx=离散输入。
+    Modbus TCP 协议自身无账号体系（UnitId 即从站标识），无敏感字段。"""
+
+    host: str = Field(min_length=1, max_length=253)
+    port: int = Field(default=502, ge=1, le=65535)
+    unitId: int = Field(default=1, ge=0, le=255)
+    intervalMs: int = Field(default=1000, ge=100)               # 轮询下限 100ms
+    timeoutMs: int = Field(default=3000, ge=500, le=60000)
+    staleTimeoutMs: int | None = Field(default=None, ge=1000)
+
+
 class _DsBase(DocModel):
     id: str = _ID
     name: str = _NAME128
@@ -140,8 +156,13 @@ class MockDataSource(_DsBase):
     config: MockConfig = Field(default_factory=MockConfig)
 
 
+class ModbusDataSource(_DsBase):
+    type: Literal["modbus"]
+    config: ModbusConfig
+
+
 DataSource = Annotated[
-    Union[MqttDataSource, WebsocketDataSource, RestDataSource, MockDataSource],
+    Union[MqttDataSource, WebsocketDataSource, RestDataSource, MockDataSource, ModbusDataSource],
     Field(discriminator="type"),
 ]
 
@@ -211,7 +232,8 @@ class VariableDef(DocModel):
     range: VarRange | None = None
     defaultValue: float | bool | str | None = None
     datasourceId: str = _ID
-    # 取数地址：mqtt=topic；websocket=帧内定位键；rest=响应内定位键；mock 忽略
+    # 取数地址：mqtt=topic；websocket=帧内定位键；rest=响应内定位键；mock 忽略；
+    # modbus=Modbus 区位十进制字符串（4xxxx 保持寄存器/3xxxx 输入寄存器/0xxxx 线圈/1xxxx 离散输入）
     address: str = Field(default="", max_length=512)
     jsonPath: str | None = Field(default=None, max_length=256)
     # ---- 反控（M7）：写通道经浏览器直连数据源，writable 变量才可写 ----

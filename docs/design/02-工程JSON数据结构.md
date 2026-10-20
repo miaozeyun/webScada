@@ -399,6 +399,21 @@ export type DataSource =
         id: ID; name: string; type: 'mock';
         enabled?: boolean;          // 启用开关，默认 true；mock 数据生成的启停即由本字段控制（不设 projects.mock_enabled 列、不设独立 mock REST）
         config: { defaultIntervalMs?: number }; // 变量未配 MockSpec 间隔时的缺省生成间隔，默认 1000
+      }
+  | {
+        id: ID; name: string; type: 'modbus';   // M8 阶段 1 后半：服务端 collector 采集（浏览器无 TCP 能力，运行态经 WS 取值）
+        enabled?: boolean;
+        config: {
+          host: string;            // PLC/网关 IP
+          port?: number;           // 默认 502
+          unitId?: number;         // 从站号，默认 1
+          intervalMs?: number;     // 轮询间隔，默认 1000（下限 100）
+          timeoutMs?: number;      // 默认 3000
+          staleTimeoutMs?: number | null;
+        };
+        // 变量 address 用 Modbus 惯用 5 位区位十进制：4xxxx 保持寄存器 / 3xxxx 输入寄存器
+        // / 0xxxx 线圈（可写）/ 1xxxx 离散输入；scale/offset/precision 复用统一换算流水；
+        // 协议自身无账号体系（UnitId 即从站标识），无敏感字段（脱敏/加密链路 no-op）
       };
 ```
 
@@ -695,6 +710,51 @@ CREATE TABLE alarm_records (
 CREATE INDEX idx_alarm_proj_triggered ON alarm_records(project_id, triggered_at DESC);
 ```
 
+
+### 4.1.1 M8 修订：服务端闭环 DDL 增量（alembic 0002 权威）
+
+> 「服务端监控闭环」落地增补（契约：docs/implementation/server-closed-loop-plan.md §3）。权威实现：`server/alembic/versions/0002_server_closed_loop.py`（可 downgrade）。
+
+```sql
+-- 用户增角色列（存量迁移置 admin；之后经 users API 收敛）
+ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'
+    CHECK (role IN ('admin','operator','viewer'));   -- admin/operator/viewer
+
+-- 报警记录改单行状态机：triggered → (acked) → cleared（修复「恢复另插新行」缺陷）
+ALTER TABLE alarm_records
+    ADD COLUMN acked_at   TIMESTAMPTZ,
+    ADD COLUMN acked_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+    ADD COLUMN acked_note TEXT,
+    ADD COLUMN cleared_at TIMESTAMPTZ;
+-- status 约束改为 CHECK (status IN ('triggered','acked','cleared'))
+-- 数据迁移：active→triggered；recovered→cleared（cleared_at=recovered_at）；recovered_at 列删除
+
+-- 审计日志（只追加，RBAC 配套）
+CREATE TABLE audit_logs (
+    id BIGSERIAL PRIMARY KEY,
+    user_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+    username  TEXT,                  -- 触发时快照，用户删除后仍可读
+    action    TEXT NOT NULL,         -- login/write_var/alarm_ack/project_save/share_create/share_revoke/user_mgmt
+    target_type TEXT, target_id TEXT,
+    detail    JSONB,
+    ip        TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_audit_created ON audit_logs(created_at DESC);
+CREATE INDEX idx_audit_user    ON audit_logs(user_id);
+CREATE INDEX idx_audit_action  ON audit_logs(action);
+
+-- 历史值（服务端 historian 定窗采样入库；按 ts 分区可后置）
+CREATE TABLE history_values (
+    id BIGSERIAL PRIMARY KEY,
+    project_id   UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    variable_key TEXT NOT NULL,      -- 触发时快照口径（变量删除后区间查询仍可读）
+    ts           TIMESTAMPTZ NOT NULL,
+    value        DOUBLE PRECISION NOT NULL   -- 工程值（服务端换算流水执行后）
+);
+CREATE INDEX idx_history_proj_var_ts ON history_values(project_id, variable_key, ts DESC);
+```
+
 ### 4.2 工程 JSON 与数据库的存储映射
 
 | doc / 数据部分 | 存储位置 | 拆分决策与理由 |
@@ -707,7 +767,8 @@ CREATE INDEX idx_alarm_proj_triggered ON alarm_records(project_id, triggered_at 
 | 报警**记录** | `alarm_records` 拆表 | 高频写入的运行数据与配置生命周期不同；不入 doc 避免保存覆盖冲突与文档膨胀；`rule_id` 不做外键（规则删除不影响历史记录）；`variable_key`/`value` 为触发时快照，保证可读性 |
 | 用户与凭证 | `users` 独立表 | 鉴权数据绝不进入工程文档（导出/分享不携带） |
 | 数据源凭证（mqtt password、rest/websocket 敏感 headers） | `projects.doc` 内 Fernet 加密存储 | 库内加密（cryptography，密钥 `.env` 的 `DATASOURCE_SECRET`）；所有出口（读取/导出/分享快照）一律脱敏，见 4.3 |
-| 变量实时值、趋势缓冲 | **不落库** | P0 边界：无历史时序库。实时值仅进程内 hub 流转；趋势图由前端环形缓冲（默认 600 点，页面刷新即清空）。P1 24h 回放届时在 hub 写路径增加持久化钩子（预留扩展点），P0 不实现 |
+| 变量实时值 | 进程内 hub（不落库） | 实时值仅内存流转，经 ws_manager 100ms 合帧下发（03 §3.4） |
+| 历史趋势 | history_values 拆表（**M8 修订**） | 服务端 historian 按 `HISTORY_SAMPLE_INTERVAL_MS` 定窗采样工程值入库；清理任务消费 `HISTORY_RETENTION_DAYS`；前端经 `GET /api/v1/projects/{id}/history` 查询（03 §2.10）。浏览器本地分钟桶缓冲降级为演示/离线用途 |
 
 ### 4.3 敏感凭证处理（安全契约）
 
@@ -789,7 +850,7 @@ CREATE INDEX idx_alarm_proj_triggered ON alarm_records(project_id, triggered_at 
 
 ### 7.1 反控（写通道）
 
-- 架构：延续「02 §2.13 前端承担数据接入」，**写也走浏览器直连**，不经服务端中转。
+- 架构（**M8 修订**）：反控统一走服务端 WS 通道——C→S `write` 帧 → 服务端校验（JWT 用户、operator/admin 角色、变量 writable）后按数据源类型分发（mqtt publish / rest POST / ws send），回 S→C `writeAck` 帧（见 03-接口清单 §3.4 帧目录）；并落审计 `write_var`。浏览器直连模式仅保留为编辑器「数据源连接测试」专用，不再承担运行态写。分享页恒只读。
 - 权限：`RuntimeEngine.write()` 为唯一入口。**编辑器预览可写（writable=true）；分享页恒只读（writable=false）**。
 - `VariableDef` 增量：`writable: bool = false`（默认只读）；`writeAddress: str | null`（mqtt 写 topic，缺省回落 `address`）。
 - 数据源写配置（`config` 增量）：
@@ -856,7 +917,9 @@ interface EventActionDef {
 
 ### 7.7 历史数据（浏览器本地）
 
-`runtime/history.ts`：分钟桶 `[tsMin, sum, n]` 均值环形缓冲；单变量 3 天 / 全局 12 万桶上限；`webscada:hist:v1` 持久化（10s 节流落盘，beforeunload 兜底）。同源分享页同样可读。**不引入服务端时序存储**（保持 P0 架构边界，企业版再做）。
+（**M8 修订**：历史权威来源已迁移服务端——`history_values` 表 + `GET /api/v1/projects/{id}/history`，见 §4.1.1 与 03-接口清单 §2.10；历史图表组件接服务端 API。本节浏览器本地分钟桶缓冲降级为演示案例/离线预览用途，不再是权威数据源。）
+
+`runtime/history.ts`：分钟桶 `[tsMin, sum, n]` 均值环形缓冲；单变量 3 天 / 全局 12 万桶上限；`webscada:hist:v1` 持久化（10s 节流落盘，beforeunload 兜底）。
 
 ### 7.8 画面嵌入
 

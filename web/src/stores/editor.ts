@@ -259,6 +259,33 @@ export const useEditorStore = defineStore('editor', {
       this._markDirty()
     },
 
+    /** 多选批量更新公共字段（几何/显隐/锁定等）：单条 undo 记录覆盖全部选中项 */
+    updateNodes(patch: Partial<ComponentNode>, mergeKey?: string): void {
+      if (this.selection.length === 0) return
+      this.beginChange(mergeKey)
+      for (const node of this.selectedNodes) Object.assign(node, patch)
+      this._markDirty()
+    },
+
+    /** 多选批量改样式键（空值=清除该键回落默认）；与 updateNodesStyle 单选路径语义一致 */
+    updateNodesStyle(key: string, value: unknown): void {
+      if (this.selection.length === 0) return
+      this.beginChange(`mstyle:${key}`)
+      for (const node of this.selectedNodes) {
+        const style: Record<string, unknown> = { ...(node.style ?? {}) }
+        if (value === undefined || value === null) delete style[key]
+        else style[key] = value as never
+        node.style = style
+      }
+      this._markDirty()
+    },
+
+    /** 台账缩略图（编辑器保存前由画布截图写入，随 doc 一并 PUT；不单独触发保存） */
+    setThumbnail(dataUrl: string): void {
+      if (!this.doc) return
+      this.doc.project = { ...this.doc.project, thumbnail: dataUrl }
+    },
+
     updateNodeProps(id: string, key: string, value: unknown): void {
       const node = this.topLevelNodes.find((n) => n.id === id)
       if (!node) return

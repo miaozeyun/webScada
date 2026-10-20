@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, Delete, Download, Plus, Search, Upload } from '@element-plus/icons-vue'
+import { ArrowDown, Delete, Download, Grid, Menu, Plus, Search, Upload } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { meApi } from '@/api/auth'
+import type { UserInfo } from '@/api/auth'
 import {
   createProject,
   deleteProject,
@@ -22,11 +24,30 @@ import ThemePicker from '@/components/ThemePicker.vue'
 const router = useRouter()
 const auth = useAuthStore()
 
+// ---- 系统管理入口（M8 RBAC）：仅 admin 可见；角色经 /auth/me 拉取（auth store 未持久化 role） ----
+const isAdmin = ref(false)
+
+onMounted(async () => {
+  try {
+    const me = await meApi()
+    isAdmin.value = (me as UserInfo & { role?: string }).role === 'admin'
+  } catch {
+    /* 拉取失败按非 admin 处理（401 由拦截器接管跳登录） */
+  }
+})
+
+function onAdminNav(cmd: string): void {
+  router.push(cmd)
+}
+
 // ---- 列表 ----
 const loading = ref(false)
 const items = ref<ProjectListItem[]>([])
 const total = ref(0)
 const query = reactive({ keyword: '', page: 1, size: 20 })
+
+// 分页/每页条数变化即刷新（v-model 驱动，勿绑 @current-change=refresh——数值参数会被误判为 resetPage）
+watch([() => query.page, () => query.size], () => { refresh() })
 
 async function refresh(resetPage = false): Promise<void> {
   if (resetPage) query.page = 1 // 搜索换关键字后回到第一页（防第 3 页搜索显示空态的矛盾）
@@ -41,6 +62,25 @@ async function refresh(resetPage = false): Promise<void> {
 }
 
 onMounted(refresh)
+
+// ---- 视图模式：表格 / 卡片（首页缩略图），选择持久化 ----
+type ViewMode = 'table' | 'card'
+const VIEW_STORAGE_KEY = 'webscada_projects_view'
+const viewMode = ref<ViewMode>(((): ViewMode => {
+  try {
+    return localStorage.getItem(VIEW_STORAGE_KEY) === 'card' ? 'card' : 'table'
+  } catch {
+    return 'table'
+  }
+})())
+
+watch(viewMode, (v) => {
+  try {
+    localStorage.setItem(VIEW_STORAGE_KEY, v)
+  } catch {
+    /* 隐私模式下仅当前会话生效 */
+  }
+})
 
 // ---- 窄屏：表格只留工程名与操作，分页简化（避免操作列被挤出视口） ----
 const isNarrow = ref(false)
@@ -137,6 +177,12 @@ function onTool(cmd: string): void {
   else if (cmd === 'stress') doStress()
 }
 
+/** 卡片「更多」下拉：导出 / 删除（与表格行操作同源） */
+function onCardMore(cmd: string, row: ProjectListItem): void {
+  if (cmd === 'export') void doExport(row)
+  else if (cmd === 'delete') void doDelete(row)
+}
+
 // ---- 删除（服务端级联 share_links / alarm_records） ----
 async function doDelete(row: ProjectListItem): Promise<void> {
   await ElMessageBox.confirm(`确定删除工程「${row.name}」？该操作不可恢复。`, '删除确认', { type: 'warning' })
@@ -203,6 +249,17 @@ function fmtTime(iso: string): string {
         <span class="bar-scope">工程台账</span>
       </div>
       <div class="bar-user">
+        <el-dropdown v-if="isAdmin" trigger="click" @command="onAdminNav">
+          <button class="bar-action" type="button">
+            系统管理<el-icon class="bar-caret"><ArrowDown /></el-icon>
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="/admin/users">用户管理</el-dropdown-item>
+              <el-dropdown-item command="/admin/audit">审计日志</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <ThemePicker />
         <span class="user-name">{{ auth.username }}</span>
         <button class="bar-action" type="button" @click="onLogout">退出登录</button>
@@ -233,6 +290,14 @@ function fmtTime(iso: string): string {
           />
           <el-button @click="refresh(true)">搜索</el-button>
         </div>
+        <div class="view-toggle" role="group" aria-label="视图模式">
+          <button type="button" :class="{ active: viewMode === 'table' }" title="表格视图" aria-label="表格视图" @click="viewMode = 'table'">
+            <el-icon :size="14"><Menu /></el-icon>
+          </button>
+          <button type="button" :class="{ active: viewMode === 'card' }" title="卡片视图（画面缩略图）" aria-label="卡片视图" @click="viewMode = 'card'">
+            <el-icon :size="14"><Grid /></el-icon>
+          </button>
+        </div>
         <span class="spacer" />
         <input ref="fileInput" type="file" accept=".json,application/json" style="display: none" @change="onFileChange" />
         <el-button :icon="Upload" @click="pickFile">导入工程</el-button>
@@ -251,7 +316,8 @@ function fmtTime(iso: string): string {
       </div>
 
       <section class="ledger">
-        <el-table v-loading="loading" :data="items" stripe>
+        <!-- 表格视图 -->
+        <el-table v-if="viewMode === 'table'" v-loading="loading" :data="items" stripe>
           <el-table-column prop="name" label="工程名称" :min-width="isNarrow ? 150 : 190">
             <template #default="{ row }">
               <span class="project-name" :title="row.name">{{ row.name }}</span>
@@ -293,6 +359,62 @@ function fmtTime(iso: string): string {
           </template>
         </el-table>
 
+        <!-- 卡片视图：首页画面缩略图（编辑器保存时自动截图；老工程无图先占位） -->
+        <div v-else v-loading="loading" class="card-grid">
+          <article
+            v-for="row in items"
+            :key="row.id"
+            class="project-card"
+            :title="`${row.name}（双击进入编辑器）`"
+            @dblclick="router.push(`/editor/${row.id}`)"
+          >
+            <div class="card-thumb">
+              <img v-if="row.thumbnail" :src="row.thumbnail" :alt="`${row.name} 首页画面`" loading="lazy" />
+              <svg v-else class="thumb-placeholder" viewBox="0 0 48 48" aria-hidden="true">
+                <rect x="5.5" y="9.5" width="37" height="29" />
+                <path d="M5.5 17.5 H42.5 M11.5 13.5 H13 M15.5 13.5 H17" />
+                <path d="M12 30 L18 30 L21 22 L26 35 L30 27 L36 27" />
+              </svg>
+              <span class="card-rev ws-readout">r{{ row.revision }}</span>
+            </div>
+            <div class="card-body">
+              <span class="card-name">{{ row.name }}</span>
+              <span class="card-desc">{{ row.description || '暂无描述' }}</span>
+            </div>
+            <div class="card-foot">
+              <span class="card-time ws-readout">{{ fmtTime(row.updatedAt) }}</span>
+              <div class="card-ops">
+                <el-button link type="primary" size="small" @click.stop="router.push(`/editor/${row.id}`)">编辑</el-button>
+                <el-dropdown trigger="click" @command="(cmd: string) => onCardMore(cmd, row)">
+                  <el-button link size="small" @click.stop>
+                    更多<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="export">导出</el-dropdown-item>
+                      <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
+            </div>
+          </article>
+
+          <div v-if="!loading && items.length === 0" class="empty card-empty">
+            <svg class="empty-mark" viewBox="0 0 48 48" aria-hidden="true">
+              <rect x="5.5" y="9.5" width="37" height="29" />
+              <path d="M5.5 17.5 H42.5 M11.5 13.5 H13 M15.5 13.5 H17" />
+              <path d="M12 30 L18 30 L21 22 L26 35 L30 27 L36 27" />
+            </svg>
+            <p class="empty-title">台账还是空的</p>
+            <p class="empty-desc">新建一个工程，或导入已有的 JSON 工程文件。</p>
+            <div class="empty-actions">
+              <el-button type="primary" size="small" :icon="Plus" @click="createVisible = true">新建工程</el-button>
+              <el-button size="small" :icon="Upload" @click="pickFile">导入工程</el-button>
+            </div>
+          </div>
+        </div>
+
         <div class="ledger-foot">
           <el-pagination
             v-model:current-page="query.page"
@@ -300,8 +422,6 @@ function fmtTime(iso: string): string {
             :total="total"
             :page-sizes="[10, 20, 50]"
             :layout="isNarrow ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
-            @current-change="refresh"
-            @size-change="refresh"
           />
         </div>
       </section>
@@ -412,6 +532,8 @@ function fmtTime(iso: string): string {
 }
 
 .bar-action {
+  display: inline-flex;
+  align-items: center;
   padding: 4px 10px;
   border: 1px solid rgba(238, 244, 247, 0.22);
   border-radius: var(--ws-radius);
@@ -426,6 +548,10 @@ function fmtTime(iso: string): string {
   border-color: var(--ws-signal-bright);
   background: rgba(27, 167, 184, 0.12);
   color: #fff;
+}
+
+.bar-caret {
+  margin-left: 2px;
 }
 
 /* ---- 工作区 ---- */
@@ -496,6 +622,42 @@ function fmtTime(iso: string): string {
   flex: 1;
 }
 
+/* ---- 视图切换（表格/卡片） ---- */
+.view-toggle {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid var(--ws-steel-3);
+  border-radius: var(--ws-radius);
+  background: var(--ws-panel);
+  overflow: hidden;
+}
+
+.view-toggle button {
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ws-text-3);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.view-toggle button + button {
+  border-left: 1px solid var(--ws-steel-2);
+}
+
+.view-toggle button:hover {
+  color: var(--ws-signal);
+}
+
+.view-toggle button.active {
+  background: var(--ws-signal-soft);
+  color: var(--ws-signal);
+}
+
 /* ---- 台账面板 ---- */
 .ledger {
   background: var(--ws-panel);
@@ -534,6 +696,119 @@ function fmtTime(iso: string): string {
   justify-content: flex-end;
   padding: 10px 14px;
   border-top: 1px solid var(--ws-steel-2);
+}
+
+/* ---- 卡片视图 ---- */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+  padding: 14px;
+  min-height: 240px;
+  align-content: start;
+}
+
+.card-empty {
+  grid-column: 1 / -1;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--ws-panel);
+  border: 1px solid var(--ws-steel-3);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.project-card:hover {
+  border-color: var(--ws-signal);
+  box-shadow: var(--ws-shadow-panel);
+}
+
+.card-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ws-steel-1);
+  border-bottom: 1px solid var(--ws-steel-2);
+  overflow: hidden;
+}
+
+.card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.thumb-placeholder {
+  width: 40px;
+  height: 40px;
+  fill: none;
+  stroke: var(--ws-steel-3);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card-rev {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 1px 6px;
+  background: rgba(20, 33, 46, 0.6);
+  color: rgba(238, 244, 247, 0.85);
+  font-size: 10px;
+  border-radius: var(--ws-radius);
+}
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px 4px;
+  min-width: 0;
+}
+
+.card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ws-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-desc {
+  font-size: 12px;
+  color: var(--ws-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 8px 12px;
+}
+
+.card-time {
+  font-size: 11px;
+  color: var(--ws-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-ops {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 /* ---- 空态 ---- */

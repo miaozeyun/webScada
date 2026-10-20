@@ -11,18 +11,30 @@ import type {
   ProjectDoc,
   ValueMapping,
   VariableDef,
+  WsActiveAlarm,
+  WsValueEntry,
 } from '@/types/doc'
 import { VIRTUAL_DATASOURCE_ID } from '@/types/doc'
 import { useRuntimeStore, type AlarmEvent } from './store'
-import { startSource, type SourceHandle } from './sources'
+import { startServerChannel, startSource, type ServerChannelHandle, type SourceHandle } from './sources'
 import { evalExpr, exprIdents } from '@/utils/expr'
 import { sample as histSample, startPersist, stopPersist } from './history'
 
+export interface ServerRuntimeOptions {
+  projectId: string
+  token: string
+  page?: string
+}
+
 export interface EngineOptions {
-  /** 报警事件回调（通知/声音由宿主 UI 决定呈现方式） */
-  onAlarmEvent?: (ev: AlarmEvent, rule: AlarmRule) => void
+  /** 报警事件回调（通知/声音由宿主 UI 决定呈现方式）；server 模式下规则可能不在本地 rules 集 */
+  onAlarmEvent?: (ev: AlarmEvent, rule?: AlarmRule) => void
   /** M7：写通道开关（编辑器预览 true / 分享页 false，反控权限收敛到唯一入口） */
   writable?: boolean
+  /** M8：server 模式——值流/报警/写通道由服务端 WS 驱动；不启动浏览器直连数据源 */
+  server?: ServerRuntimeOptions
+  /** M8：分享快照被刷新（reload 帧）→ 宿主重新拉取 doc */
+  onServerReload?: () => void
 }
 
 const HISTORY_LIMIT = 60
@@ -110,6 +122,12 @@ export class RuntimeEngine {
   private alarmActive = new Map<string, boolean>()
   private opts: EngineOptions = {}
 
+  // ---- M8：server 模式（值流/报警/写通道权威在服务端） ----
+  private serverMode = false
+  private serverChannel: ServerChannelHandle | null = null
+  /** 服务端报警 id（DB 自增） → 本地事件（alarmClear 按 id 关联回显消息） */
+  private serverAlarms = new Map<number, AlarmEvent>()
+
   // ---- M7：虚拟变量依赖图（varId → 依赖它的虚拟变量 id 列表，传递闭包按层展开） ----
   private virtualById = new Map<string, VariableDef>()
   private dependents = new Map<string, string[]>()
@@ -120,7 +138,7 @@ export class RuntimeEngine {
   private handleByDs = new Map<string, SourceHandle>()
   private dsById = new Map<string, ProjectDoc['datasources'][number]>()
 
-  start(doc: ProjectDoc, opts: EngineOptions = {}): void {
+  start(doc: ProjectDoc, opts: EngineOptions = {}, seedValues?: Map<string, string | number | boolean>): void {
     this.stop()
     this.opts = opts
     this.runtime.reset()
@@ -129,6 +147,11 @@ export class RuntimeEngine {
       this.variables.set(v.id, v)
       this.runtime.varByKey.set(v.key, v.id)
       if (v.expr) this.virtualById.set(v.id, v)
+      // 03 §3.8 reload：已收到的变量值缓存保留（宿主替换 doc 重启引擎时透传，画面不闪空白）
+      const seed = seedValues?.get(v.id)
+      if (seed !== undefined) {
+        this.runtime.values.set(v.id, seed)
+      }
     }
     this.buildDependents()
     this.rules = doc.alarmRules.filter((r) => r.enabled)
@@ -151,6 +174,28 @@ export class RuntimeEngine {
     this.recomputeAllVirtuals()
 
     this.runtime.running = true
+    if (opts.server) {
+      // M8 server 模式：浏览器直连数据源停用，值池由 WS 帧驱动
+      this.serverMode = true
+      this.serverChannel = startServerChannel({
+        projectId: opts.server.projectId,
+        token: opts.server.token,
+        page: opts.server.page,
+        onEntry: (key, entry) => this.applyServerEntry(key, entry),
+        onAlarm: (alarm) => this.onServerAlarm(alarm),
+        onAlarmClear: (alarmId, recoveredAt) => this.onServerAlarmClear(alarmId, recoveredAt),
+        onAlarmAck: (alarmId) => this.runtime.markAlarmAcked(alarmId),
+        onSnapshotAlarms: (alarms, truncated) => this.onServerAlarmSync(alarms, truncated),
+        onError: (code, message) => {
+          console.warn(`[webScada] 运行态服务端连接错误：${code} ${message}`)
+          this.runtime.serverStatus = 'error'
+        },
+        onReload: () => this.opts.onServerReload?.(),
+        onStatus: (status) => { this.runtime.serverStatus = status },
+      })
+      startPersist()
+      return
+    }
     for (const ds of doc.datasources) {
       const handle = startSource(ds, doc.variables, (variable, raw) => this.onRaw(variable, raw))
       this.handles.push(handle)
@@ -159,8 +204,17 @@ export class RuntimeEngine {
     startPersist()
   }
 
+  /** 当前值池快照（reload 重启时作为 seed 透传，03 §3.8 已收值保留） */
+  snapshotValues(): Map<string, string | number | boolean> {
+    return new Map(this.runtime.values)
+  }
+
   stop(): void {
     stopPersist()
+    this.serverChannel?.stop()
+    this.serverChannel = null
+    this.serverMode = false
+    this.serverAlarms.clear()
     this.handles.forEach((h) => h.stop())
     this.handles = []
     this.handleByDs.clear()
@@ -231,6 +285,86 @@ export class RuntimeEngine {
     this.setValue(variable, value)
   }
 
+  /** M8 server 模式：WS 值条目入池（值已是服务端换算后工程值，键=变量 key）。
+   *  未知 key 忽略（03 §3.4：保存后变量集变化，客户端等重连 snapshot 对齐）；
+   *  质量位消费（03 §2.10 q∈good|stale|bad）：非 good 登记灰显态（UI 叠灰标记数据不可信），
+   *  stale 值保留、bad 保留上一显示值（不闪空，灰显表达不可信）；恢复 good 才更新值并解除灰显。 */
+  private applyServerEntry(key: string, entry: WsValueEntry): void {
+    const varId = this.runtime.varByKey.get(key)
+    if (!varId) return
+    if (entry.q !== 'good') {
+      this.runtime.markDegraded(varId, entry.q)
+      return
+    }
+    if (entry.v === null || entry.v === undefined) return
+    const variable = this.variables.get(varId)
+    if (!variable) return
+    this.runtime.clearDegraded(varId)
+    this.setValue(variable, entry.v as number | boolean | string)
+  }
+
+  /** 服务端报警帧 → 本地事件流（通知/声音/列表由宿主 UI 消费）。
+   *  backfill=true（snapshot 存量回填）：仅回填横幅/徽标/面板状态，不触发通知与声音
+   *  （刷新/重连场景存量报警不重复打扰）。 */
+  private onServerAlarm(alarm: WsActiveAlarm, backfill = false): void {
+    if (alarm.status === 'cleared') return // 兜底：已恢复条目不入活动集
+    // 帧字段透传：alarmId（DB id，横幅快捷 ack）/variableKey（S2 反查绑定变量）/
+    // status（消费方 isAlarmActive 服务端状态机口径），仅 ruleId 会双失效（契约 §4.1）
+    const ev: AlarmEvent = {
+      id: alarm.ruleId,
+      type: 'active',
+      level: alarm.level,
+      message: alarm.message,
+      value: alarm.value ?? '',
+      at: alarm.triggeredAt,
+      variableKey: alarm.variableKey,
+      ruleId: alarm.ruleId,
+      alarmId: alarm.id,
+      status: alarm.status,
+    }
+    if (backfill && this.serverAlarms.has(alarm.id)) {
+      // 重连 snapshot 回填：已知报警仅刷新快照（消息/级别/确认态可能变化），不重复进事件流
+      const merged: AlarmEvent = { ...this.serverAlarms.get(alarm.id)!, ...ev }
+      this.serverAlarms.set(alarm.id, merged)
+      this.runtime.activeAlarms.set(merged.id, merged)
+      if (alarm.status === 'acked') this.runtime.markAlarmAcked(alarm.id)
+      return
+    }
+    this.serverAlarms.set(alarm.id, ev)
+    this.runtime.pushAlarmEvent(ev)
+    this.runtime.serverAlarmIdByRule.set(alarm.ruleId, alarm.id)
+    if (alarm.status === 'acked') this.runtime.markAlarmAcked(alarm.id)
+    const rule = this.rules.find((r) => r.id === alarm.ruleId)
+    if (!backfill) this.opts.onAlarmEvent?.(ev, rule)
+  }
+
+  /** snapshot 存量活动报警回填（刷新/重连后横幅、徽标、面板不丢，其 alarmClear 不再被丢弃）：
+   *  逐条走 onServerAlarm 回填状态，再按 snapshot 报警 id 集合对已知报警做差集清理；
+   *  服务端截断（>200 条）时跳过差集，防误清仍在活动的报警 */
+  private onServerAlarmSync(alarms: WsActiveAlarm[], truncated: boolean): void {
+    for (const alarm of alarms) this.onServerAlarm(alarm, true)
+    if (truncated) return
+    for (const alarmId of [...this.serverAlarms.keys()]) {
+      if (alarms.some((a) => a.id === alarmId)) continue
+      this.onServerAlarmClear(alarmId, Date.now())
+    }
+  }
+
+  private onServerAlarmClear(alarmId: number, recoveredAt: number): void {
+    const ev = this.serverAlarms.get(alarmId)
+    if (!ev) return
+    this.serverAlarms.delete(alarmId)
+    // status 一并置 cleared：透传字段不残留激活态标记（消费方 isAlarmActive 服务端口径判定安全）
+    const cleared: AlarmEvent = {
+      ...ev,
+      type: 'recovered',
+      status: 'cleared',
+      at: recoveredAt,
+      message: `${ev.message}（已恢复）`,
+    }
+    this.runtime.pushAlarmEvent(cleared)
+  }
+
   /** 值入池：覆盖层 + 报警 + 历史 + 虚拟级联 + 弹框条件（统一收口） */
   private setValue(variable: VariableDef, value: number | boolean | string): void {
     this.runtime.values.set(variable.id, value)
@@ -244,6 +378,11 @@ export class RuntimeEngine {
     }
 
     this.applyBindings(variable.id, value)
+    if (this.serverMode) {
+      // 服务端权威：报警判定（rules_engine）与虚拟变量求值（hub 拓扑）均在服务端完成，随帧下发
+      this.evalPopupTriggers(variable.id)
+      return
+    }
     this.evalAlarms(variable, value)
     this.propagateVirtuals(variable.id)
     this.evalPopupTriggers(variable.id)
@@ -341,8 +480,9 @@ export class RuntimeEngine {
   }
 
   /**
-   * 反控写中心（M7 唯一入口）：校验 writable → 按数据源类型分发；
-   * mock 本地回环（setValue 全链路生效），mqtt publish / rest POST / ws send。
+   * 反控写中心（M7 唯一入口）：校验 writable → 分发。
+   * M8 server 模式：统一走服务端 write/writeAck 通道（mock 服务端回环、mqtt/rest/ws 服务端分发）；
+   * 浏览器直连模式（编辑器连接测试遗留）：mock 本地回环，mqtt publish / rest POST / ws send。
    */
   async write(variableId: string, value: number | boolean | string): Promise<void> {
     if (!this.opts.writable) throw new Error('当前视图为只读（分享页不允许反控）')
@@ -350,6 +490,13 @@ export class RuntimeEngine {
     if (!v) throw new Error('变量不存在')
     if (v.expr) throw new Error(`虚拟变量 ${v.key} 不可写（由表达式驱动）`)
     if (!v.writable) throw new Error(`变量 ${v.key} 未开启可写（writable）`)
+
+    if (this.serverMode) {
+      // 服务端二次校验（角色/可写/存在性），失败原因经 writeAck code 回传
+      if (!this.serverChannel) throw new Error('服务端连接未就绪')
+      await this.serverChannel.write(v.key, value)
+      return
+    }
 
     if (v.datasourceId === VIRTUAL_DATASOURCE_ID) throw new Error('虚拟变量不可写')
     const ds = this.dsById.get(v.datasourceId)

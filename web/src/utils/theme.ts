@@ -212,10 +212,14 @@ function alpha(hex: string, a: number): string {
 export function getThemeId(): ThemeId {
   try {
     const saved = localStorage.getItem(STORAGE_KEY) as ThemeId | null
-    return saved && THEMES.some((t) => t.id === saved) ? saved : DEFAULT_THEME
+    if (saved && THEMES.some((t) => t.id === saved)) return saved
   } catch {
-    return DEFAULT_THEME
+    /* 隐私模式：跳过存储，回落系统偏好 */
   }
+  // 用户未做过选择时跟随系统深浅偏好（graphite 为深色主题；一旦手动选择即固定）
+  return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'graphite'
+    : DEFAULT_THEME
 }
 
 export function applyTheme(id: ThemeId): void {
@@ -287,6 +291,10 @@ export function applyTheme(id: ThemeId): void {
   }
 
   root.dataset.wsTheme = theme.id
+
+  // 移动端浏览器 UI 色（地址栏/状态栏）与框架色保持同步
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', v['--ws-ink'])
+
   try {
     localStorage.setItem(STORAGE_KEY, theme.id)
   } catch {
@@ -296,4 +304,10 @@ export function applyTheme(id: ThemeId): void {
 
 export function initTheme(): void {
   applyTheme(getThemeId())
+  // 多标签页同步：其它标签页切换主题时本页立即跟随
+  window.addEventListener('storage', (e) => {
+    if (e.key === STORAGE_KEY && e.newValue && THEMES.some((t) => t.id === e.newValue)) {
+      applyTheme(e.newValue as ThemeId)
+    }
+  })
 }
