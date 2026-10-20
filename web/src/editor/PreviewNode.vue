@@ -123,7 +123,7 @@ function closePopup(): void {
   position: absolute;
   top: -30px;
   left: 0;
-  color: #f1f5f9;
+  color: #e2e8f0;
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;

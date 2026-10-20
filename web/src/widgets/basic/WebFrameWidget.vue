@@ -50,7 +50,7 @@ iframe {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #94a3b8;
+  color: #909399;
   font-size: 12px;
   background: repeating-linear-gradient(45deg, transparent 0 10px, rgba(148, 163, 184, 0.08) 10px 20px);
 }

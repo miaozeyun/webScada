@@ -14,7 +14,7 @@ defineProps<{ rect: { x: number; y: number; w: number; h: number } }>()
 .marquee {
   position: absolute;
   border: 1px solid var(--ws-select);
-  background: rgba(27, 167, 184, 0.14);
+  background: var(--ws-signal-a12);
   pointer-events: none;
 }
 </style>

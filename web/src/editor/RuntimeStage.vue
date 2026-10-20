@@ -290,13 +290,13 @@ onBeforeUnmount(() => {
   gap: 18px;
   padding: 0 14px;
   background: var(--ws-ink);
-  border-bottom: 1px solid #0b141d;
+  border-bottom: 1px solid var(--ws-ink-edge);
 }
 
 .title {
   font-size: 13px;
   font-weight: 600;
-  color: #eef4f7;
+  color: var(--ws-text-inverse);
   white-space: nowrap;
 }
 
@@ -311,29 +311,29 @@ onBeforeUnmount(() => {
   padding: 4px 12px;
   border-radius: var(--ws-radius);
   font-size: 12px;
-  color: rgba(238, 244, 247, 0.6);
+  color: var(--ws-inv-60);
   cursor: pointer;
   white-space: nowrap;
 }
 
 .tab:hover {
   color: #fff;
-  background: rgba(238, 244, 247, 0.08);
+  background: var(--ws-inv-hover);
 }
 
 .tab.active {
   color: #fff;
-  background: rgba(27, 167, 184, 0.16);
+  background: var(--ws-signal-a18);
   box-shadow: inset 0 -2px 0 var(--ws-signal-bright);
   font-weight: 600;
 }
 
 .alarm-badge {
   padding: 2px 9px;
-  border: 1px solid rgba(255, 157, 110, 0.45);
+  border: 1px solid var(--ws-alert-line);
   border-radius: var(--ws-radius);
-  background: rgba(194, 65, 12, 0.16);
-  color: #ffb59b;
+  background: var(--ws-alert-a16);
+  color: var(--ws-alert-bright);
   font-family: var(--ws-font-tech);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
@@ -347,22 +347,22 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .server-hint.is-warn {
-  color: var(--ws-signal-amber, #f59e0b);
+  color: var(--ws-warn-bright);
 }
 .server-hint.is-bad {
-  color: var(--ws-signal-red, #ef4444);
+  color: var(--ws-alert-bright);
 }
 
 .stage-bar :deep(.el-button) {
-  color: rgba(238, 244, 247, 0.78);
+  color: var(--ws-inv-75);
   background: transparent;
-  border-color: rgba(238, 244, 247, 0.24);
+  border-color: var(--ws-inv-line);
 }
 
 .stage-bar :deep(.el-button:hover) {
   color: #fff;
   border-color: var(--ws-signal-bright);
-  background: rgba(27, 167, 184, 0.12);
+  background: var(--ws-signal-a12);
 }
 
 .stage-body {

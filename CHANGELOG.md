@@ -29,8 +29,37 @@ webScada 的所有显著变更记录在本文件。
   8083/18083 端口仅绑定 `127.0.0.1`；新增 emqx-authn-init 一次性服务经 Management API
   写入默认 MQTT 账号（`EMQX_DEFAULT_USERNAME/PASSWORD`，幂等）。
 
-### Changed
+- **前端 UI 优化包（2026-10-21）**：
+  - 台账卡片视图：表格/卡片双模式切换（选择持久化）；编辑器保存前自动截取首页画面
+    存 `doc.project.thumbnail`（320px JPEG），列表端点按需读出；导出/分享出口统一剔除该字段。
+  - 编辑器多选批量编辑：属性面板多选态支持几何同值覆盖、显隐/锁定整体设定、
+    文字色/填充/字号/对齐批量应用（单条 undo 覆盖全部选中项）；补齐 Ctrl+A 全选快捷键。
+  - 运行态全屏按钮（RuntimeStage 标题栏，大屏值班场景）；分享页失败态重试按钮。
+  - 首屏品牌 splash（index.html 内联，JS 就绪前消除白屏）；编辑器/分享页统一 `ws-spinner` 加载指示。
+  - 版本号构建期注入（`__APP_VERSION__`，取 package.json），替代登录页脚硬编码。
+  - 主题：未做过选择时跟随系统 `prefers-color-scheme`（深色偏好 → graphite）；
+    `theme-color` meta 随主题切换同步。
 
+- **样式令牌化与可访问性（2026-10-21）**：
+  - 主题派生层（`theme.ts` applyTheme 按主题计算写入）：深底反白分档 `--ws-inv-*`、
+    信号/警示透明底 `--ws-signal-a*` / `--ws-alert-a*` / `--ws-warn-a*`、深底状态灯
+    `--ws-{ok,warn,alert}-bright`（逐主题手调）、`--ws-ink-edge` 等；清除界面层跨主题
+    硬编码（此前切普鲁士蓝/机械绿/铜排时，hover 底、状态灯、报警徽标仍为电气青/固定色）。
+  - 深底幽灵按钮收敛为全局 `.ws-ghost-btn`（配色选择器/台账/编辑器/管理页共用，
+    替代 4 处重复定义）；半透明白 8 档收敛为 6 档令牌；字号归整（去 11.5/12.5px）。
+  - 图表组件默认样式收敛至 `web/src/widgets/chart/shared.ts`（CHART/AXIS/TITLE_STYLE/
+    PALETTE，4 处 AXIS 重复定义合一）；widget 画布默认色统一（去 #2563eb/#38bdf8/#22c55e
+    等体系外杂色，画布内容仍不随 UI 主题）。
+
+### Fixed
+
+- 工程台账分页器旁误渲染孤立 `/>` 文本（ProjectsView 模板多余闭合符）。
+- 分享页加载/错误态残留旧深色背景（与全站浅色工业主题不一致，且文字对比度不足）。
+- 登录页预填 `admin` 用户名（向访客暴露默认管理员账号）。
+- 运行态服务提示引用从未定义的 `--ws-signal-amber/--ws-signal-red`（恒走 Tailwind 回退色）。
+- 浅色 4 套主题 `--ws-text-3` 白底对比度约 3.1:1，调深至 ≥4.5:1（WCAG AA，12px 辅助正文）。
+
+### Changed
 - **README.md** 全面重写：功能矩阵诚实区分「已实现 / 服务端闭环改造中」、架构 mermaid 图、
   含 EMQX 鉴权与 TLS 的快速开始、默认账号与安全提醒、已知限制清单、路线图（internal-pilot）。
 - docker-compose.yml：nginx 配置改为卷挂载（改 conf 免重建镜像）；EMQX 8083 收口至回环地址。

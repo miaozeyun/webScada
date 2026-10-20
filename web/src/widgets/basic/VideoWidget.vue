@@ -52,7 +52,7 @@ video {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #94a3b8;
+  color: #909399;
   font-size: 12px;
   text-align: center;
   padding: 8px;

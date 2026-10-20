@@ -1,6 +1,8 @@
 /**
  * 界面配色主题：5 套工业配色，切换时写入 CSS 变量并派生 Element Plus 色阶。
- * 变量分两层：--ws-* 为产品自带令牌，--el-* 由主色/面板色计算得出。
+ * 变量分三层：--ws-* 为产品自带令牌（含各主题手调的深底亮色），
+ * 派生层（inv/signal-a/alert-a 等，见 applyTheme）由基础色计算，
+ * --el-* 由主色/面板色计算得出。
  * 选择结果存 localStorage，登录页 / 工程台账 / 编辑器共享。
  */
 
@@ -34,7 +36,7 @@ export const THEMES: ThemeDef[] = [
       '--ws-overlay': '#ffffff',
       '--ws-text': '#22313f',
       '--ws-text-2': '#56697a',
-      '--ws-text-3': '#8394a3',
+      '--ws-text-3': '#66788a',
       '--ws-text-inverse': '#eef4f7',
       '--ws-signal': '#0b7285',
       '--ws-signal-strong': '#095a69',
@@ -44,6 +46,9 @@ export const THEMES: ThemeDef[] = [
       '--ws-alert-soft': '#f6e7e1',
       '--ws-warn': '#b87400',
       '--ws-ok': '#2f8a46',
+      '--ws-ok-bright': '#7ddc93',
+      '--ws-warn-bright': '#f5c25b',
+      '--ws-alert-bright': '#ff9d6e',
       '--ws-select': '#1ba7b8',
       '--ws-action': '#14212e',
       '--ws-action-hover': '#2a4155',
@@ -67,7 +72,7 @@ export const THEMES: ThemeDef[] = [
       '--ws-overlay': '#ffffff',
       '--ws-text': '#1a2a3b',
       '--ws-text-2': '#4d6378',
-      '--ws-text-3': '#7d92a5',
+      '--ws-text-3': '#63768a',
       '--ws-text-inverse': '#eef3f8',
       '--ws-signal': '#1d5b8f',
       '--ws-signal-strong': '#164a75',
@@ -77,6 +82,9 @@ export const THEMES: ThemeDef[] = [
       '--ws-alert-soft': '#f6e5e2',
       '--ws-warn': '#a66a00',
       '--ws-ok': '#2f7a55',
+      '--ws-ok-bright': '#7fd6a4',
+      '--ws-warn-bright': '#f0bc63',
+      '--ws-alert-bright': '#f2937f',
       '--ws-select': '#3a86c8',
       '--ws-action': '#101b2a',
       '--ws-action-hover': '#22415e',
@@ -100,7 +108,7 @@ export const THEMES: ThemeDef[] = [
       '--ws-overlay': '#ffffff',
       '--ws-text': '#1f2e27',
       '--ws-text-2': '#51665b',
-      '--ws-text-3': '#83978b',
+      '--ws-text-3': '#66796d',
       '--ws-text-inverse': '#eef5f0',
       '--ws-signal': '#2f6b4f',
       '--ws-signal-strong': '#245640',
@@ -110,6 +118,9 @@ export const THEMES: ThemeDef[] = [
       '--ws-alert-soft': '#f7e7e0',
       '--ws-warn': '#a87300',
       '--ws-ok': '#2f7a46',
+      '--ws-ok-bright': '#7fd494',
+      '--ws-warn-bright': '#efb659',
+      '--ws-alert-bright': '#f19378',
       '--ws-select': '#4c9b77',
       '--ws-action': '#182420',
       '--ws-action-hover': '#314b40',
@@ -133,7 +144,7 @@ export const THEMES: ThemeDef[] = [
       '--ws-overlay': '#ffffff',
       '--ws-text': '#2b2118',
       '--ws-text-2': '#615243',
-      '--ws-text-3': '#95836f',
+      '--ws-text-3': '#7c6b57',
       '--ws-text-inverse': '#f6f0e9',
       '--ws-signal': '#9a5b16',
       '--ws-signal-strong': '#7e4a10',
@@ -143,6 +154,9 @@ export const THEMES: ThemeDef[] = [
       '--ws-alert-soft': '#f6e5e2',
       '--ws-warn': '#8a6500',
       '--ws-ok': '#3d6b3a',
+      '--ws-ok-bright': '#93cf8c',
+      '--ws-warn-bright': '#e6b45c',
+      '--ws-alert-bright': '#ef8f7a',
       '--ws-select': '#b87424',
       '--ws-action': '#261c14',
       '--ws-action-hover': '#4a3828',
@@ -176,6 +190,9 @@ export const THEMES: ThemeDef[] = [
       '--ws-alert-soft': '#33201a',
       '--ws-warn': '#d29a2e',
       '--ws-ok': '#4fae6e',
+      '--ws-ok-bright': '#7fe0a0',
+      '--ws-warn-bright': '#e8b45a',
+      '--ws-alert-bright': '#f3966f',
       '--ws-select': '#45c6d9',
       '--ws-action': '#1f7a8a',
       '--ws-action-hover': '#2a9db0',
@@ -287,6 +304,31 @@ export function applyTheme(id: ThemeId): void {
     '--el-overlay-color-lighter': alpha(ink, 0.5),
   }
   for (const [key, value] of Object.entries(elVars)) {
+    root.style.setProperty(key, value)
+  }
+
+  // 派生令牌：深底（顶栏/工具条/状态栏）反白按透明度分档、信号与警示色的透明底、
+  // 结构边线与按压态。收敛此前散落各组件的 rgba 字面量，保证五套主题一致跟随。
+  const derived: Record<string, string> = {
+    '--ws-inv-88': alpha(v['--ws-text-inverse'], 0.88),
+    '--ws-inv-75': alpha(v['--ws-text-inverse'], 0.75),
+    '--ws-inv-60': alpha(v['--ws-text-inverse'], 0.6),
+    '--ws-inv-42': alpha(v['--ws-text-inverse'], 0.42),
+    '--ws-inv-line': alpha(v['--ws-text-inverse'], 0.22),
+    '--ws-inv-hover': alpha(v['--ws-text-inverse'], 0.08),
+    '--ws-signal-a12': alpha(v['--ws-signal-bright'], 0.12),
+    '--ws-signal-a18': alpha(v['--ws-signal-bright'], 0.18),
+    '--ws-signal-a45': alpha(v['--ws-signal-bright'], 0.45),
+    '--ws-alert-a16': alpha(v['--ws-alert'], 0.16),
+    '--ws-alert-a40': alpha(v['--ws-alert'], 0.4),
+    '--ws-alert-line': alpha(v['--ws-alert-bright'], 0.45),
+    '--ws-warn-a14': alpha(v['--ws-warn'], 0.14),
+    '--ws-warn-a28': alpha(v['--ws-warn'], 0.28),
+    '--ws-warn-line': alpha(v['--ws-warn-bright'], 0.4),
+    '--ws-ink-edge': mix(v['--ws-ink'], '#000000', 0.4),
+    '--ws-inverse-press': mix(v['--ws-text-inverse'], v['--ws-ink'], 0.12),
+  }
+  for (const [key, value] of Object.entries(derived)) {
     root.style.setProperty(key, value)
   }
 

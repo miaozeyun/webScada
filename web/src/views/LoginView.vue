@@ -187,7 +187,7 @@ async function onSubmit(): Promise<void> {
   display: grid;
   grid-template-columns: 1.06fr 0.94fr;
   background: var(--ws-steel-0);
-  border: 1px solid rgba(238, 244, 247, 0.18);
+  border: 1px solid var(--ws-inv-line);
   border-top: 3px solid var(--ws-signal-bright);
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.5);
   color: var(--ws-text);
@@ -287,7 +287,7 @@ async function onSubmit(): Promise<void> {
   margin: 0;
   font-family: var(--ws-font-tech);
   font-variant-numeric: tabular-nums;
-  font-size: 12.5px;
+  font-size: 13px;
   letter-spacing: 0.02em;
   color: var(--ws-text-2);
 }
@@ -339,7 +339,7 @@ async function onSubmit(): Promise<void> {
 
 .access-foot {
   margin: 22px 0 0;
-  font-size: 11.5px;
+  font-size: 11px;
   line-height: 1.7;
   color: var(--ws-text-3);
 }
@@ -350,8 +350,8 @@ async function onSubmit(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 18px;
-  font-size: 11.5px;
-  color: rgba(238, 244, 247, 0.45);
+  font-size: 11px;
+  color: var(--ws-inv-42);
 }
 
 .foot-ver {

@@ -136,7 +136,7 @@ function onClick(type: string): void {
 }
 
 .label {
-  font-size: 11.5px;
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

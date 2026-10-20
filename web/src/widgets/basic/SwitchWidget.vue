@@ -85,7 +85,7 @@ async function toggle(ev?: Event): Promise<void> {
   width: 2.2em;
   height: 1.15em;
   border-radius: 1em;
-  background: #475569;
+  background: #909399;
   transition: background 0.25s;
   flex-shrink: 0;
 }
@@ -103,7 +103,7 @@ async function toggle(ev?: Event): Promise<void> {
 }
 
 .on::before {
-  background: #22c55e;
+  background: #67c23a;
 }
 
 .on .knob {

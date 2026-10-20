@@ -57,7 +57,7 @@ const levelH = computed(() => (76 * percent.value) / 100)
   width: 100%;
   height: 100%;
   display: block;
-  color: var(--dev-color, #38bdf8);
+  color: var(--dev-color, #1ba7b8);
 }
 
 .pct {

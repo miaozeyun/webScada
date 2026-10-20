@@ -132,7 +132,7 @@ function onEditKeydown(e: KeyboardEvent): void {
 }
 
 .canvas-node.group {
-  border: 1px dashed rgba(27, 167, 184, 0.45);
+  border: 1px dashed var(--ws-signal-a45);
 }
 
 .inline-edit {

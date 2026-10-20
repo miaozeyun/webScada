@@ -220,7 +220,7 @@ function fmtTime(at?: number): string {
 }
 
 .fold-btn {
-  color: rgba(238, 244, 247, 0.7);
+  color: var(--ws-inv-75);
 }
 
 .fold-btn:hover {
@@ -234,7 +234,7 @@ function fmtTime(at?: number): string {
   padding: 4px 8px;
   border-left: 3px solid;
   border-radius: var(--ws-radius);
-  background: rgba(238, 244, 247, 0.06);
+  background: var(--ws-inv-hover);
 }
 
 .level-tag {
@@ -244,7 +244,7 @@ function fmtTime(at?: number): string {
   font-size: 11px;
   font-weight: 600;
   color: var(--ws-ink);
-  background: rgba(238, 244, 247, 0.85);
+  background: var(--ws-inv-88);
 }
 
 .level-tag.unknown {
@@ -277,19 +277,19 @@ function fmtTime(at?: number): string {
 }
 
 .item :deep(.el-button) {
-  color: rgba(238, 244, 247, 0.78);
+  color: var(--ws-inv-75);
 }
 
 .item :deep(.el-button--warning.is-plain) {
-  color: #ffd8c2;
-  border-color: rgba(255, 157, 110, 0.5);
-  background: rgba(194, 65, 12, 0.2);
+  color: var(--ws-alert-bright);
+  border-color: var(--ws-alert-line);
+  background: var(--ws-alert-a16);
 }
 
 .item :deep(.el-button--warning.is-plain:hover) {
   color: #fff;
-  border-color: #ffb59b;
-  background: rgba(194, 65, 12, 0.4);
+  border-color: var(--ws-alert-bright);
+  background: var(--ws-alert-a40);
 }
 
 .close-btn:hover {

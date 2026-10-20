@@ -39,7 +39,7 @@ const direction = computed(() => (speed.value < 0 ? 'reverse' : 'normal'))
   display: flex;
   align-items: center;
   gap: 4%;
-  color: var(--dev-color, #38bdf8);
+  color: var(--dev-color, #1ba7b8);
 }
 
 .flow-bar.horizontal {

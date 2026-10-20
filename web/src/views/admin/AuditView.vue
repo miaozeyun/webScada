@@ -151,7 +151,7 @@ function fmtTime(iso: string): string {
         </nav>
         <ThemePicker />
         <span class="user-name">{{ auth.username }}</span>
-        <button class="bar-action" type="button" @click="onLogout">退出登录</button>
+        <button class="bar-action ws-ghost-btn" type="button" @click="onLogout">退出登录</button>
       </div>
     </header>
 
@@ -330,12 +330,12 @@ function fmtTime(iso: string): string {
 .bar-divider {
   width: 1px;
   height: 16px;
-  background: rgba(238, 244, 247, 0.22);
+  background: var(--ws-inv-line);
 }
 
 .bar-scope {
   font-size: 13px;
-  color: rgba(238, 244, 247, 0.7);
+  color: var(--ws-inv-75);
 }
 
 .bar-user {
@@ -355,19 +355,19 @@ function fmtTime(iso: string): string {
   border: none;
   border-radius: var(--ws-radius);
   background: transparent;
-  color: rgba(238, 244, 247, 0.72);
+  color: var(--ws-inv-75);
   font-family: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
 .bar-link:hover {
-  background: rgba(27, 167, 184, 0.12);
+  background: var(--ws-signal-a12);
   color: #fff;
 }
 
 .bar-link.is-active {
-  background: rgba(27, 167, 184, 0.2);
+  background: var(--ws-signal-a18);
   color: #fff;
 }
 
@@ -375,25 +375,10 @@ function fmtTime(iso: string): string {
   font-family: var(--ws-font-tech);
   font-size: 12px;
   letter-spacing: 0.03em;
-  color: rgba(238, 244, 247, 0.72);
+  color: var(--ws-inv-75);
 }
 
-.bar-action {
-  padding: 4px 10px;
-  border: 1px solid rgba(238, 244, 247, 0.22);
-  border-radius: var(--ws-radius);
-  background: transparent;
-  color: rgba(238, 244, 247, 0.82);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.bar-action:hover {
-  border-color: var(--ws-signal-bright);
-  background: rgba(27, 167, 184, 0.12);
-  color: #fff;
-}
+/* bar-action 外观走全局 .ws-ghost-btn */
 
 /* ---- 工作区 ---- */
 .workspace {

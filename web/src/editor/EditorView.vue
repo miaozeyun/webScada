@@ -258,7 +258,7 @@ async function shareProject(): Promise<void> {
     <!-- 顶部控制台工具条：按用途分组，分隔线降低视觉噪音 -->
     <header class="toolbar">
       <div class="tb-group tb-project">
-        <button class="tb-back" type="button" title="返回工程台账" @click="backToList">
+        <button class="tb-back ws-ghost-btn" type="button" title="返回工程台账" @click="backToList">
           <el-icon :size="13"><ArrowLeft /></el-icon>
           <span>工程</span>
         </button>
@@ -431,7 +431,7 @@ async function shareProject(): Promise<void> {
   overflow-y: hidden;
   background: var(--ws-ink);
   color: var(--ws-text-inverse);
-  border-bottom: 1px solid #0c1721;
+  border-bottom: 1px solid var(--ws-ink-edge);
 }
 
 .toolbar::-webkit-scrollbar {
@@ -439,7 +439,7 @@ async function shareProject(): Promise<void> {
 }
 
 .toolbar::-webkit-scrollbar-thumb {
-  background: rgba(238, 244, 247, 0.2);
+  background: var(--ws-inv-line);
   border: none;
 }
 
@@ -454,7 +454,7 @@ async function shareProject(): Promise<void> {
   width: 1px;
   height: 18px;
   margin: 0 4px;
-  background: rgba(238, 244, 247, 0.16);
+  background: var(--ws-inv-line);
   flex-shrink: 0;
 }
 
@@ -463,26 +463,7 @@ async function shareProject(): Promise<void> {
   min-width: 12px;
 }
 
-.tb-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 26px;
-  padding: 0 8px 0 6px;
-  border: 1px solid rgba(238, 244, 247, 0.2);
-  border-radius: var(--ws-radius);
-  background: transparent;
-  color: rgba(238, 244, 247, 0.8);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.tb-back:hover {
-  border-color: var(--ws-signal-bright);
-  color: #fff;
-  background: rgba(27, 167, 184, 0.12);
-}
+/* 返回按钮外观走全局 .ws-ghost-btn */
 
 .tb-project {
   gap: 8px;
@@ -495,59 +476,59 @@ async function shareProject(): Promise<void> {
   text-overflow: ellipsis;
   font-size: 13px;
   font-weight: 600;
-  color: #f2f7f9;
+  color: var(--ws-inv-88);
 }
 
 /* 工具条内按钮：深底幽灵按钮 */
 .toolbar :deep(.el-button.is-text) {
-  color: rgba(238, 244, 247, 0.78);
+  color: var(--ws-inv-75);
   padding-left: 5px;
   padding-right: 5px;
 }
 
 .toolbar :deep(.el-button.is-text:hover) {
   color: #fff;
-  background: rgba(238, 244, 247, 0.08);
+  background: var(--ws-inv-hover);
 }
 
 .toolbar :deep(.el-button.is-text.is-disabled) {
-  color: rgba(238, 244, 247, 0.3);
+  color: var(--ws-inv-42);
   background: transparent;
 }
 
 .toolbar :deep(.el-button.is-text.el-button--danger) {
-  color: #ffb59b;
+  color: var(--ws-alert-bright);
 }
 
 .toolbar :deep(.el-button.is-text.el-button--danger:hover) {
-  color: #ffd2c0;
-  background: rgba(194, 65, 12, 0.16);
+  color: #fff;
+  background: var(--ws-alert-a16);
 }
 
 .toolbar :deep(.el-button--warning.is-plain) {
-  --el-button-text-color: #ffd08a;
-  --el-button-bg-color: rgba(184, 116, 0, 0.14);
-  --el-button-border-color: rgba(255, 208, 138, 0.4);
-  --el-button-hover-bg-color: rgba(184, 116, 0, 0.26);
-  --el-button-hover-border-color: #ffd08a;
-  --el-button-hover-text-color: #ffe3b8;
+  --el-button-text-color: var(--ws-warn-bright);
+  --el-button-bg-color: var(--ws-warn-a14);
+  --el-button-border-color: var(--ws-warn-line);
+  --el-button-hover-bg-color: var(--ws-warn-a28);
+  --el-button-hover-border-color: var(--ws-warn-bright);
+  --el-button-hover-text-color: #fff;
 }
 
 /* 缩放读数 */
 .zoom-label {
   margin-left: 2px;
   font-size: 11px;
-  color: rgba(238, 244, 247, 0.5);
+  color: var(--ws-inv-42);
 }
 
 .zoom-input {
   width: 48px;
   height: 24px;
   padding: 0 4px;
-  border: 1px solid rgba(238, 244, 247, 0.22);
+  border: 1px solid var(--ws-inv-line);
   border-radius: var(--ws-radius);
   background: rgba(8, 16, 24, 0.35);
-  color: #f2f7f9;
+  color: var(--ws-inv-88);
   font-size: 12px;
   text-align: right;
   outline: none;
@@ -559,7 +540,7 @@ async function shareProject(): Promise<void> {
 
 .zoom-unit {
   font-size: 11px;
-  color: rgba(238, 244, 247, 0.5);
+  color: var(--ws-inv-42);
 }
 
 /* 保存区：横向溢出时始终固定在右侧可见，左侧渐隐遮住滚动内容 */
@@ -579,7 +560,7 @@ async function shareProject(): Promise<void> {
   width: 1px;
   height: 18px;
   margin: 0 3px;
-  background: rgba(238, 244, 247, 0.16);
+  background: var(--ws-inv-line);
   flex-shrink: 0;
 }
 
@@ -596,17 +577,17 @@ async function shareProject(): Promise<void> {
 
 /* 保存：实体白色按键，控制台质感 */
 .save-btn {
-  --el-button-bg-color: #eef4f7;
-  --el-button-border-color: #eef4f7;
+  --el-button-bg-color: var(--ws-text-inverse);
+  --el-button-border-color: var(--ws-text-inverse);
   --el-button-text-color: var(--ws-ink);
   --el-button-hover-bg-color: #ffffff;
   --el-button-hover-border-color: #ffffff;
   --el-button-hover-text-color: var(--ws-ink);
-  --el-button-active-bg-color: #d7e5ea;
-  --el-button-active-border-color: #d7e5ea;
-  --el-button-disabled-bg-color: rgba(238, 244, 247, 0.2);
+  --el-button-active-bg-color: var(--ws-inverse-press);
+  --el-button-active-border-color: var(--ws-inverse-press);
+  --el-button-disabled-bg-color: var(--ws-inv-line);
   --el-button-disabled-border-color: transparent;
-  --el-button-disabled-text-color: rgba(238, 244, 247, 0.58);
+  --el-button-disabled-text-color: var(--ws-inv-60);
   font-weight: 600;
   letter-spacing: 0.08em;
 }
@@ -748,7 +729,7 @@ main {
   gap: 18px;
   padding: 0 12px;
   background: var(--ws-ink);
-  color: rgba(238, 244, 247, 0.58);
+  color: var(--ws-inv-60);
   font-size: 11px;
   overflow: hidden;
 }
@@ -758,7 +739,7 @@ main {
   align-items: center;
   gap: 6px;
   white-space: nowrap;
-  color: rgba(238, 244, 247, 0.62);
+  color: var(--ws-inv-60);
 }
 
 .sb-save .led {
@@ -769,16 +750,16 @@ main {
   flex-shrink: 0;
 }
 
-.sb-save.ok { color: #7ddc93; }
+.sb-save.ok { color: var(--ws-ok-bright); }
 .sb-save.dirty,
-.sb-save.saving { color: #f5c25b; }
-.sb-save.error { color: #ff9d6e; }
+.sb-save.saving { color: var(--ws-warn-bright); }
+.sb-save.error { color: var(--ws-alert-bright); }
 
 .sb-rule {
   width: 1px;
   height: 12px;
   flex-shrink: 0;
-  background: rgba(238, 244, 247, 0.18);
+  background: var(--ws-inv-line);
 }
 
 .sb-item {
@@ -790,11 +771,11 @@ main {
 
 .sb-item b {
   font-weight: 500;
-  color: rgba(238, 244, 247, 0.86);
+  color: var(--ws-inv-88);
 }
 
 .sb-rect {
-  color: rgba(238, 244, 247, 0.5);
+  color: var(--ws-inv-42);
   white-space: nowrap;
 }
 
@@ -804,7 +785,7 @@ main {
 
 .sb-hint {
   white-space: nowrap;
-  color: rgba(238, 244, 247, 0.38);
+  color: var(--ws-inv-42);
 }
 
 .sb-zoom {

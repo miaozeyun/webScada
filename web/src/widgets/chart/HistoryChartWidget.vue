@@ -5,6 +5,7 @@
  * live 模式仍直接消费引擎内存滚动序列；编辑态显示空态示意。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import EchartsBase from '../EchartsBase.vue'
+import { AXIS, CHART, TITLE_STYLE } from './shared'
 import { query } from '@/runtime/history'
 import { useRuntimeStore } from '@/runtime/store'
 import { useRuntimeApi } from '@/runtime/actions'
@@ -111,24 +112,22 @@ onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
 })
 
-const AXIS = { axisLabel: { color: '#909399' }, axisLine: { lineStyle: { color: '#c0c4cc' } }, splitLine: { lineStyle: { color: 'rgba(148,163,184,0.2)' } } }
-
 /** 紧凑模式（移动端小尺寸）：隐标题/坐标轴文字，边距最小化 */
 const compact = computed(() => props.nodeProps.compact === true)
 
 const option = computed(() => ({
   title: compact.value
     ? { show: false }
-    : { text: String(props.nodeProps.title ?? '历史趋势'), left: 'center', textStyle: { color: '#909399', fontSize: 14 } },
+    : { text: String(props.nodeProps.title ?? '历史趋势'), left: 'center', textStyle: TITLE_STYLE },
   tooltip: { trigger: 'axis', valueFormatter: (v: number) => `${v}${props.nodeProps.unit ?? ''}` },
   grid: compact.value ? { left: 4, right: 6, top: 6, bottom: 4 } : { left: 44, right: 16, top: 40, bottom: 28 },
   xAxis: liveMode.value
     ? { type: 'category', data: liveSeries.value.map((_, i) => String(i + 1)), show: false }
-    : { type: 'time', ...AXIS, axisLabel: { show: !compact.value, color: '#909399' }, axisTick: { show: !compact.value } },
+    : { type: 'time', ...AXIS, axisLabel: { show: !compact.value, color: CHART.text }, axisTick: { show: !compact.value } },
   yAxis: {
-    type: 'value', name: compact.value ? '' : String(props.nodeProps.unit ?? ''), nameTextStyle: { color: '#909399' }, scale: true, ...AXIS,
-    axisLabel: { show: !compact.value, color: '#909399' },
-    splitLine: { show: !compact.value && !liveMode.value, lineStyle: { color: 'rgba(148,163,184,0.2)' } },
+    type: 'value', name: compact.value ? '' : String(props.nodeProps.unit ?? ''), nameTextStyle: { color: CHART.text }, scale: true, ...AXIS,
+    axisLabel: { show: !compact.value, color: CHART.text },
+    splitLine: { show: !compact.value && !liveMode.value, lineStyle: { color: CHART.split } },
   },
   series: [
     {
@@ -136,8 +135,8 @@ const option = computed(() => ({
       showSymbol: false,
       smooth: true,
       data: liveMode.value ? liveSeries.value : points.value,
-      lineStyle: { color: '#1ba7b8', width: 2 },
-      areaStyle: { color: 'rgba(64,158,255,0.12)' },
+      lineStyle: { color: CHART.signal, width: 2 },
+      areaStyle: { color: CHART.signalArea },
     },
   ],
 }))
@@ -192,7 +191,7 @@ const hasData = computed(() => (liveMode.value ? liveSeries.value.length > 0 : p
 .range-btn {
   border: 1px solid rgba(148, 163, 184, 0.5);
   background: rgba(15, 23, 42, 0.65);
-  color: #cbd5e1;
+  color: #c0c4cc;
   font-size: 11px;
   padding: 1px 7px;
   border-radius: 3px;
@@ -200,12 +199,13 @@ const hasData = computed(() => (liveMode.value ? liveSeries.value.length > 0 : p
 }
 
 .range-btn.active {
-  background: #2563eb;
-  border-color: #2563eb;
+  background: #0b7285;
+  border-color: #0b7285;
   color: #fff;
 }
 
-/* 服务端降级角标（M8）：左上角，避免与右上图内范围切换条重叠 */
+/* 服务端降级角标（M8）：左上角，避免与右上图内范围切换条重叠。
+   画布内容不随界面主题，固定深浅底都可读的琥珀色 */
 .local-badge {
   position: absolute;
   top: 6px;
@@ -215,7 +215,7 @@ const hasData = computed(() => (liveMode.value ? liveSeries.value.length > 0 : p
   border: 1px solid rgba(184, 116, 0, 0.45);
   border-radius: 3px;
   background: rgba(184, 116, 0, 0.14);
-  color: var(--ws-warn, #b87400);
+  color: #d9a441;
   font-size: 10px;
   line-height: 1.5;
   pointer-events: none;
@@ -227,7 +227,7 @@ const hasData = computed(() => (liveMode.value ? liveSeries.value.length > 0 : p
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #94a3b8;
+  color: #909399;
   font-size: 12px;
   pointer-events: none;
 }

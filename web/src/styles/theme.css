@@ -16,10 +16,10 @@
   --ws-canvas: #e9edf1;
   --ws-panel: #ffffff;
 
-  /* 文字 */
+  /* 文字（text-3 需在面板底上 ≥4.5:1，供 12px 辅助正文使用） */
   --ws-text: #22313f;
   --ws-text-2: #56697a;
-  --ws-text-3: #8394a3;
+  --ws-text-3: #66788a;
   --ws-text-inverse: #eef4f7;
 
   /* 信号色（工业语义） */
@@ -31,10 +31,34 @@
   --ws-alert-soft: #f6e7e1;
   --ws-warn: #b87400;
   --ws-ok: #2f8a46;
+  /* 深底亮色：顶栏/状态栏上的状态灯与警示文字（各主题手调，饱和不泛灰） */
+  --ws-ok-bright: #7ddc93;
+  --ws-warn-bright: #f5c25b;
+  --ws-alert-bright: #ff9d6e;
   --ws-select: #1ba7b8;
   --ws-action: #14212e;
   --ws-action-hover: #2a4155;
   --ws-overlay: #ffffff;
+
+  /* 派生令牌（theme.ts applyTheme 按主题重算；此处为 electric 静态默认）：
+     深底反白分档 / 信号与警示透明底 / 结构边线 */
+  --ws-inv-88: rgba(238, 244, 247, 0.88);
+  --ws-inv-75: rgba(238, 244, 247, 0.75);
+  --ws-inv-60: rgba(238, 244, 247, 0.6);
+  --ws-inv-42: rgba(238, 244, 247, 0.42);
+  --ws-inv-line: rgba(238, 244, 247, 0.22);
+  --ws-inv-hover: rgba(238, 244, 247, 0.08);
+  --ws-signal-a12: rgba(27, 167, 184, 0.12);
+  --ws-signal-a18: rgba(27, 167, 184, 0.18);
+  --ws-signal-a45: rgba(27, 167, 184, 0.45);
+  --ws-alert-a16: rgba(194, 65, 12, 0.16);
+  --ws-alert-a40: rgba(194, 65, 12, 0.4);
+  --ws-alert-line: rgba(255, 157, 110, 0.45);
+  --ws-warn-a14: rgba(184, 116, 0, 0.14);
+  --ws-warn-a28: rgba(184, 116, 0, 0.28);
+  --ws-warn-line: rgba(245, 194, 91, 0.4);
+  --ws-ink-edge: #0c131c;
+  --ws-inverse-press: #d3dade;
 
   /* 字体 */
   --ws-font-ui: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
@@ -102,7 +126,7 @@
 
   --el-text-color-primary: #22313f;
   --el-text-color-regular: #45596b;
-  --el-text-color-secondary: #6b7c8c;
+  --el-text-color-secondary: #66788a;
   --el-text-color-placeholder: #93a3b1;
   --el-text-color-disabled: #a9b7c2;
 
@@ -169,6 +193,29 @@ body {
   font-family: var(--ws-font-tech);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+}
+
+/* 深底幽灵按钮：顶栏/工具条上的次级操作（配色选择器/台账顶栏/编辑器返回/管理页），
+   替代此前各视图重复定义的同款样式；局部仅覆盖尺寸 */
+.ws-ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--ws-inv-line);
+  border-radius: var(--ws-radius);
+  background: transparent;
+  color: var(--ws-inv-75);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ws-ghost-btn:hover {
+  border-color: var(--ws-signal-bright);
+  background: var(--ws-signal-a12);
+  color: #fff;
 }
 
 /* 加载指示：信号色读数环（编辑器载入 / 分享页加载共用；reduced-motion 下放慢而非停止） */

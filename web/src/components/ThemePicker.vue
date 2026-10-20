@@ -22,7 +22,7 @@ function syncCurrent(): void {
 <template>
   <el-popover v-model:visible="visible" placement="bottom-end" @show="syncCurrent" :width="316" trigger="click" popper-class="theme-popper">
     <template #reference>
-      <button class="theme-trigger" type="button" title="界面配色" aria-label="界面配色">
+      <button class="theme-trigger ws-ghost-btn" type="button" title="界面配色" aria-label="界面配色">
         <el-icon :size="15"><Brush /></el-icon>
       </button>
     </template>
@@ -52,26 +52,12 @@ function syncCurrent(): void {
 </template>
 
 <style scoped>
-/* 触发器位于深墨蓝顶栏/页脚，统一为幽灵按钮 */
+/* 触发器位于深墨蓝顶栏/页脚：外观走全局 .ws-ghost-btn，此处只覆盖为方形图标位 */
 .theme-trigger {
   width: 28px;
   height: 26px;
   flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   padding: 0;
-  border: 1px solid rgba(238, 244, 247, 0.22);
-  border-radius: var(--ws-radius);
-  background: transparent;
-  color: rgba(238, 244, 247, 0.78);
-  cursor: pointer;
-}
-
-.theme-trigger:hover {
-  border-color: var(--ws-signal-bright);
-  background: rgba(27, 167, 184, 0.12);
-  color: #fff;
 }
 
 .theme-trigger:focus-visible {

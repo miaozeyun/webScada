@@ -90,13 +90,13 @@ async function pick(level: Level, ev?: Event): Promise<void> {
 }
 
 .level.active {
-  background: #2563eb;
-  border-color: #2563eb;
+  background: #0b7285;
+  border-color: #0b7285;
   color: #fff;
   font-weight: 600;
 }
 
 .level:not(.active):hover {
-  background: rgba(37, 99, 235, 0.25);
+  background: rgba(11, 114, 133, 0.25);
 }
 </style>
