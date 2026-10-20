@@ -4,7 +4,12 @@ import { computed } from 'vue'
 
 const props = defineProps<{ nodeProps: Record<string, unknown> }>()
 
+/** 绑定注入的原始浮点需按小数位取整展示（round 避免 70.015 → 70.0 的截断误差） */
+const precision = computed(() => Number(props.nodeProps.precision ?? 0))
+
 const percent = computed(() => Math.min(100, Math.max(0, Number(props.nodeProps.percent ?? 72))))
+
+const display = computed(() => percent.value.toFixed(precision.value))
 </script>
 
 <template>
@@ -12,7 +17,7 @@ const percent = computed(() => Math.min(100, Math.max(0, Number(props.nodeProps.
     <div class="bar">
       <div class="fill" :style="{ width: `${percent}%` }" />
     </div>
-    <span class="pct">{{ percent }}%</span>
+    <span class="pct">{{ display }}%</span>
   </div>
 </template>
 
@@ -38,7 +43,7 @@ const percent = computed(() => Math.min(100, Math.max(0, Number(props.nodeProps.
 .fill {
   height: 100%;
   border-radius: 7px;
-  background: linear-gradient(90deg, #409eff, #70c0ff);
+  background: linear-gradient(90deg, #0b7285, #1ba7b8);
   transition: width 0.3s;
 }
 

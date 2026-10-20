@@ -13,8 +13,8 @@ defineProps<{ rect: { x: number; y: number; w: number; h: number } }>()
 <style scoped>
 .marquee {
   position: absolute;
-  border: 1px solid #70c0ff;
-  background: rgba(112, 192, 255, 0.12);
+  border: 1px solid var(--ws-select);
+  background: rgba(27, 167, 184, 0.14);
   pointer-events: none;
 }
 </style>

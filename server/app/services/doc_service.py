@@ -85,6 +85,19 @@ def validate_references(model: ProjectDoc) -> None:
     comp_pairs: list[tuple[str, str]] = []
     binding_pairs: list[tuple[str, str]] = []
 
+    # M7：事件动作引用校验需要全量组件/页面 id，先行收集
+    comp_ids: set[str] = set()
+
+    def _collect_ids(nodes: list[ComponentNode]) -> None:
+        for n in nodes:
+            comp_ids.add(n.id)
+            if n.children:
+                _collect_ids(n.children)
+
+    page_ids = {p.id for p in model.pages}
+    for page in model.pages:
+        _collect_ids(page.components)
+
     def walk(nodes: list[ComponentNode], prefix: str) -> None:
         for ci, node in enumerate(nodes):
             p = f"{prefix}[{ci}]"
@@ -104,6 +117,27 @@ def validate_references(model: ProjectDoc) -> None:
                     })
                 else:
                     seen_props[b.prop] = bi
+            # M7：事件动作引用存在性（writeVar 变量 / 弹框与切页目标）
+            for ei, ev in enumerate(node.events or []):
+                ep = f"{p}.events[{ei}]"
+                for ai, act in enumerate(ev.actions):
+                    ap = f"{ep}.actions[{ai}]"
+                    if act.type == "writeVar":
+                        if not act.variableId or act.variableId not in var_ids:
+                            errors.append({"path": f"{ap}.variableId", "message": f"writeVar 变量 {act.variableId} 不存在"})
+                        else:
+                            target = next(v for v in model.variables if v.id == act.variableId)
+                            if not target.writable:
+                                errors.append({"path": f"{ap}.variableId", "message": f"writeVar 目标变量 {target.key} 未开启 writable"})
+                    elif act.type in ("showPopup", "hidePopup", "toggleVisible"):
+                        if not act.targetId or act.targetId not in comp_ids:
+                            errors.append({"path": f"{ap}.targetId", "message": f"目标组件 {act.targetId} 不存在"})
+                    elif act.type == "switchPage":
+                        if not act.pageId or act.pageId not in page_ids:
+                            errors.append({"path": f"{ap}.pageId", "message": f"目标页面 {act.pageId} 不存在"})
+                    elif act.type == "openUrl":
+                        if not act.url:
+                            errors.append({"path": f"{ap}.url", "message": "openUrl 缺少 url"})
             if node.children:
                 walk(node.children, f"{p}.children")
 
@@ -112,8 +146,10 @@ def validate_references(model: ProjectDoc) -> None:
     uniq("组件 id", comp_pairs)
     uniq("绑定 id", binding_pairs)
 
-    # ---- 规则 2：变量 → 数据源引用存在性 ----
+    # ---- 规则 2：变量 → 数据源引用存在性（M7：虚拟变量哨兵豁免） ----
     for i, v in enumerate(model.variables):
+        if v.expr is not None and v.datasourceId == "virtual":
+            continue
         if v.datasourceId not in ds_ids:
             errors.append({"path": f"variables[{i}].datasourceId", "message": f"数据源 {v.datasourceId} 不存在"})
 

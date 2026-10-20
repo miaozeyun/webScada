@@ -71,10 +71,10 @@ ul {
   margin: 5px 0;
   padding: 6px 0;
   list-style: none;
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  background: var(--ws-panel);
+  border: 1px solid var(--ws-steel-3);
+  border-radius: var(--ws-radius);
+  box-shadow: 0 6px 20px rgba(20, 33, 46, 0.14);
   box-sizing: border-box;
 }
 
@@ -84,16 +84,17 @@ li {
   align-items: center;
   gap: 24px;
   padding: 0 20px;
-  font-size: 14px;
+  font-size: 13px;
   height: 34px;
   line-height: 34px;
-  color: #606266;
+  color: var(--ws-text);
   cursor: pointer;
   white-space: nowrap;
 }
 
 li:hover {
-  background: #f5f7fa;
+  background: var(--ws-signal-soft);
+  color: var(--ws-signal);
 }
 
 li.disabled {
@@ -102,24 +103,25 @@ li.disabled {
 }
 
 li.danger:hover {
-  color: #f56c6c;
+  color: var(--ws-alert);
+  background: var(--ws-alert-soft);
 }
 
 li.sep {
   height: 1px;
   padding: 0;
   margin: 4px 12px;
-  background: #e4e7ed;
+  background: var(--ws-steel-2);
   cursor: default;
 }
 
 li.sep:hover {
-  background: #e4e7ed;
+  background: var(--ws-steel-2);
 }
 
 kbd {
-  color: #c0c4cc;
+  color: var(--ws-text-3);
   font-size: 11px;
-  font-family: inherit;
+  font-family: var(--ws-font-mono);
 }
 </style>

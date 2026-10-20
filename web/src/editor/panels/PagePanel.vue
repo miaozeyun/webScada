@@ -55,7 +55,7 @@ async function remove(id: string, name: string): Promise<void> {
 <style scoped>
 .page-panel {
   padding: 8px;
-  color: #cbd5e1;
+  color: var(--ws-text);
 }
 
 .page-toolbar {
@@ -67,21 +67,22 @@ async function remove(id: string, name: string): Promise<void> {
   align-items: center;
   gap: 6px;
   padding: 6px;
-  border-radius: 4px;
+  border-radius: var(--ws-radius);
   cursor: pointer;
   font-size: 13px;
 }
 
 .page-row:hover {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--ws-steel-1);
 }
 
 .page-row.active {
-  background: rgba(59, 130, 246, 0.25);
+  background: var(--ws-signal-soft);
+  color: var(--ws-signal);
 }
 
 .page-order {
-  color: #64748b;
+  color: var(--ws-text-3);
   width: 16px;
   text-align: center;
 }
@@ -103,20 +104,20 @@ async function remove(id: string, name: string): Promise<void> {
 }
 
 .action {
-  color: #94a3b8;
+  color: var(--ws-text-3);
   padding: 2px;
 }
 
 .action:hover {
-  color: #60a5fa;
+  color: var(--ws-signal);
 }
 
 .action.danger:hover {
-  color: #ef4444;
+  color: var(--ws-alert);
 }
 
 .page-tip {
-  color: #64748b;
+  color: var(--ws-text-3);
   font-size: 12px;
   margin-top: 8px;
 }

@@ -20,7 +20,7 @@ const text = computed(() => String(props.nodeProps.text ?? '按钮'))
   justify-content: center;
   border: none;
   border-radius: 4px;
-  background: #409eff;
+  background: #0b7285;
   color: #fff;
   font-size: 14px;
   cursor: pointer;

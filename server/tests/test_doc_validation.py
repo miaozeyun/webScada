@@ -116,3 +116,123 @@ async def test_non_uuid_project_id_rejected(client, auth_headers):
     )
     assert resp.status_code == 422
     assert any(e["path"] == "project.id" for e in resp.json()["errors"])
+
+
+# ================= M7：反控 / 虚拟变量 / 事件 / 弹框 / 动效通道 =================
+
+
+async def test_m7_widgets_and_anim_binding_accepted(client, auth_headers):
+    """新组件类型 + anim.* 绑定路径 + lockPan + move 动画 + 事件/悬停/弹框（合法形态全通过）"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["pages"][0]["screen"]["lockPan"] = True
+    comp = doc["pages"][0]["components"][0]
+    comp["type"] = "var-display"
+    comp["props"] = {"prefix": "", "unit": "", "precision": 2}
+    comp["bindings"] = [
+        {"id": "bnd_m7_a", "prop": "anim.rotateOn", "variableId": doc["variables"][1]["id"], "mode": "value", "mapping": None},
+        {"id": "bnd_m7_b", "prop": "anim.rotatePeriod", "variableId": doc["variables"][0]["id"], "mode": "value", "mapping": None},
+    ]
+    comp["animations"] = {"move": {"enabled": True, "path": "M 0 0 L 300 0", "periodMs": 8000, "mode": "pingpong"}}
+    comp["tooltip"] = {"enabled": True, "template": "温度 {reactor1_temp} ℃"}
+    doc["pages"][0]["components"].append({
+        "id": "grp_m7", "name": "弹框组", "type": "group", "x": 0, "y": 0, "w": 100, "h": 100, "z": 1,
+        "props": {}, "bindings": [], "children": [],
+        "popup": {"style": "menu", "title": "操作", "triggerExpr": "reactor1_temp > 80"},
+    })
+    comp["events"] = [
+        {"id": "evt_m7", "trigger": "contextmenu", "actions": [{"type": "showPopup", "targetId": "grp_m7"}]},
+    ]
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200
+
+
+async def test_anim_binding_requires_value_mode(client, auth_headers):
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    _binding(doc, 0)["prop"] = "anim.rotateOn"
+    _binding(doc, 0)["mode"] = "color"
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+    assert any("anim" in e["message"] or "value" in e["message"] for e in resp.json().get("errors", []))
+
+
+async def test_virtual_variable_datasource_sentinel(client, auth_headers):
+    """expr 变量：datasourceId='virtual' 通过；expr 配真实数据源被拒"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["variables"].append({
+        "id": "var_m7_virtual", "key": "avg_temp", "label": "平均温度", "type": "number",
+        "datasourceId": "virtual", "expr": "reactor1_temp * 2",
+    })
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200
+
+    bad = make_doc()
+    bad["variables"].append({
+        "id": "var_m7_virtual", "key": "avg_temp", "label": "平均温度", "type": "number",
+        "datasourceId": doc["variables"][0]["datasourceId"],  # expr 配了真实数据源 → 422
+        "expr": "reactor1_temp * 2",
+    })
+    resp = await put_doc(client, auth_headers, pid, bad, base_revision=2)
+    assert resp.status_code == 422
+
+
+async def test_write_var_event_requires_writable_variable(client, auth_headers):
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    comp = doc["pages"][0]["components"][0]
+    comp["events"] = [
+        {"id": "evt_m7_w", "trigger": "click", "actions": [
+            {"type": "writeVar", "variableId": doc["variables"][0]["id"], "value": "1"},  # 未开启 writable → 422
+        ]},
+    ]
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+    assert any(e["path"].endswith("actions[0].variableId") for e in resp.json()["errors"])
+
+    doc["variables"][0]["writable"] = True  # 开启后通过
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200
+
+
+async def test_event_target_references_validated(client, auth_headers):
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    comp = doc["pages"][0]["components"][0]
+    comp["events"] = [
+        {"id": "evt_m7_p", "trigger": "click", "actions": [{"type": "switchPage", "pageId": "page_missing"}]},
+    ]
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+    assert any(e["path"].endswith("actions[0].pageId") for e in resp.json()["errors"])
+
+    comp["events"][0]["actions"][0] = {"type": "showPopup", "targetId": "node_missing"}
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+
+
+async def test_popup_only_on_group(client, auth_headers):
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["pages"][0]["components"][0]["popup"] = {"style": "dialog"}
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+
+
+async def test_mock_hold_and_anim_move_on_accepted(client, auth_headers):
+    """M7 案例：hold 波形（反控回环）+ anim.moveOn 轨迹启停通道，合法形态通过"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["variables"].append({
+        "id": "var_m7_hold", "key": "ctl.run", "label": "运行开关", "type": "number",
+        "datasourceId": doc["variables"][0]["datasourceId"], "writable": True,
+        "defaultValue": 1, "mock": {"kind": "hold"},
+    })
+    comp = doc["pages"][0]["components"][0]
+    comp["bindings"].append({
+        "id": "bnd_m7_move", "prop": "anim.moveOn", "variableId": "var_m7_hold", "mode": "value", "mapping": None,
+    })
+    comp["animations"] = {"move": {"enabled": False, "path": "M 0 0 L 300 0", "periodMs": 8000, "mode": "loop"}}
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200

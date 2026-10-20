@@ -22,3 +22,8 @@ github/
 artifacts/
 scripts/debug*.py
 scripts/recon_login.py
+
+# 本地 agent/skill 工具文件
+.agents/
+.claude/
+skills-lock.json

@@ -82,6 +82,6 @@ onBeforeUnmount(() => {
 }
 
 .dots i.on {
-  background: #409eff;
+  background: #0b7285;
 }
 </style>

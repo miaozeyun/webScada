@@ -53,6 +53,8 @@ export interface MqttConfig {
   password?: string | null
   topics: string[]
   qos?: 0 | 1
+  /** 反控写入 QoS（写 topic 取变量 writeAddress，缺省回落 address） */
+  writeQos?: 0 | 1
   cleanSession?: boolean
   reconnectMinMs?: number
   reconnectMaxMs?: number
@@ -69,6 +71,8 @@ export interface WebsocketConfig {
   reconnectMaxMs?: number
   staleTimeoutMs?: number | null
   tsPath?: string | null
+  /** 反控写入帧模板，占位 {key} {value}；缺省 {"key":value} */
+  writeFrameTemplate?: string | null
 }
 
 export interface RestConfig {
@@ -82,6 +86,11 @@ export interface RestConfig {
   failureBackoffMs?: number | null
   staleTimeoutMs?: number | null
   tsPath?: string | null
+  /** 反控写入端点（与轮询 url 分离）；无则该数据源不可写 */
+  writeUrl?: string | null
+  writeMethod?: 'POST' | 'PUT' | null
+  /** 写入请求体模板，占位 {key} {value}；缺省 {"key":value} */
+  writeBodyTemplate?: string | null
 }
 
 export interface MockConfig {
@@ -113,6 +122,11 @@ export type MockSpec =
   | { kind: 'ramp'; min: number; max: number; periodMs: number }
   | { kind: 'random'; min: number; max: number; intervalMs: number }
   | { kind: 'square'; onValue: number; offValue: number; periodMs: number; duty?: number }
+  /** 保持型：不周期推送，仅初始 defaultValue；写入回环后保持（反控演示/受控开关量） */
+  | { kind: 'hold' }
+
+/** 虚拟变量哨兵：expr 非空时 datasourceId 固定为此值，不入 datasources 数组 */
+export const VIRTUAL_DATASOURCE_ID = 'virtual'
 
 export interface VariableDef {
   id: string
@@ -127,6 +141,12 @@ export interface VariableDef {
   /** 取数地址：mqtt=topic；websocket/rest=定位键；mock 忽略 */
   address?: string
   jsonPath?: string | null
+  // ---- 反控（M7）：写通道经浏览器直连数据源，writable 变量才可写 ----
+  writable?: boolean
+  /** mqtt 写 topic（缺省回落 address）；ws/rest 写配置在数据源级 */
+  writeAddress?: string | null
+  // ---- 虚拟变量（M7）：表达式引用其它变量 key，引擎求值级联刷新 ----
+  expr?: string | null
   // ---- 变量级换算（G3：服务端入池前一次执行；与 bitIndex 互斥） ----
   scale?: number | null
   offset?: number | null
@@ -143,6 +163,10 @@ export type WidgetType =
   | 'text' | 'image' | 'rect' | 'circle' | 'line' | 'table' | 'button' | 'carousel'
   | 'flip-counter' | 'line-chart' | 'bar-chart' | 'pie-chart' | 'gauge' | 'progress' | 'trend-chart'
   | 'status-light' | 'motor' | 'pump' | 'valve' | 'pipe'
+  // ---- M7 新增（对齐 BY组态）----
+  | 'var-display' | 'state-text' | 'switch' | 'multi-switch' | 'input-cmd'
+  | 'tank' | 'flow-bar' | 'image-switch' | 'web-frame' | 'video' | 'weather' | 'clock' | 'history-chart'
+  | 'breaker' | 'isolator' | 'ground' | 'ct' | 'pt' | 'transformer'
   | 'group'
 
 export interface PageBackground { color: string; image?: string | null }
@@ -151,6 +175,8 @@ export interface ScreenCfg {
   designWidth: number
   designHeight: number
   mode: AdaptiveMode
+  /** 运行态锁定画面：禁止滚动/拖拽（BY组态「不让实时画面移动」） */
+  lockPan?: boolean
 }
 
 export interface ComponentStyle {
@@ -168,6 +194,8 @@ export interface ComponentAnimations {
   blink?: { enabled: boolean; intervalMs: number }
   flow?: { enabled: boolean; speed: number }
   rotate?: { enabled: boolean; clockwise?: boolean; periodMs: number }
+  /** 轨迹运动（M7）：沿 SVG path 做位移动画（CSS offset-path） */
+  move?: { enabled: boolean; path: string; periodMs: number; mode: 'loop' | 'pingpong' }
 }
 
 /** 映射（G4）：查表键为变量工程值的字符串化形式 */
@@ -177,12 +205,52 @@ export type ValueMapping =
 
 export interface Binding {
   id: string
-  /** 目标路径四类：props.* / style.* / visible / opacity */
+  /** 目标路径五类：props.* / style.* / visible / opacity / anim.*（rotateOn/rotatePeriod/flowOn/blinkOn/moveOn） */
   prop: string
   variableId: string
   mode: 'value' | 'color' | 'visibility'
   /** color 必填（422）；value/visibility 可选 */
   mapping?: ValueMapping | null
+}
+
+// ---- 事件与行为（M7，对齐 BY组态「事件与行为」） ----
+
+export type EventTrigger = 'click' | 'dblclick' | 'contextmenu'
+
+export type EventActionType = 'writeVar' | 'showPopup' | 'hidePopup' | 'switchPage' | 'openUrl' | 'toggleVisible'
+
+export interface EventActionDef {
+  type: EventActionType
+  /** writeVar：目标变量（须 writable） */
+  variableId?: string | null
+  /** writeVar：写入值（支持表达式，如 '1' / 'tank.level + 1'） */
+  value?: string | null
+  /** showPopup/hidePopup/toggleVisible：目标组件 id */
+  targetId?: string | null
+  /** switchPage：目标页面 id */
+  pageId?: string | null
+  /** openUrl：新窗口地址 */
+  url?: string | null
+}
+
+export interface NodeEventDef {
+  id: string
+  trigger: EventTrigger
+  actions: EventActionDef[]
+}
+
+/** 鼠标悬停信息（M7）：模板占位 {变量key} 实时替换 */
+export interface TooltipCfg {
+  enabled: boolean
+  template: string
+}
+
+/** 弹框容器（M7）：仅 group；运行态默认隐藏，事件/条件控制显隐 */
+export interface PopupCfg {
+  style: 'dialog' | 'menu'
+  title?: string | null
+  /** 条件弹框：表达式满足（真值）时自动显示；与事件动作独立生效 */
+  triggerExpr?: string | null
 }
 
 export interface ComponentNode {
@@ -203,6 +271,12 @@ export interface ComponentNode {
   style?: ComponentStyle | null
   animations?: ComponentAnimations | null
   bindings: Binding[]
+  /** 事件与行为（M7）：运行态触发；编辑态不响应 */
+  events?: NodeEventDef[] | null
+  /** 悬停信息（M7） */
+  tooltip?: TooltipCfg | null
+  /** 弹框容器（M7）：仅 group */
+  popup?: PopupCfg | null
   /** 仅 type='group'；组内坐标为相对组原点 */
   children?: ComponentNode[] | null
 }

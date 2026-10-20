@@ -8,6 +8,8 @@ import type { DataSource, VariableDef } from '@/types/doc'
 
 export interface SourceHandle {
   stop(): void
+  /** 反控写入（M7）：mqtt/rest/websocket 返回；mock 由引擎本地回环（不经此通道） */
+  write?(variable: VariableDef, value: number | boolean | string): Promise<void>
 }
 
 export type RawCallback = (variable: VariableDef, raw: unknown) => void
@@ -48,7 +50,7 @@ export function startSource(ds: DataSource, variables: VariableDef[], onRaw: Raw
   }
 }
 
-// ---- mock：变量各自按 spec 振荡（sine/ramp/random/square） ----
+// ---- mock：变量各自按 spec 振荡（sine/ramp/random/square/hold） ----
 
 function startMock(ds: Extract<DataSource, { type: 'mock' }>, vars: VariableDef[], onRaw: RawCallback): SourceHandle {
   const timers = new Set<ReturnType<typeof setInterval>>()
@@ -56,6 +58,11 @@ function startMock(ds: Extract<DataSource, { type: 'mock' }>, vars: VariableDef[
   for (const v of vars) {
     const spec = v.mock
     if (!spec) continue
+    if (spec.kind === 'hold') {
+      // 保持型：仅推初始默认值，此后只随反控写入回环变化
+      if (v.defaultValue !== null && v.defaultValue !== undefined) onRaw(v, v.defaultValue)
+      continue
+    }
     const interval = spec.kind === 'random' ? spec.intervalMs : Math.max(100, spec.periodMs / 24)
     timers.add(
       setInterval(() => {
@@ -140,6 +147,19 @@ function startWebsocket(ds: Extract<DataSource, { type: 'websocket' }>, vars: Va
       if (reconnectTimer) clearTimeout(reconnectTimer)
       ws?.close()
     },
+    write: (variable, value) =>
+      new Promise<void>((resolve, reject) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          reject(new Error('WebSocket 未连接，写入失败'))
+          return
+        }
+        const tpl = ds.config.writeFrameTemplate
+        const frame = tpl
+          ? tpl.replace(/\{key\}/g, variable.key).replace(/\{value\}/g, JSON.stringify(value))
+          : JSON.stringify({ [variable.key]: value })
+        ws.send(frame)
+        resolve()
+      }),
   }
 }
 
@@ -177,6 +197,20 @@ function startRest(ds: Extract<DataSource, { type: 'rest' }>, vars: VariableDef[
       stopped = true
       if (timer) clearTimeout(timer)
     },
+    write: async (variable, value) => {
+      const url = ds.config.writeUrl
+      if (!url) throw new Error('该 REST 数据源未配置写端点（writeUrl）')
+      const body = (ds.config.writeBodyTemplate
+        ? ds.config.writeBodyTemplate.replace(/\{key\}/g, variable.key).replace(/\{value\}/g, JSON.stringify(value))
+        : JSON.stringify({ [variable.key]: value }))
+      const resp = await fetch(url, {
+        method: ds.config.writeMethod ?? 'POST',
+        headers: { 'Content-Type': 'application/json', ...(ds.config.headers ?? {}) },
+        body,
+        signal: AbortSignal.timeout(ds.config.timeoutMs ?? 5000),
+      })
+      if (!resp.ok) throw new Error(`写入失败：HTTP ${resp.status}`)
+    },
   }
 }
 
@@ -212,5 +246,81 @@ function startMqtt(ds: Extract<DataSource, { type: 'mqtt' }>, vars: VariableDef[
     stop: () => {
       client.end(true)
     },
+    write: async (variable, value) => {
+      const topic = variable.writeAddress || variable.address
+      if (!topic) throw new Error(`变量 ${variable.key} 未配置写地址（writeAddress/address）`)
+      await new Promise<void>((resolve, reject) => {
+        client.publish(
+          topic,
+          typeof value === 'string' ? value : String(value),
+          { qos: ds.config.writeQos ?? 0, retain: false },
+          (err) => (err ? reject(err) : resolve()),
+        )
+      })
+    },
+  }
+}
+
+// ---- 连接测试（M7「MQTT 通讯测试」泛化到四源） ----
+
+export interface TestResult {
+  ok: boolean
+  message: string
+}
+
+/** 数据源连通性测试：mock 恒通；mqtt 尝试连接后立即断开；ws/rest 各发一次请求 */
+export function testConnection(ds: DataSource): Promise<TestResult> {
+  switch (ds.type) {
+    case 'mock':
+      return Promise.resolve({ ok: true, message: 'mock 数据源在浏览器本地生成，无需连接' })
+    case 'mqtt':
+      return new Promise((resolve) => {
+        const client = mqtt.connect(ds.config.brokerUrl, {
+          username: ds.config.username || undefined,
+          password: ds.config.password || undefined,
+          reconnectPeriod: 0,
+          connectTimeout: 5000,
+          protocolVersion: 4,
+        })
+        const done = (ok: boolean, message: string): void => {
+          resolve({ ok, message })
+          setTimeout(() => client.end(true), 200)
+        }
+        client.on('connect', () => done(true, `已连接 ${ds.config.brokerUrl}`))
+        client.on('error', (err: Error) => done(false, `连接失败：${err.message}`))
+      })
+    case 'websocket':
+      return new Promise((resolve) => {
+        try {
+          const ws = new WebSocket(ds.config.url)
+          const timer = setTimeout(() => {
+            resolve({ ok: false, message: '连接超时（5s）' })
+            ws.close()
+          }, 5000)
+          ws.onopen = () => {
+            clearTimeout(timer)
+            resolve({ ok: true, message: `已连接 ${ds.config.url}` })
+            ws.close()
+          }
+          ws.onerror = () => {
+            clearTimeout(timer)
+            resolve({ ok: false, message: '连接失败（onerror）' })
+          }
+        } catch (err) {
+          resolve({ ok: false, message: `连接失败：${(err as Error).message}` })
+        }
+      })
+    case 'rest':
+      return fetch(ds.config.url, {
+        method: ds.config.method ?? 'GET',
+        headers: ds.config.headers ?? undefined,
+        body: ds.config.method === 'POST' ? (ds.config.body ?? undefined) : undefined,
+        signal: AbortSignal.timeout(5000),
+      })
+        .then((resp) => ({
+          ok: resp.ok,
+          message: resp.ok ? `HTTP ${resp.status}（${ds.config.url}）` : `HTTP ${resp.status}（${ds.config.url}）`,
+        }))
+        .catch((err: Error) => ({ ok: false, message: `请求失败：${err.message}` }))
   }
 }

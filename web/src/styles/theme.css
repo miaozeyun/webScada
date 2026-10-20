@@ -1,22 +1,482 @@
-/* webScada 全局主题：蓝色系简洁（设计基调，02 契约 settings.theme 同源） */
+/* ============================================================
+   webScada 工业科技主题（浅色工业仪表）
+   设计语汇：控制柜深墨蓝框架 + 镀锌钢板冷灰 + 电气青信号色 + 安全橙警示
+   所有界面（登录 / 工程台账 / 编辑器 / 运行态）共用本文件令牌
+   ============================================================ */
+
 :root {
-  --ws-primary: #2563eb;
-  --ws-bg: #f5f7fa;
-  --ws-header-bg: #1e3a8a;
+  /* 结构色 */
+  --ws-ink: #14212e;
+  --ws-ink-2: #1d3040;
+  --ws-ink-3: #2a4155;
+  --ws-steel-0: #f8fafb;
+  --ws-steel-1: #eef2f5;
+  --ws-steel-2: #e2e8ee;
+  --ws-steel-3: #cbd5df;
+  --ws-canvas: #e9edf1;
+  --ws-panel: #ffffff;
+
+  /* 文字 */
+  --ws-text: #22313f;
+  --ws-text-2: #56697a;
+  --ws-text-3: #8394a3;
+  --ws-text-inverse: #eef4f7;
+
+  /* 信号色（工业语义） */
+  --ws-signal: #0b7285;
+  --ws-signal-strong: #095a69;
+  --ws-signal-bright: #1ba7b8;
+  --ws-signal-soft: #e4f2f4;
+  --ws-alert: #c2410c;
+  --ws-alert-soft: #f6e7e1;
+  --ws-warn: #b87400;
+  --ws-ok: #2f8a46;
+  --ws-select: #1ba7b8;
+  --ws-action: #14212e;
+  --ws-action-hover: #2a4155;
+  --ws-overlay: #ffffff;
+
+  /* 字体 */
+  --ws-font-ui: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --ws-font-tech: Bahnschrift, 'DIN Alternate', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+  --ws-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+
+  /* 结构 */
+  --ws-radius: 2px;
+  --ws-border: 1px solid var(--ws-steel-3);
+  --ws-border-soft: 1px solid var(--ws-steel-2);
+  --ws-shadow-panel: 0 1px 2px rgba(20, 33, 46, 0.06);
+  --ws-topbar-h: 44px;
+  --ws-statusbar-h: 26px;
+}
+
+/* ---- Element Plus 令牌映射：主色改为电气青，圆角收紧 ---- */
+:root {
+  --el-color-primary: #0b7285;
+  --el-color-primary-light-3: #4f9aa7;
+  --el-color-primary-light-5: #85b9c2;
+  --el-color-primary-light-7: #bcd7dc;
+  --el-color-primary-light-8: #d3e5e8;
+  --el-color-primary-light-9: #e9f2f4;
+  --el-color-primary-dark-2: #095a69;
+
+  --el-color-success: #2f8a46;
+  --el-color-success-light-3: #6bae7b;
+  --el-color-success-light-5: #97c5a3;
+  --el-color-success-light-7: #c3ddc9;
+  --el-color-success-light-8: #d5e8da;
+  --el-color-success-light-9: #eaf4ec;
+  --el-color-success-dark-2: #266e38;
+
+  --el-color-warning: #b87400;
+  --el-color-warning-light-3: #cd9a4d;
+  --el-color-warning-light-5: #dcb980;
+  --el-color-warning-light-7: #ead7b3;
+  --el-color-warning-light-8: #f1e4c9;
+  --el-color-warning-light-9: #f8f2e6;
+  --el-color-warning-dark-2: #935d00;
+
+  --el-color-danger: #c2410c;
+  --el-color-danger-light-3: #d7774f;
+  --el-color-danger-light-5: #e19a7d;
+  --el-color-danger-light-7: #ecc3b2;
+  --el-color-danger-light-8: #f1d4c8;
+  --el-color-danger-light-9: #f8eae5;
+  --el-color-danger-dark-2: #9b340a;
+
+  --el-color-error: #c2410c;
+  --el-color-error-light-3: #d7774f;
+  --el-color-error-light-5: #e19a7d;
+  --el-color-error-light-7: #ecc3b2;
+  --el-color-error-light-8: #f1d4c8;
+  --el-color-error-light-9: #f8eae5;
+  --el-color-error-dark-2: #9b340a;
+
+  --el-color-info: #6b7c8c;
+  --el-color-info-light-3: #98a4af;
+  --el-color-info-light-5: #b5bdc5;
+  --el-color-info-light-7: #d2d8dd;
+  --el-color-info-light-8: #e1e5e8;
+  --el-color-info-light-9: #f0f2f4;
+  --el-color-info-dark-2: #566370;
+
+  --el-text-color-primary: #22313f;
+  --el-text-color-regular: #45596b;
+  --el-text-color-secondary: #6b7c8c;
+  --el-text-color-placeholder: #93a3b1;
+  --el-text-color-disabled: #a9b7c2;
+
+  --el-border-color: #c7d1db;
+  --el-border-color-light: #d5dee6;
+  --el-border-color-lighter: #e1e8ee;
+  --el-border-color-extra-light: #edf2f5;
+
+  --el-fill-color: #f2f5f7;
+  --el-fill-color-light: #f5f8fa;
+  --el-fill-color-lighter: #f8fafb;
+  --el-fill-color-extra-light: #fbfcfd;
+  --el-fill-color-dark: #e9eef2;
+  --el-fill-color-darker: #e2e8ed;
+  --el-fill-color-blank: #ffffff;
+
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #e9edf1;
+  --el-bg-color-overlay: #ffffff;
+
+  --el-border-radius-base: 2px;
+  --el-border-radius-small: 2px;
+
+  --el-font-family: var(--ws-font-ui);
+  --el-font-size-base: 13px;
+  --el-font-size-small: 12px;
+  --el-font-size-extra-small: 11px;
+
+  --el-box-shadow: 0 4px 16px rgba(20, 33, 46, 0.12);
+  --el-box-shadow-light: 0 2px 8px rgba(20, 33, 46, 0.08);
+  --el-box-shadow-lighter: 0 1px 4px rgba(20, 33, 46, 0.06);
+  --el-box-shadow-dark: 0 8px 24px rgba(20, 33, 46, 0.16);
+
+  --el-disabled-bg-color: #f2f5f7;
+  --el-disabled-text-color: #a9b7c2;
+  --el-disabled-border-color: #d5dee6;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
 body {
-  margin: 0;
-  background: var(--ws-bg);
-  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
+  height: 100%;
 }
 
-/* ==== 组件动画（M4：ComponentAnimations，编辑器与运行态共用） ==== */
+body {
+  margin: 0;
+  background: var(--ws-canvas);
+  color: var(--ws-text);
+  font-family: var(--ws-font-ui);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  height: 100%;
+}
+
+/* 数字读数：仪表化等宽数字 */
+.ws-readout {
+  font-family: var(--ws-font-tech);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* 键盘可访问：统一可见焦点（文本输入沿用 Element 自身的聚焦边框，避免双重描边） */
+button:focus-visible,
+a:focus-visible,
+[tabindex]:not(input):not(textarea):focus-visible,
+input[type='checkbox']:focus-visible,
+input[type='radio']:focus-visible {
+  outline: 2px solid var(--ws-signal);
+  outline-offset: 1px;
+}
+
+/* 细滚动条（Chromium / Firefox） */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #b9c6d1;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #93a5b4;
+  background-clip: content-box;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #b9c6d1 transparent;
+}
+
+/* ============================================================
+   Element Plus 外观统一（表格 / 表单 / 弹层 / 折叠面板）
+   ============================================================ */
+
+.el-button {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.el-button--small {
+  font-size: 12px;
+}
+
+.el-input__wrapper,
+.el-select__wrapper {
+  border-radius: var(--ws-radius);
+}
+
+.el-textarea__inner {
+  border-radius: var(--ws-radius);
+  font-family: var(--ws-font-ui);
+}
+
+.el-input-number {
+  --el-input-number-controls-width: 22px;
+}
+
+/* 表格：工程台账风格——表头浅钢灰、行分隔线、悬停淡青 */
+.el-table {
+  --el-table-header-bg-color: var(--ws-steel-1);
+  --el-table-header-text-color: var(--ws-text-2);
+  --el-table-border-color: var(--ws-steel-2);
+  --el-table-row-hover-bg-color: var(--ws-steel-0);
+  --el-table-current-row-bg-color: var(--ws-signal-soft);
+  font-size: 13px;
+}
+
+.el-table th.el-table__cell {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 8px 0;
+}
+
+.el-table td.el-table__cell {
+  padding: 9px 0;
+}
+
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background: var(--ws-steel-0);
+}
+
+.el-table__empty-block {
+  min-height: 180px;
+}
+
+.el-table__empty-text {
+  color: var(--ws-text-3);
+}
+
+/* 标签 */
+.el-tag {
+  border-radius: var(--ws-radius);
+  font-weight: 500;
+}
+
+/* 对话框 / 抽屉：左侧信号条标题、硬边框、克制的阴影 */
+.el-dialog {
+  border-radius: 3px;
+  border: 1px solid var(--ws-steel-3);
+  box-shadow: 0 16px 48px rgba(20, 33, 46, 0.2);
+}
+
+.el-dialog__header {
+  padding: 14px 18px;
+  margin-right: 0;
+  border-bottom: 1px solid var(--ws-steel-2);
+}
+
+.el-dialog__title {
+  position: relative;
+  padding-left: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ws-text);
+}
+
+.el-dialog__title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 13px;
+  transform: translateY(-50%);
+  background: var(--ws-signal);
+}
+
+.el-dialog__body {
+  padding: 18px;
+}
+
+.el-dialog__footer {
+  padding: 12px 18px;
+  border-top: 1px solid var(--ws-steel-2);
+}
+
+.el-drawer {
+  border-left: 1px solid var(--ws-steel-3);
+}
+
+.el-drawer__header {
+  padding: 14px 18px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--ws-steel-2);
+  color: var(--ws-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.el-drawer__title {
+  position: relative;
+  padding-left: 10px;
+}
+
+.el-drawer__title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 13px;
+  transform: translateY(-50%);
+  background: var(--ws-signal);
+}
+
+.el-drawer__body {
+  padding: 16px 18px;
+}
+
+/* 折叠面板：工程分区的短标题 */
+.el-collapse {
+  --el-collapse-header-bg-color: transparent;
+  --el-collapse-content-bg-color: transparent;
+  --el-collapse-border-color: var(--ws-steel-2);
+  --el-collapse-header-text-color: var(--ws-text-2);
+}
+
+.el-collapse-item__header {
+  height: 34px;
+  line-height: 34px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border-bottom-color: var(--ws-steel-2);
+}
+
+.el-collapse-item__header:hover {
+  color: var(--ws-signal);
+}
+
+.el-collapse-item__content {
+  padding-bottom: 10px;
+}
+
+.el-collapse-item__wrap {
+  border-bottom-color: var(--ws-steel-2);
+}
+
+/* 弹层 */
+.el-popper.is-light {
+  border-color: var(--ws-steel-3);
+}
+
+.el-popper.is-dark {
+  background: var(--ws-ink);
+  border-color: var(--ws-ink);
+  color: var(--ws-text-inverse);
+  font-size: 12px;
+}
+
+.el-dropdown-menu__item {
+  font-size: 13px;
+}
+
+.el-dropdown-menu__item:not(.is-disabled):hover {
+  background: var(--ws-signal-soft);
+  color: var(--ws-signal);
+}
+
+/* 消息 */
+.el-message {
+  border-radius: var(--ws-radius);
+  border-color: var(--ws-steel-3);
+  box-shadow: var(--el-box-shadow-light);
+}
+
+.el-message-box {
+  border-radius: 3px;
+  border: 1px solid var(--ws-steel-3);
+}
+
+/* 分页 */
+.el-pagination.is-background .el-pager li,
+.el-pagination.is-background .btn-prev,
+.el-pagination.is-background .btn-next {
+  border-radius: var(--ws-radius);
+}
+
+/* 空状态 */
+.el-empty__description p {
+  color: var(--ws-text-3);
+}
+
+/* 页签（数据抽屉等） */
+.el-tabs__item {
+  font-size: 13px;
+  color: var(--ws-text-2);
+}
+
+.el-tabs__item.is-active {
+  color: var(--ws-signal);
+  font-weight: 600;
+}
+
+.el-tabs__active-bar {
+  background: var(--ws-signal);
+}
+
+/* 开关 / 复选框与主题一致 */
+.el-switch.is-checked .el-switch__core {
+  background: var(--ws-signal);
+  border-color: var(--ws-signal);
+}
+
+.el-checkbox__input.is-checked .el-checkbox__inner,
+.el-radio__input.is-checked .el-radio__inner {
+  background: var(--ws-signal);
+  border-color: var(--ws-signal);
+}
+
+.el-checkbox__input.is-checked + .el-checkbox__label,
+.el-radio__input.is-checked + .el-radio__label {
+  color: var(--ws-signal);
+}
+
+/* 提示 */
+.el-alert {
+  border-radius: var(--ws-radius);
+}
+
+/* 分隔线 */
+.el-divider {
+  border-color: var(--ws-steel-2);
+}
+
+.el-divider__text {
+  color: var(--ws-text-3);
+  font-size: 12px;
+}
+
+/* 上传按钮在对话框底部保持对齐 */
+.el-upload {
+  display: inline-flex;
+}
+
+/* ============================================================
+   组件动画（M4：ComponentAnimations，编辑器与运行态共用）
+   ============================================================ */
 
 @keyframes wsBlink {
   50% { opacity: 0.25; }
@@ -28,6 +488,10 @@ body {
 
 @keyframes wsFlow {
   to { background-position-x: -28px; }
+}
+
+@keyframes wsMove {
+  to { offset-distance: 100%; }
 }
 
 /* 闪烁：应用于节点容器（时长 = blink.intervalMs） */
@@ -52,4 +516,45 @@ body {
     transparent 8px 28px
   );
   animation: wsFlow 1s linear infinite;
+}
+
+/* 轨迹运动（M7）：CSS Motion Path，路径坐标相对组件原点 */
+.ws-anim-move {
+  offset-path: var(--move-path);
+  offset-distance: 0%;
+  animation: wsMove var(--move-ms, 8s) linear infinite;
+  animation-direction: var(--move-dir, normal);
+}
+
+/* 弹框遮罩（M7）：弹框组运行态显示时的背景层；menu 式透明仅拦截点击。
+   z-index:-1 置于弹框内容之下（父节点已建栈上下文，负层仍在父背景之上） */
+.ws-popup-mask {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: rgba(8, 16, 24, 0.55);
+  animation: wsMaskIn 0.18s ease-out;
+}
+
+@keyframes wsMaskIn {
+  from { opacity: 0; }
+}
+
+.ws-popup-mask.menu {
+  background: transparent;
+}
+
+/* 减少动效：只收敛界面过渡，保留组件业务动画（闪烁/旋转/流动是画面语义） */
+@media (prefers-reduced-motion: reduce) {
+  .el-button,
+  .el-dialog,
+  .el-drawer,
+  .el-popper,
+  .el-message,
+  .page-tab,
+  .left,
+  .right,
+  .center {
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -16,7 +16,7 @@ const option = computed(() => {
     grid: { left: 40, right: 16, top: 40, bottom: 28 },
     xAxis: { type: 'category', data: data.map((_, i) => `T-${data.length - i}`), ...AXIS },
     yAxis: { type: 'value', name: String(props.nodeProps.unit ?? ''), nameTextStyle: { color: '#909399' }, ...AXIS },
-    series: [{ type: 'bar', data, itemStyle: { color: '#409eff', borderRadius: [3, 3, 0, 0] }, barMaxWidth: 28 }],
+    series: [{ type: 'bar', data, itemStyle: { color: '#1ba7b8', borderRadius: [3, 3, 0, 0] }, barMaxWidth: 28 }],
   }
 })
 </script>

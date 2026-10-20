@@ -14,6 +14,7 @@ defineProps<{ nodeProps: Record<string, unknown> }>()
   box-sizing: border-box;
   border: 1px solid #909399;
   border-radius: 50%;
-  background: transparent;
+  /* 填充色由 WidgetHost 经 --ws-fill 下发（宿主矩形背景对 circle 不生效） */
+  background: var(--ws-fill, transparent);
 }
 </style>

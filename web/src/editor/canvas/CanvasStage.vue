@@ -387,7 +387,7 @@ watch(
   position: relative;
   flex: 1;
   overflow: hidden;
-  background: #f5f5f5; /* 参照 visual-drag-demo .center 背景色 */
+  background: var(--ws-canvas);
   /* pointer 交互接管：禁浏览器手势（拖拽/触摸滚动），全由应用处理 */
   touch-action: none;
 }
@@ -404,12 +404,12 @@ watch(
 
 .canvas-page {
   position: relative;
-  box-shadow: 0 0 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 1px var(--ws-steel-3), 0 10px 30px rgba(20, 33, 46, 0.12);
   transform-origin: 0 0;
 }
 
 .canvas-empty {
-  color: #909399;
+  color: var(--ws-text-3);
   padding: 40px;
 }
 
@@ -418,7 +418,7 @@ watch(
   top: 0;
   bottom: 0;
   width: 1px;
-  background: #59c7f9; /* 参照 MarkLine.vue 标线颜色 */
+  background: var(--ws-select);
   pointer-events: none;
 }
 
@@ -427,19 +427,21 @@ watch(
   left: 0;
   right: 0;
   height: 1px;
-  background: #59c7f9;
+  background: var(--ws-select);
   pointer-events: none;
 }
 
 .zoom-badge {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
-  background: #fff;
-  border: 1px solid #dcdfe6;
-  color: #909399;
+  right: 14px;
+  bottom: 14px;
   padding: 2px 8px;
-  border-radius: 4px;
+  background: var(--ws-panel);
+  border: 1px solid var(--ws-steel-3);
+  border-radius: var(--ws-radius);
+  color: var(--ws-text-2);
+  font-family: var(--ws-font-tech);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   pointer-events: none;
 }

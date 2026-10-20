@@ -1,14 +1,13 @@
 <script setup lang="ts">
 /**
- * 编辑器布局（结构/视觉严格参照 visual-drag-demo Home.vue + Toolbar.vue，MIT 见 THIRD_PARTY_NOTICES.md）：
- * 顶部一排小按钮工具栏 + 左 200px（组件 65% / 图层 35%，可折叠）+ 中 #f5f5f5 画布区
- * + 右 288px 属性面板（可折叠），折叠钮为半圆悬浮按钮。
+ * 编辑器布局：顶部控制台工具条（分组）+ 左 200px（组件 65% / 图层 35%，可折叠）
+ * + 中间画布区 + 右 288px 属性面板（可折叠）+ 底部读数状态栏。
  * 保存链路：dirtySeq 变更 → 3s 防抖 PUT（G2 乐观锁）；断网失败保内存态，冲突给重载入口。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, CaretLeft, CaretRight, Delete, FullScreen, RefreshRight } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowLeft, CaretLeft, CaretRight, Delete, FullScreen, RefreshRight } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { exportProject } from '@/api/projects'
 import { createShare } from '@/api/shares'
@@ -16,6 +15,7 @@ import { downloadJson, fileTimestamp } from '@/utils/download'
 import type { ProjectDoc } from '@/types/doc'
 import { installKeyboard } from '@/editor/keyboard'
 import CanvasStage from '@/editor/canvas/CanvasStage.vue'
+import ThemePicker from '@/components/ThemePicker.vue'
 import PreviewOverlay from '@/editor/PreviewOverlay.vue'
 import ComponentPalette from '@/editor/panels/ComponentPalette.vue'
 import DataDrawer from '@/editor/panels/DataDrawer.vue'
@@ -118,6 +118,18 @@ function fitView(): void {
   const vp = document.querySelector('.canvas-viewport')?.getBoundingClientRect()
   if (vp) editor.fitToView(vp.width, vp.height)
 }
+
+// ---- 底部状态栏读数（整数像素，避免拖动时小数跳动） ----
+const primaryRect = computed(() => {
+  const n = editor.primarySelected
+  if (!n) return null
+  return {
+    x: Math.round(n.x),
+    y: Math.round(n.y),
+    w: Math.round(n.w),
+    h: Math.round(n.h),
+  }
+})
 
 const ALIGN_ITEMS = [
   { label: '左对齐', value: 'left' },
@@ -230,53 +242,83 @@ async function shareProject(): Promise<void> {
 
 <template>
   <div class="home">
-    <!-- 顶部工具栏（参照 Toolbar.vue：一排 small 按钮 + 画布比例输入） -->
+    <!-- 顶部控制台工具条：按用途分组，分隔线降低视觉噪音 -->
     <header class="toolbar">
-      <el-button text size="small" @click="backToList">工程列表</el-button>
-      <span class="project-name">{{ editor.projectName }}</span>
-      <span class="save-status" :class="saveStatus.cls">{{ saveStatus.text }}</span>
-
-      <el-button size="small" title="粘贴工程 JSON 覆盖当前工程" @click="openImport">导入</el-button>
-      <el-button size="small" title="导出工程 JSON 文件（服务端脱敏）" @click="exportJson">导出</el-button>
-
-      <el-button size="small" :disabled="!editor.canUndo()" title="Ctrl+Z" @click="editor.undo()">撤销</el-button>
-      <el-button size="small" :disabled="!editor.canRedo()" title="Ctrl+Shift+Z" @click="editor.redo()">重做</el-button>
-      <el-button size="small" :disabled="!canGroup" title="Ctrl+G" @click="editor.groupSelection()">组合</el-button>
-      <el-button size="small" :disabled="!canUngroup" title="Ctrl+Shift+G" @click="editor.ungroupSelection()">拆分</el-button>
-      <el-button size="small" :disabled="!hasSelection" title="置顶" @click="editor.orderSelection('front')">置顶</el-button>
-      <el-button size="small" :disabled="!hasSelection" title="上移一层" @click="editor.orderSelection('forward')">上移</el-button>
-      <el-button size="small" :disabled="!hasSelection" title="下移一层" @click="editor.orderSelection('backward')">下移</el-button>
-      <el-button size="small" :disabled="!hasSelection" title="置底" @click="editor.orderSelection('back')">置底</el-button>
-      <el-button size="small" :disabled="!hasSelection" :title="allLocked ? '解锁' : '锁定'" @click="toggleLock">
-        {{ allLocked ? '解锁' : '锁定' }}
-      </el-button>
-      <el-button size="small" type="danger" plain :icon="Delete" :disabled="!hasSelection" title="Delete" @click="editor.deleteSelection()">删除</el-button>
-      <el-button size="small" type="danger" plain :disabled="editor.topLevelNodes.length === 0" title="清空当前页全部组件" @click="clearCanvas">清空画布</el-button>
-      <el-dropdown :disabled="editor.selectedNodes.length < 2" @command="onAlign">
-        <el-button size="small" :disabled="editor.selectedNodes.length < 2">
-          对齐<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-        </el-button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item v-for="a in ALIGN_ITEMS" :key="a.value" :command="a.value"
-              :disabled="a.value.startsWith('distribute') && editor.selectedNodes.length < 3">
-              {{ a.label }}
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-
-      <div class="canvas-config">
-        <span>画布比例</span>
-        <input v-model.number="zoomPct" />
-        %
+      <div class="tb-group tb-project">
+        <button class="tb-back" type="button" title="返回工程台账" @click="backToList">
+          <el-icon :size="13"><ArrowLeft /></el-icon>
+          <span>工程</span>
+        </button>
+        <span class="project-name" :title="editor.projectName">{{ editor.projectName }}</span>
       </div>
-      <el-button size="small" :icon="FullScreen" title="适应画布" @click="fitView" />
-      <el-button size="small" title="数据源 / 变量 / 报警规则" :disabled="!editor.doc" @click="dataDrawerVisible = true">数据</el-button>
-      <el-button size="small" :disabled="!editor.doc" @click="previewVisible = true">预览</el-button>
-      <el-button size="small" :disabled="!editor.doc" title="生成匿名只读分享链接" @click="shareProject">分享</el-button>
-      <el-button v-if="editor.saveError === 'conflict'" size="small" type="warning" :icon="RefreshRight" @click="reloadAfterConflict">载入最新</el-button>
-      <el-button size="small" type="primary" :loading="editor.saving" :disabled="!editor.dirty" @click="manualSave">保存</el-button>
+
+      <span class="tb-sep" aria-hidden="true"></span>
+
+      <div class="tb-group">
+        <el-button text size="small" title="粘贴工程 JSON 覆盖当前工程" @click="openImport">导入</el-button>
+        <el-button text size="small" title="导出工程 JSON 文件（服务端脱敏）" @click="exportJson">导出</el-button>
+      </div>
+
+      <span class="tb-sep" aria-hidden="true"></span>
+
+      <div class="tb-group">
+        <el-button text size="small" :disabled="!editor.canUndo()" title="Ctrl+Z" @click="editor.undo()">撤销</el-button>
+        <el-button text size="small" :disabled="!editor.canRedo()" title="Ctrl+Shift+Z" @click="editor.redo()">重做</el-button>
+      </div>
+
+      <span class="tb-sep" aria-hidden="true"></span>
+
+      <div class="tb-group">
+        <el-button text size="small" :disabled="!canGroup" title="Ctrl+G" @click="editor.groupSelection()">组合</el-button>
+        <el-button text size="small" :disabled="!canUngroup" title="Ctrl+Shift+G" @click="editor.ungroupSelection()">拆分</el-button>
+        <el-button text size="small" :disabled="!hasSelection" title="置顶" @click="editor.orderSelection('front')">置顶</el-button>
+        <el-button text size="small" :disabled="!hasSelection" title="上移一层" @click="editor.orderSelection('forward')">上移</el-button>
+        <el-button text size="small" :disabled="!hasSelection" title="下移一层" @click="editor.orderSelection('backward')">下移</el-button>
+        <el-button text size="small" :disabled="!hasSelection" title="置底" @click="editor.orderSelection('back')">置底</el-button>
+        <el-button text size="small" :disabled="!hasSelection" :title="allLocked ? '解锁' : '锁定'" @click="toggleLock">
+          {{ allLocked ? '解锁' : '锁定' }}
+        </el-button>
+        <el-button text size="small" type="danger" :icon="Delete" :disabled="!hasSelection" title="Delete" @click="editor.deleteSelection()">删除</el-button>
+        <el-button text size="small" type="danger" :disabled="editor.topLevelNodes.length === 0" title="清空当前页全部组件" @click="clearCanvas">清空画布</el-button>
+      </div>
+
+      <span class="tb-sep" aria-hidden="true"></span>
+
+      <div class="tb-group">
+        <el-dropdown :disabled="editor.selectedNodes.length < 2" @command="onAlign">
+          <el-button text size="small" :disabled="editor.selectedNodes.length < 2">
+            对齐<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-for="a in ALIGN_ITEMS" :key="a.value" :command="a.value"
+                :disabled="a.value.startsWith('distribute') && editor.selectedNodes.length < 3">
+                {{ a.label }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+
+      <span class="tb-spacer" />
+
+      <!-- 固定区：数据/预览/分享/缩放/保存始终可见，对象操作区在窄屏内横向滚动 -->
+      <div class="tb-fixed">
+        <ThemePicker />
+        <el-button text size="small" title="数据源 / 变量 / 报警规则" :disabled="!editor.doc" @click="dataDrawerVisible = true">数据</el-button>
+        <el-button text size="small" :disabled="!editor.doc" @click="previewVisible = true">预览</el-button>
+        <el-button text size="small" :disabled="!editor.doc" title="生成匿名只读分享链接" @click="shareProject">分享</el-button>
+
+        <span class="tb-fixed-sep" aria-hidden="true"></span>
+
+        <span class="zoom-label">缩放</span>
+        <input v-model.number="zoomPct" class="zoom-input ws-readout" aria-label="画布缩放百分比" />
+        <span class="zoom-unit">%</span>
+        <el-button class="fit-btn" text size="small" :icon="FullScreen" title="适应画布" @click="fitView" />
+
+        <el-button v-if="editor.saveError === 'conflict'" size="small" type="warning" plain :icon="RefreshRight" @click="reloadAfterConflict">载入最新</el-button>
+        <el-button class="save-btn" size="small" :loading="editor.saving" :disabled="!editor.dirty" @click="manualSave">保存</el-button>
+      </div>
     </header>
 
     <main>
@@ -293,7 +335,7 @@ async function shareProject(): Promise<void> {
       <section class="center" :style="rightList ? undefined : 'margin-right:10px'">
         <PageTabs />
         <div class="content">
-          <div v-if="loading" class="loading-block">加载中…</div>
+          <div v-if="loading" class="loading-block">正在载入工程…</div>
           <div v-else-if="loadError" class="loading-block error">{{ loadError }}</div>
           <CanvasStage v-else />
         </div>
@@ -307,6 +349,20 @@ async function shareProject(): Promise<void> {
         <el-icon :size="12"><CaretRight v-if="rightList" /><CaretLeft v-else /></el-icon>
       </button>
     </main>
+
+    <!-- 底部读数状态栏：编辑定位与视图状态一眼可见 -->
+    <footer class="statusbar">
+      <span class="sb-save" :class="saveStatus.cls"><i class="led"></i>{{ saveStatus.text }}</span>
+      <span class="sb-rule" aria-hidden="true"></span>
+      <span class="sb-item">页面<b>{{ editor.currentPage?.name ?? '—' }}</b></span>
+      <span class="sb-item">选中<b class="ws-readout">{{ editor.selection.length }}</b></span>
+      <span v-if="primaryRect" class="sb-readout sb-rect">
+        X {{ primaryRect.x }} · Y {{ primaryRect.y }} · W {{ primaryRect.w }} · H {{ primaryRect.h }}
+      </span>
+      <span class="sb-spacer" />
+      <span class="sb-hint">Ctrl+滚轮缩放 · 空格拖动画布</span>
+      <span class="sb-readout sb-zoom">{{ zoomPct }}%</span>
+    </footer>
 
     <!-- 运行态预览（M4，engine 驱动） -->
     <PreviewOverlay v-if="previewVisible" @close="previewVisible = false" />
@@ -339,100 +395,231 @@ async function shareProject(): Promise<void> {
 
 <style scoped>
 .home {
-  /* 变量与取值对照 visual-drag-demo src/styles/global.scss :root */
-  --main-bg-color: #fff;
-  --secondary-bg-color: #f5f5f5;
-  --border-color: #dcdfe6;
-  --text-color: #606266;
-  --actived-text-color: #409eff;
-  --actived-bg-color: #ecf5ff;
-
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--main-bg-color);
-  color: var(--text-color);
+  background: var(--ws-canvas);
+  color: var(--ws-text);
 }
 
+/* ---- 顶部控制台工具条 ---- */
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 10px;
+  gap: 2px;
+  height: var(--ws-topbar-h);
+  padding: 0 10px;
+  flex-shrink: 0;
   white-space: nowrap;
   overflow-x: auto;
-  flex-shrink: 0;
-  background: var(--main-bg-color);
-  border-bottom: 1px solid var(--border-color);
+  overflow-y: hidden;
+  background: var(--ws-ink);
+  color: var(--ws-text-inverse);
+  border-bottom: 1px solid #0c1721;
 }
 
-.project-name {
-  font-weight: 600;
-  margin: 0 8px 0 4px;
-  white-space: nowrap;
+.toolbar::-webkit-scrollbar {
+  height: 4px;
 }
 
-.save-status {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: #f4f4f5;
-  margin-right: 12px;
-  white-space: nowrap;
+.toolbar::-webkit-scrollbar-thumb {
+  background: rgba(238, 244, 247, 0.2);
+  border: none;
 }
 
-.save-status.ok { color: #67c23a; }
-.save-status.dirty, .save-status.saving { color: #e6a23c; }
-.save-status.error { color: #f56c6c; }
-
-.canvas-config {
-  margin: 0 10px;
-  font-size: 14px;
-  color: var(--text-color);
+.tb-group {
   display: flex;
   align-items: center;
+  gap: 2px;
   flex-shrink: 0;
 }
 
-.canvas-config span {
+.tb-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: rgba(238, 244, 247, 0.16);
+  flex-shrink: 0;
+}
+
+.tb-spacer {
+  flex: 1;
+  min-width: 12px;
+}
+
+.tb-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px 0 6px;
+  border: 1px solid rgba(238, 244, 247, 0.2);
+  border-radius: var(--ws-radius);
+  background: transparent;
+  color: rgba(238, 244, 247, 0.8);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tb-back:hover {
+  border-color: var(--ws-signal-bright);
+  color: #fff;
+  background: rgba(27, 167, 184, 0.12);
+}
+
+.tb-project {
+  gap: 8px;
   margin-right: 4px;
 }
 
-.canvas-config input {
-  width: 50px;
-  outline: none;
-  padding: 0 5px;
-  border: 1px solid var(--border-color);
-  color: #606266;
-  height: 24px;
-  box-sizing: border-box;
+.project-name {
+  max-width: 172px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f2f7f9;
 }
 
+/* 工具条内按钮：深底幽灵按钮 */
+.toolbar :deep(.el-button.is-text) {
+  color: rgba(238, 244, 247, 0.78);
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+.toolbar :deep(.el-button.is-text:hover) {
+  color: #fff;
+  background: rgba(238, 244, 247, 0.08);
+}
+
+.toolbar :deep(.el-button.is-text.is-disabled) {
+  color: rgba(238, 244, 247, 0.3);
+  background: transparent;
+}
+
+.toolbar :deep(.el-button.is-text.el-button--danger) {
+  color: #ffb59b;
+}
+
+.toolbar :deep(.el-button.is-text.el-button--danger:hover) {
+  color: #ffd2c0;
+  background: rgba(194, 65, 12, 0.16);
+}
+
+.toolbar :deep(.el-button--warning.is-plain) {
+  --el-button-text-color: #ffd08a;
+  --el-button-bg-color: rgba(184, 116, 0, 0.14);
+  --el-button-border-color: rgba(255, 208, 138, 0.4);
+  --el-button-hover-bg-color: rgba(184, 116, 0, 0.26);
+  --el-button-hover-border-color: #ffd08a;
+  --el-button-hover-text-color: #ffe3b8;
+}
+
+/* 缩放读数 */
+.zoom-label {
+  margin-left: 2px;
+  font-size: 11px;
+  color: rgba(238, 244, 247, 0.5);
+}
+
+.zoom-input {
+  width: 48px;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid rgba(238, 244, 247, 0.22);
+  border-radius: var(--ws-radius);
+  background: rgba(8, 16, 24, 0.35);
+  color: #f2f7f9;
+  font-size: 12px;
+  text-align: right;
+  outline: none;
+}
+
+.zoom-input:focus {
+  border-color: var(--ws-signal-bright);
+}
+
+.zoom-unit {
+  font-size: 11px;
+  color: rgba(238, 244, 247, 0.5);
+}
+
+/* 保存区：横向溢出时始终固定在右侧可见，左侧渐隐遮住滚动内容 */
+.tb-fixed {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding-left: 12px;
+  background: var(--ws-ink);
+}
+
+.tb-fixed-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: rgba(238, 244, 247, 0.16);
+  flex-shrink: 0;
+}
+
+.tb-fixed::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  background: linear-gradient(90deg, transparent, var(--ws-ink));
+  pointer-events: none;
+}
+
+/* 保存：实体白色按键，控制台质感 */
+.save-btn {
+  --el-button-bg-color: #eef4f7;
+  --el-button-border-color: #eef4f7;
+  --el-button-text-color: var(--ws-ink);
+  --el-button-hover-bg-color: #ffffff;
+  --el-button-hover-border-color: #ffffff;
+  --el-button-hover-text-color: var(--ws-ink);
+  --el-button-active-bg-color: #d7e5ea;
+  --el-button-active-border-color: #d7e5ea;
+  --el-button-disabled-bg-color: rgba(238, 244, 247, 0.2);
+  --el-button-disabled-border-color: transparent;
+  --el-button-disabled-text-color: rgba(238, 244, 247, 0.58);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+/* ---- 工作区 ---- */
 main {
   flex: 1;
   min-height: 0;
   position: relative;
-  background: var(--secondary-bg-color);
+  background: var(--ws-canvas);
 }
 
 .left,
 .right {
   position: absolute;
-  height: 100%;
   top: 0;
-  transition: all 0.3s;
-  background: var(--main-bg-color);
-  color: var(--text-color);
+  height: 100%;
   z-index: 2;
+  background: var(--ws-panel);
+  color: var(--ws-text);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.25s ease;
 }
 
 .left {
   left: 0;
   width: 200px;
-}
-
-.left > :first-child {
-  border-bottom: 1px solid var(--border-color);
+  border-right: 1px solid var(--ws-steel-3);
 }
 
 .left.inactive {
@@ -443,6 +630,7 @@ main {
 .right {
   right: 0;
   width: 288px;
+  border-left: 1px solid var(--ws-steel-3);
 }
 
 .right.inactive {
@@ -450,12 +638,16 @@ main {
   overflow: hidden;
 }
 
+.right :deep(.attr-container) {
+  height: 100%;
+}
+
 .center {
   margin: 0 288px 0 200px;
   height: 100%;
   display: flex;
   flex-direction: column;
-  transition: all 0.3s;
+  transition: margin 0.25s ease;
   min-width: 0;
 }
 
@@ -471,24 +663,34 @@ main {
   overflow: hidden;
 }
 
+/* 面板折叠钮：方形标签页耳朵 */
 .show-list {
   position: absolute;
   z-index: 9;
-  top: 40%;
-  transition: all 0.3s;
-  background: var(--main-bg-color);
-  color: var(--text-color);
-  border: 1px solid var(--border-color);
+  top: 38%;
+  width: 14px;
+  height: 54px;
+  padding: 0;
+  border: 1px solid var(--ws-steel-3);
+  background: var(--ws-panel);
+  color: var(--ws-text-3);
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: center;
+  transition: margin 0.25s ease;
+}
+
+.show-list:hover {
+  color: var(--ws-signal);
+  background: var(--ws-signal-soft);
 }
 
 .left-btn {
   left: 0;
   margin-left: 200px;
-  border-radius: 0 50% 50% 0;
-  padding: 12px 4px 12px 2px;
+  border-left: none;
+  border-radius: 0 2px 2px 0;
 }
 
 .left.inactive ~ .left-btn {
@@ -498,8 +700,8 @@ main {
 .right-btn {
   right: 0;
   margin-right: 288px;
-  border-radius: 50% 0 0 50%;
-  padding: 12px 2px 12px 4px;
+  border-right: none;
+  border-radius: 2px 0 0 2px;
 }
 
 .right.inactive ~ .right-btn {
@@ -511,11 +713,86 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #909399;
+  color: var(--ws-text-3);
+  font-size: 13px;
 }
 
 .loading-block.error {
-  color: #f56c6c;
+  color: var(--ws-alert);
+}
+
+/* ---- 底部读数状态栏 ---- */
+.statusbar {
+  height: var(--ws-statusbar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 12px;
+  background: var(--ws-ink);
+  color: rgba(238, 244, 247, 0.58);
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.sb-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  color: rgba(238, 244, 247, 0.62);
+}
+
+.sb-save .led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.sb-save.ok { color: #7ddc93; }
+.sb-save.dirty,
+.sb-save.saving { color: #f5c25b; }
+.sb-save.error { color: #ff9d6e; }
+
+.sb-rule {
+  width: 1px;
+  height: 12px;
+  flex-shrink: 0;
+  background: rgba(238, 244, 247, 0.18);
+}
+
+.sb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.sb-item b {
+  font-weight: 500;
+  color: rgba(238, 244, 247, 0.86);
+}
+
+.sb-rect {
+  color: rgba(238, 244, 247, 0.5);
+  white-space: nowrap;
+}
+
+.sb-spacer {
+  flex: 1;
+}
+
+.sb-hint {
+  white-space: nowrap;
+  color: rgba(238, 244, 247, 0.38);
+}
+
+.sb-zoom {
+  min-width: 38px;
+  text-align: right;
+  color: var(--ws-signal-bright);
 }
 
 .dialog-footer {
@@ -525,5 +802,30 @@ main {
 
 .dialog-footer > :not(:first-child) {
   margin-left: 10px;
+}
+
+@media (max-width: 900px) {
+  .sb-hint {
+    display: none;
+  }
+}
+
+/* 窄屏收窄固定区：保留配色 / 数据 / 预览 / 分享 / 保存，隐藏缩放读数 */
+@media (max-width: 720px) {
+  .zoom-label,
+  .zoom-unit,
+  .zoom-input,
+  .fit-btn {
+    display: none;
+  }
+
+  .tb-fixed {
+    gap: 4px;
+    padding-left: 8px;
+  }
+
+  .sb-rect {
+    display: none;
+  }
 }
 </style>

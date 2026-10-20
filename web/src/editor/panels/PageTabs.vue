@@ -55,10 +55,10 @@ function scrollTabs(dir: -1 | 1): void {
 .page-tabs {
   display: flex;
   align-items: center;
-  height: 32px;
-  background: #fff;
-  border-bottom: 1px solid #dcdfe6;
-  padding: 0 4px;
+  height: 34px;
+  background: var(--ws-steel-1);
+  border-bottom: 1px solid var(--ws-steel-3);
+  padding: 0 6px;
   flex-shrink: 0;
 }
 
@@ -79,27 +79,33 @@ function scrollTabs(dir: -1 | 1): void {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
-  border-radius: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--ws-radius);
   font-size: 12px;
-  color: #606266;
+  color: var(--ws-text-2);
   cursor: pointer;
   white-space: nowrap;
 }
 
 .page-tab:hover {
-  color: #409eff;
-  background: #ecf5ff;
+  color: var(--ws-signal);
+  background: var(--ws-signal-soft);
 }
 
+/* 激活页签：白底工程标签 + 顶部信号条（不再是色块） */
 .page-tab.active {
-  color: #409eff;
-  background: #ecf5ff;
+  height: 34px;
+  border-radius: 0;
+  background: var(--ws-panel);
+  box-shadow: inset 0 2px 0 var(--ws-signal);
+  color: var(--ws-text);
+  font-weight: 600;
 }
 
 .tab-close {
   opacity: 0;
-  color: #909399;
+  color: var(--ws-text-3);
   padding: 0 2px;
 }
 
@@ -108,12 +114,12 @@ function scrollTabs(dir: -1 | 1): void {
 }
 
 .tab-close:hover {
-  color: #f56c6c;
+  color: var(--ws-alert);
 }
 
 .add-btn,
 .scroll-btn {
-  color: #909399;
+  color: var(--ws-text-3);
   cursor: pointer;
   padding: 4px;
   flex-shrink: 0;
@@ -121,6 +127,6 @@ function scrollTabs(dir: -1 | 1): void {
 
 .add-btn:hover,
 .scroll-btn:hover {
-  color: #409eff;
+  color: var(--ws-signal);
 }
 </style>

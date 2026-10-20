@@ -10,6 +10,14 @@ export interface NodeOverride {
   props?: Record<string, unknown>
   style?: Record<string, unknown>
   visible?: boolean
+  /** M7：动效绑定通道（anim.rotateOn 等），PreviewNode 与静态 animations 合并 */
+  anim?: {
+    rotateOn?: boolean
+    rotatePeriod?: number
+    flowOn?: boolean
+    blinkOn?: boolean
+    moveOn?: boolean
+  }
 }
 
 export interface AlarmEvent {
@@ -26,6 +34,8 @@ export const useRuntimeStore = defineStore('runtime', {
     running: false,
     /** 变量运行值 variableId → 工程值（已过变量级换算） */
     values: new Map<string, number | boolean | string>(),
+    /** 变量 key → id 索引（M7：tooltip 模板 / 表达式 scope / 控制组件取值） */
+    varByKey: new Map<string, string>(),
     /** 绑定求值结果按 nodeId 聚合（渲染覆盖层） */
     overrides: new Map<string, NodeOverride>(),
     /** 激活中的报警 ruleId → 事件信息 */
@@ -47,6 +57,7 @@ export const useRuntimeStore = defineStore('runtime', {
     reset(): void {
       this.running = false
       this.values.clear()
+      this.varByKey.clear()
       this.overrides.clear()
       this.activeAlarms.clear()
       this.alarmEvents = []

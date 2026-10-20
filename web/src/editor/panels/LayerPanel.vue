@@ -1,6 +1,5 @@
 <script setup lang="ts">
-/** 图层面板（样式/交互参照 visual-drag-demo RealTimeComponentList.vue）：
- * z 序降序常驻列表，hover 显示行内操作（上移/下移/显隐/锁定/删除），与画布双向同步。
+/** 图层面板：z 序降序常驻列表，hover 显示行内操作（上移/下移/显隐/锁定/删除），与画布双向同步。
  * 成组/解组在顶部工具栏与右键菜单。 */
 import { computed } from 'vue'
 import { Hide, Lock, Unlock, View } from '@element-plus/icons-vue'
@@ -30,61 +29,94 @@ function removeLayer(id: string): void {
 </script>
 
 <template>
-  <div class="real-time-component-list">
-    <div
-      v-for="node in layers"
-      :key="node.id"
-      class="list"
-      :class="{ actived: editor.selection.includes(node.id), dim: node.visible === false }"
-      @click="rowClick($event, node.id)"
-    >
-      <span v-if="node.type === 'group'" class="iconfont type-icon icon-zuhe"></span>
-      <WidgetIcon v-else :meta="registry.get(node.type) ?? null" class="type-icon" />
-      <span class="label" :title="`${node.name}（${node.type}）z=${node.z}`">{{ node.name }}</span>
-      <span v-if="node.type === 'group' && node.children" class="children">×{{ node.children.length }}</span>
-      <div class="icon-container">
-        <span class="iconfont icon-shangyi" title="上移一层" @click.stop="moveLayer(node.id, 'forward')"></span>
-        <span class="iconfont icon-xiayi" title="下移一层" @click.stop="moveLayer(node.id, 'backward')"></span>
-        <el-icon :size="14" class="op" :class="{ off: node.visible === false }" title="显示/隐藏（编辑器中隐藏以 30% 透明度呈现）"
-          @click.stop="editor.updateNode(node.id, { visible: node.visible === false }, `vis:${node.id}`)">
-          <Hide v-if="node.visible !== false" />
-          <View v-else />
-        </el-icon>
-        <el-icon :size="14" class="op" :class="{ off: node.locked === true }" title="锁定/解锁（锁定后不可拖动）"
-          @click.stop="editor.updateNode(node.id, { locked: node.locked !== true }, `lock:${node.id}`)">
-          <Lock v-if="node.locked" />
-          <Unlock v-else />
-        </el-icon>
-        <span class="iconfont icon-shanchu" title="删除" @click.stop="removeLayer(node.id)"></span>
-      </div>
+  <div class="layer-panel">
+    <div class="panel-head">
+      <span>图层</span>
+      <span class="panel-count ws-readout">{{ layers.length }}</span>
     </div>
-    <div v-if="layers.length === 0" class="layer-empty">当前页面暂无组件</div>
+    <div class="real-time-component-list">
+      <div
+        v-for="node in layers"
+        :key="node.id"
+        class="list"
+        :class="{ actived: editor.selection.includes(node.id), dim: node.visible === false }"
+        @click="rowClick($event, node.id)"
+      >
+        <span v-if="node.type === 'group'" class="iconfont type-icon icon-zuhe"></span>
+        <WidgetIcon v-else :meta="registry.get(node.type) ?? null" class="type-icon" />
+        <span class="label" :title="`${node.name}（${node.type}）z=${node.z}`">{{ node.name }}</span>
+        <span v-if="node.type === 'group' && node.children" class="children">×{{ node.children.length }}</span>
+        <div class="icon-container">
+          <span class="iconfont icon-shangyi" title="上移一层" @click.stop="moveLayer(node.id, 'forward')"></span>
+          <span class="iconfont icon-xiayi" title="下移一层" @click.stop="moveLayer(node.id, 'backward')"></span>
+          <el-icon :size="14" class="op" :class="{ off: node.visible === false }" title="显示/隐藏（编辑器中隐藏以 30% 透明度呈现）"
+            @click.stop="editor.updateNode(node.id, { visible: node.visible === false }, `vis:${node.id}`)">
+            <Hide v-if="node.visible !== false" />
+            <View v-else />
+          </el-icon>
+          <el-icon :size="14" class="op" :class="{ off: node.locked === true }" title="锁定/解锁（锁定后不可拖动）"
+            @click.stop="editor.updateNode(node.id, { locked: node.locked !== true }, `lock:${node.id}`)">
+            <Lock v-if="node.locked" />
+            <Unlock v-else />
+          </el-icon>
+          <span class="iconfont icon-shanchu" title="删除" @click.stop="removeLayer(node.id)"></span>
+        </div>
+      </div>
+      <div v-if="layers.length === 0" class="layer-empty">当前页面暂无组件</div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.real-time-component-list {
+.layer-panel {
   height: 35%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-head {
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  background: var(--ws-steel-0);
+  border-bottom: 1px solid var(--ws-steel-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ws-text-2);
+}
+
+.panel-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ws-text-3);
+}
+
+.real-time-component-list {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  box-sizing: border-box;
   padding: 4px 0;
 }
 
 .list {
+  position: relative;
   height: 30px;
-  cursor: pointer;
-  text-align: center;
-  color: #606266;
   display: flex;
   align-items: center;
-  font-size: 12px;
   padding: 0 10px;
-  position: relative;
+  color: var(--ws-text-2);
+  font-size: 12px;
+  cursor: pointer;
   user-select: none;
 }
 
 .list:hover {
-  background-color: rgba(200, 200, 200, 0.2);
+  background: var(--ws-steel-0);
 }
 
 .list:hover .icon-container {
@@ -92,8 +124,18 @@ function removeLayer(id: string): void {
 }
 
 .actived {
-  background: #ecf5ff;
-  color: #409eff;
+  background: var(--ws-signal-soft);
+  color: var(--ws-signal);
+}
+
+.actived::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  background: var(--ws-signal);
 }
 
 .list.dim {
@@ -101,11 +143,13 @@ function removeLayer(id: string): void {
 }
 
 .type-icon {
-  font-size: 16px;
-  margin-right: 4px;
+  font-size: 15px;
+  margin-right: 5px;
   flex-shrink: 0;
   display: inline-flex;
-  width: 18px;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
 }
 
 .label {
@@ -117,18 +161,27 @@ function removeLayer(id: string): void {
 }
 
 .children {
-  color: #909399;
-  font-size: 12px;
   margin-right: 2px;
+  font-size: 11px;
+  color: var(--ws-text-3);
 }
 
 .icon-container {
   position: absolute;
-  right: 10px;
+  right: 8px;
   display: none;
   align-items: center;
   gap: 6px;
+  padding-left: 10px;
   background: inherit;
+}
+
+.list:hover .icon-container {
+  background: var(--ws-steel-0);
+}
+
+.list.actived .icon-container {
+  background: var(--ws-signal-soft);
 }
 
 .icon-container .iconfont,
@@ -138,17 +191,17 @@ function removeLayer(id: string): void {
 
 .icon-container .iconfont:hover,
 .icon-container .op:hover {
-  color: #409eff;
+  color: var(--ws-signal);
 }
 
 .icon-container .op.off {
-  color: #e6a23c;
+  color: var(--ws-warn);
 }
 
 .layer-empty {
-  color: #909399;
-  font-size: 12px;
+  padding: 18px 0;
   text-align: center;
-  padding: 16px 0;
+  font-size: 11px;
+  color: var(--ws-text-3);
 }
 </style>

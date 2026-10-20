@@ -1,6 +1,5 @@
 <script setup lang="ts">
-/** 组件面板（样式参照 visual-drag-demo ComponentList.vue，按 category 分组）：
- * 80×40 图标网格；拖拽（HTML5 DnD）到画布任意位置，或点击放置到当前可视区中心。 */
+/** 组件面板：按 category 分组的图标网格；拖拽（HTML5 DnD）到画布任意位置，或点击放置到当前可视区中心。 */
 import { useEditorStore } from '@/stores/editor'
 import { paletteByCategory, registry } from '@/widgets/registry'
 import WidgetIcon from '@/widgets/WidgetIcon.vue'
@@ -32,60 +31,98 @@ function onClick(type: string): void {
 </script>
 
 <template>
-  <div class="component-list">
-    <template v-for="g in GROUPS" :key="g.category">
-      <div class="group-title">{{ g.label }}</div>
-      <div
-        v-for="meta in paletteByCategory(g.category)"
-        :key="meta.type"
-        class="list"
-        draggable="true"
-        :title="meta.name"
-        @dragstart="onDragStart($event, meta.type)"
-        @click="onClick(meta.type)"
-      >
-        <WidgetIcon :meta="meta" />
-        <span class="label">{{ meta.name }}</span>
-      </div>
-    </template>
+  <div class="component-panel">
+    <div class="panel-head">组件库</div>
+    <div class="component-list">
+      <template v-for="g in GROUPS" :key="g.category">
+        <div class="group-title">{{ g.label }}</div>
+        <div
+          v-for="meta in paletteByCategory(g.category)"
+          :key="meta.type"
+          class="list"
+          draggable="true"
+          :title="meta.name"
+          @dragstart="onDragStart($event, meta.type)"
+          @click="onClick(meta.type)"
+        >
+          <WidgetIcon :meta="meta" />
+          <span class="label">{{ meta.name }}</span>
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.component-list {
+.component-panel {
   height: 65%;
-  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--ws-steel-3);
+}
+
+/* 面板标题：工程分区短标题 */
+.panel-head {
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  background: var(--ws-steel-0);
+  border-bottom: 1px solid var(--ws-steel-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ws-text-2);
+}
+
+.component-list {
+  flex: 1;
+  min-height: 0;
   padding: 8px;
   display: grid;
-  grid-gap: 10px 10px;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
   align-content: start;
   overflow-y: auto;
 }
 
 .group-title {
   grid-column: 1 / -1;
-  font-size: 12px;
-  color: #909399;
-  padding: 4px 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 1px 0;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--ws-text-3);
+}
+
+.group-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--ws-steel-2);
 }
 
 .group-title:not(:first-child) {
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .list {
-  height: 40px;
-  border: 1px solid #ddd;
-  cursor: grab;
-  text-align: center;
-  padding: 2px 5px;
+  height: 38px;
+  padding: 2px 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
+  border: 1px solid var(--ws-steel-3);
+  border-radius: var(--ws-radius);
+  background: var(--ws-panel);
+  color: var(--ws-text-2);
+  cursor: grab;
   user-select: none;
-  color: var(--text-color, #606266);
+  text-align: center;
 }
 
 .list:active {
@@ -93,15 +130,26 @@ function onClick(type: string): void {
 }
 
 .list:hover {
-  border-color: var(--actived-text-color, #409eff);
-  color: var(--actived-text-color, #409eff);
+  border-color: var(--ws-signal);
+  background: var(--ws-signal-soft);
+  color: var(--ws-signal);
 }
 
 .iconfont {
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .label {
-  font-size: 12px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 触屏 / 窄面板：减少网格列宽浪费 */
+@media (max-width: 1200px) {
+  .component-list {
+    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  }
 }
 </style>

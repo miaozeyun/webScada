@@ -8,6 +8,10 @@ import App from './App.vue'
 import router from './router'
 import './styles/theme.css'
 import './assets/iconfont/iconfont.css'
+import { initTheme } from './utils/theme'
+
+// 挂载前应用配色主题，避免首屏闪烁
+initTheme()
 
 const app = createApp(App)
 app.use(createPinia())

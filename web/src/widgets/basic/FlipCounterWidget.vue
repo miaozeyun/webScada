@@ -36,7 +36,7 @@ const unit = computed(() => String(props.nodeProps.unit ?? ''))
   font-family: 'DIN Alternate', 'Consolas', 'Courier New', monospace;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: #70c0ff;
+  color: #1ba7b8;
   line-height: 1.2;
   white-space: nowrap;
 }

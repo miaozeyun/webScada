@@ -5,7 +5,7 @@ import EchartsBase from '../EchartsBase.vue'
 
 const props = defineProps<{ nodeProps: Record<string, unknown> }>()
 
-const PALETTE = ['#409eff', '#67c23a', '#e6a23c', '#f56c6c', '#909399']
+const PALETTE = ['#1ba7b8', '#67c23a', '#e6a23c', '#f56c6c', '#909399']
 
 const option = computed(() => ({
   title: { text: String(props.nodeProps.title ?? ''), left: 'center', textStyle: { color: '#909399', fontSize: 14 } },

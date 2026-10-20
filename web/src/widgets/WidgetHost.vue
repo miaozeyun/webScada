@@ -30,7 +30,8 @@ const contentStyle = computed(() => {
     ...(ov.value?.style as (ComponentStyle & { opacity?: number }) | undefined),
   }
   const style: Record<string, string | undefined> = {
-    background: s.fill ?? undefined,
+    // 圆形等自绘形状不吃宿主矩形背景（否则 fill 被画成方块），改由组件经 --ws-fill 取色
+    background: props.node.type === 'circle' ? undefined : (s.fill ?? undefined),
     color: s.color ?? undefined,
     fontSize: s.fontSize !== undefined ? `${s.fontSize}px` : undefined,
     fontWeight: s.fontWeight !== undefined ? String(s.fontWeight) : undefined,
@@ -40,6 +41,8 @@ const contentStyle = computed(() => {
     opacity: s.opacity !== undefined ? String(s.opacity) : undefined,
     // 设备 SVG 组件经 CSS 变量取色（.dev-svg { color: var(--dev-color, 默认) }）
     '--dev-color': s.color ?? undefined,
+    // 自绘形状的填充色（circle 用 border-radius 裁切，避免矩形底铺满组件框）
+    '--ws-fill': s.fill ?? undefined,
   }
   // 无覆盖时返回空对象，避免空 style 属性
   return Object.values(style).some((v) => v !== undefined) ? style : {}

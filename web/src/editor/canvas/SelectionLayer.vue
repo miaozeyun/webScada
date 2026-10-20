@@ -79,24 +79,24 @@ function handlePos(dir: ResizeDir) {
 </template>
 
 <style scoped>
-/* 数值参照 visual-drag-demo Shape.vue：outline 1px #70c0ff、柄 8px 白底圆点 1px #59c7f9 */
+/* 数值参照 visual-drag-demo Shape.vue：outline 1px var(--ws-select)、柄 8px 白底圆点 1px var(--ws-select) */
 .sel-box {
   position: absolute;
-  border: 1px solid #70c0ff;
+  border: 1px solid var(--ws-select);
   box-sizing: border-box;
   pointer-events: none;
 }
 
 .multi-box {
   position: absolute;
-  border: 1px dashed #70c0ff;
+  border: 1px dashed var(--ws-select);
   pointer-events: none;
 }
 
 .handle {
   position: absolute;
-  background: #fff;
-  border: 1px solid #59c7f9;
+  background: var(--ws-panel);
+  border: 1px solid var(--ws-select);
   box-sizing: border-box;
   pointer-events: auto;
   cursor: nwse-resize;
@@ -108,7 +108,7 @@ function handlePos(dir: ResizeDir) {
   left: 50%;
   transform: translateX(-50%);
   cursor: grab;
-  color: #59c7f9;
+  color: var(--ws-select);
   font-size: 20px;
   font-weight: 600;
   pointer-events: auto;

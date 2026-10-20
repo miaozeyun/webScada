@@ -125,21 +125,21 @@ function onEditKeydown(e: KeyboardEvent): void {
   -webkit-user-drag: none;
 }
 
-/* 选中态参照 visual-drag-demo Shape.vue .active：outline 1px #70c0ff */
+/* 选中态参照 visual-drag-demo Shape.vue .active：outline 1px var(--ws-select) */
 .canvas-node.selected {
-  outline: 1px solid #70c0ff;
+  outline: 1px solid var(--ws-select);
 }
 
 .canvas-node.group {
-  border: 1px dashed rgba(112, 192, 255, 0.4);
+  border: 1px dashed rgba(27, 167, 184, 0.45);
 }
 
 .inline-edit {
   position: absolute;
   inset: 0;
-  background: #fff;
-  color: #606266;
-  outline: 1px solid #70c0ff;
+  background: var(--ws-panel);
+  color: var(--ws-text);
+  outline: 1px solid var(--ws-select);
   padding: 0 6px;
   display: flex;
   align-items: center;
@@ -154,7 +154,7 @@ function onEditKeydown(e: KeyboardEvent): void {
   top: 0;
   right: 0;
   font-size: 16px;
-  color: #909399;
+  color: var(--ws-text-3);
   pointer-events: none;
 }
 </style>

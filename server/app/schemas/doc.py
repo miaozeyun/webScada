@@ -71,8 +71,9 @@ class MqttConfig(DocModel):
     brokerUrl: str = Field(min_length=1, max_length=512)
     username: str | None = Field(default=None, max_length=128)   # 不脱敏（G6）
     password: str | None = None                                  # 敏感：出口脱敏 / 库内加密
-    topics: list[str] = Field(min_length=1)                      # 只订阅、绝不发布
+    topics: list[str] = Field(min_length=1)                      # 订阅 topic
     qos: Literal[0, 1] = 0
+    writeQos: Literal[0, 1] = 0                                  # 反控写入 QoS（M7；写 topic 取变量 writeAddress）
     # 导入时强制重置 true（02 §1 边界第 7 条：防离线消息回放风暴）
     cleanSession: bool = True
     reconnectMinMs: int = Field(default=1000, ge=100)
@@ -90,6 +91,7 @@ class WebsocketConfig(DocModel):
     reconnectMaxMs: int = Field(default=30000, ge=1000)
     staleTimeoutMs: int | None = Field(default=None, ge=1000)
     tsPath: str | None = None
+    writeFrameTemplate: str | None = Field(default=None, max_length=2048)  # 反控写入帧模板，占位 {key} {value}
 
 
 class RestConfig(DocModel):
@@ -102,6 +104,9 @@ class RestConfig(DocModel):
     failureBackoffMs: int | None = Field(default=None, ge=500)
     staleTimeoutMs: int | None = Field(default=None, ge=1000)
     tsPath: str | None = None
+    writeUrl: str | None = Field(default=None, max_length=1024)      # 反控写入端点（M7；无则不可写）
+    writeMethod: Literal["POST", "PUT"] | None = None
+    writeBodyTemplate: str | None = Field(default=None, max_length=2048)  # 占位 {key} {value}
 
 
 class MockConfig(DocModel):
@@ -179,13 +184,22 @@ class MockSquare(DocModel):
     duty: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
+class MockHold(DocModel):
+    """保持型：不周期推送，仅初始 defaultValue；写入回环后保持（M7 反控演示/受控开关量）。"""
+
+    kind: Literal["hold"]
+
+
 MockSpec = Annotated[
-    Union[MockSine, MockRamp, MockRandom, MockSquare],
+    Union[MockSine, MockRamp, MockRandom, MockSquare, MockHold],
     Field(discriminator="kind"),
 ]
 
 # 变量 key 字符集（工程内唯一、创建后不可改；如 reactor1_temp / line1.motor01.speed）
 _VAR_KEY_RE = re.compile(r"^[A-Za-z0-9_.\-]+$")
+
+# 虚拟变量哨兵 datasourceId（M7）：expr 非空时固定此值，不入 datasources 数组
+VIRTUAL_DATASOURCE_ID = "virtual"
 
 
 class VariableDef(DocModel):
@@ -200,6 +214,11 @@ class VariableDef(DocModel):
     # 取数地址：mqtt=topic；websocket=帧内定位键；rest=响应内定位键；mock 忽略
     address: str = Field(default="", max_length=512)
     jsonPath: str | None = Field(default=None, max_length=256)
+    # ---- 反控（M7）：写通道经浏览器直连数据源，writable 变量才可写 ----
+    writable: bool = False
+    writeAddress: str | None = Field(default=None, max_length=512)   # mqtt 写 topic；缺省回落 address
+    # ---- 虚拟变量（M7）：表达式引用其它变量 key，前端引擎求值 ----
+    expr: str | None = Field(default=None, max_length=2048)
     # ---- 变量级换算（G3：服务端入池前一次执行；与 bitIndex 互斥） ----
     scale: float | None = None
     offset: float | None = None
@@ -211,6 +230,9 @@ class VariableDef(DocModel):
 
     @model_validator(mode="after")
     def _check_transform_rules(self) -> "VariableDef":
+        # M7：虚拟变量 datasourceId 哨兵约束
+        if self.expr is not None and self.datasourceId != VIRTUAL_DATASOURCE_ID:
+            raise ValueError("配置 expr 的虚拟变量 datasourceId 必须为 'virtual'")
         # 02 §2.13 规则 5：bitIndex 仅允许 boolean/number，且与 scale/offset/precision 互斥
         if self.bitIndex is not None:
             if self.type == "string":
@@ -223,8 +245,9 @@ class VariableDef(DocModel):
 # ================= 页面与组件 =================
 
 STYLE_KEYS = {"fill", "stroke", "strokeWidth", "borderRadius", "color", "fontSize", "fontWeight", "textAlign"}
-# 绑定目标路径语法（02 §2.8）：props.* / style.* / visible / opacity 四类
-_PROP_PATH_RE = re.compile(r"^(props\.[A-Za-z0-9_]+|style\.[A-Za-z]+|visible|opacity)$")
+# 绑定目标路径语法（02 §2.8 + M7 动效通道）：props.* / style.* / visible / opacity / anim.*
+_ANIM_PATHS = {"anim.rotateOn", "anim.rotatePeriod", "anim.flowOn", "anim.blinkOn", "anim.moveOn"}
+_PROP_PATH_RE = re.compile(r"^(props\.[A-Za-z0-9_]+|style\.[A-Za-z]+|visible|opacity|anim\.(rotateOn|rotatePeriod|flowOn|blinkOn|moveOn))$")
 
 WidgetType = Literal[
     # 基础类
@@ -233,6 +256,10 @@ WidgetType = Literal[
     "flip-counter", "line-chart", "bar-chart", "pie-chart", "gauge", "progress", "trend-chart",
     # 设备类（SVG）
     "status-light", "motor", "pump", "valve", "pipe",
+    # M7 新增（对齐 BY组态）
+    "var-display", "state-text", "switch", "multi-switch", "input-cmd",
+    "tank", "flow-bar", "image-switch", "web-frame", "video", "weather", "clock", "history-chart",
+    "breaker", "isolator", "ground", "ct", "pt", "transformer",
     # 结构
     "group",
 ]
@@ -247,6 +274,7 @@ class ScreenCfg(DocModel):
     designWidth: int = Field(ge=200, le=7680)
     designHeight: int = Field(ge=200, le=4320)
     mode: AdaptiveMode
+    lockPan: bool = False   # M7：运行态锁定画面（禁止滚动/拖拽）
 
 
 class ComponentStyle(DocModel):
@@ -282,10 +310,20 @@ class RotateCfg(DocModel):
     periodMs: int = Field(ge=50)
 
 
+class MoveCfg(DocModel):
+    """轨迹运动（M7）：沿 SVG path 位移（CSS offset-path），坐标相对组件原点。"""
+
+    enabled: bool
+    path: str = Field(default="", max_length=2048)   # 如 "M 0 0 L 300 0 L 300 200"
+    periodMs: int = Field(default=8000, ge=100)
+    mode: Literal["loop", "pingpong"] = "loop"
+
+
 class ComponentAnimations(DocModel):
     blink: BlinkCfg | None = None
     flow: FlowCfg | None = None
     rotate: RotateCfg | None = None
+    move: MoveCfg | None = None
 
 
 # ---- 映射（enum / range，02 §2.8）----
@@ -323,7 +361,7 @@ class Binding(DocModel):
     @classmethod
     def _check_prop_path(cls, v: str) -> str:
         if not _PROP_PATH_RE.match(v):
-            raise ValueError(f"绑定目标路径非法：{v}（语法为 props.*/style.*/visible/opacity 四类）")
+            raise ValueError(f"绑定目标路径非法：{v}（语法为 props.*/style.*/visible/opacity/anim.* 五类）")
         # 02 §2.13 规则 5：style.* 目标键必须属于 ComponentStyle 键集
         if v.startswith("style.") and v.split(".", 1)[1] not in STYLE_KEYS:
             raise ValueError(f"style 目标键非法：{v}（允许：{'/'.join(sorted(STYLE_KEYS))}）")
@@ -332,6 +370,8 @@ class Binding(DocModel):
     @model_validator(mode="after")
     def _check_mode_rules(self) -> "Binding":
         # 02 §2.13 规则 5：mode 与目标路径的匹配约束
+        if self.prop in _ANIM_PATHS and self.mode != "value":
+            raise ValueError(f"动效绑定 {self.prop} 仅允许 mode='value'")
         if self.mode == "color":
             # 颜色类目标固定为 style.fill/stroke/color 三键
             if not re.match(r"^style\.(fill|stroke|color)$", self.prop):
@@ -350,6 +390,38 @@ class Binding(DocModel):
         if self.mode == "visibility" and self.prop != "visible":
             raise ValueError("visibility 绑定的目标必须是 visible")
         return self
+
+
+# ---- 事件与行为 / 悬停信息 / 弹框（M7，对齐 BY组态） ----
+
+class EventActionDef(DocModel):
+    type: Literal["writeVar", "showPopup", "hidePopup", "switchPage", "openUrl", "toggleVisible"]
+    variableId: str | None = None      # writeVar：目标变量（引用校验在 doc_service）
+    value: str | None = Field(default=None, max_length=2048)  # writeVar：写入值（支持表达式）
+    targetId: str | None = None        # showPopup/hidePopup/toggleVisible：目标组件 id
+    pageId: str | None = None          # switchPage：目标页面 id
+    url: str | None = Field(default=None, max_length=2048)    # openUrl
+
+
+class NodeEventDef(DocModel):
+    id: str = _ID
+    trigger: Literal["click", "dblclick", "contextmenu"]
+    actions: list[EventActionDef] = Field(min_length=1)
+
+
+class TooltipCfg(DocModel):
+    """悬停信息：模板占位 {变量key}，运行态实时替换。"""
+
+    enabled: bool = True
+    template: str = Field(default="", max_length=2048)
+
+
+class PopupCfg(DocModel):
+    """弹框容器：仅 group；运行态默认隐藏，事件动作/triggerExpr 控制显隐。"""
+
+    style: Literal["dialog", "menu"] = "dialog"
+    title: str | None = Field(default=None, max_length=128)
+    triggerExpr: str | None = Field(default=None, max_length=2048)  # 条件弹框表达式
 
 
 class ComponentNode(DocModel):
@@ -371,12 +443,17 @@ class ComponentNode(DocModel):
     style: ComponentStyle | None = None
     animations: ComponentAnimations | None = None
     bindings: list[Binding] = Field(default_factory=list)
+    events: list[NodeEventDef] | None = None              # M7：事件与行为
+    tooltip: TooltipCfg | None = None                     # M7：悬停信息
+    popup: PopupCfg | None = None                         # M7：弹框容器（仅 group）
     children: list["ComponentNode"] | None = None          # 仅 type='group'
 
     @model_validator(mode="after")
     def _check_children(self) -> "ComponentNode":
         if self.children and self.type != "group":
             raise ValueError("仅 group 类型组件可以包含 children")
+        if self.popup is not None and self.type != "group":
+            raise ValueError("仅 group 类型组件可以配置 popup")
         return self
 
 

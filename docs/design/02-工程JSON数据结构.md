@@ -165,6 +165,11 @@ export type WidgetType =
   | 'gauge' | 'progress' | 'trend-chart'
   // 设备类（SVG：启停变色 / 管道流动 / 闪烁 / 旋转）
   | 'status-light' | 'motor' | 'pump' | 'valve' | 'pipe'
+  // M7 增量（对齐 BY组态，详见 §7）
+  | 'var-display' | 'state-text' | 'switch' | 'multi-switch' | 'input-cmd'
+  | 'tank' | 'flow-bar' | 'image-switch' | 'web-frame' | 'video'
+  | 'weather' | 'clock' | 'history-chart'
+  | 'breaker' | 'isolator' | 'ground' | 'ct' | 'pt' | 'transformer'
   // 结构
   | 'group';
 ```
@@ -775,3 +780,109 @@ CREATE INDEX idx_alarm_proj_triggered ON alarm_records(project_id, triggered_at 
 | 多页工程全项目订阅的告警广播流量上界、报警声音 60s 节流、值无变化不下发 | 实时专项 | 帧协议内约定 |
 | 时间戳信任策略（epoch ms；载荷时间戳点路径由数据源 `config.tsPath` 声明（见 2.10），未配置或缺帧回退服务端接收时间；载荷时间戳与服务器时间偏差 > ±5min（双向，含未来时间）视为不可信，回退服务器时间并记 warn） | 实时专项 | 值携带 `t/q` 语义 |
 | 服务端重启遗留 active 报警标记 recovered | 实时专项 | 落库语义见 2.11 防风暴契约 |
+---
+
+## 7. M7 增量契约（反控 / 虚拟变量 / 事件与行为 / 弹框 / 动效扩展）
+
+> M7 对齐 BY组态（www.byzt.net:60）功能集引入。**全部字段可选或带默认值，向后兼容，schemaVersion 不变**。
+> 双端实现：`web/src/types/doc.ts` ↔ `server/app/schemas/doc.py`（本节为权威描述，改动须双侧同步）。
+
+### 7.1 反控（写通道）
+
+- 架构：延续「02 §2.13 前端承担数据接入」，**写也走浏览器直连**，不经服务端中转。
+- 权限：`RuntimeEngine.write()` 为唯一入口。**编辑器预览可写（writable=true）；分享页恒只读（writable=false）**。
+- `VariableDef` 增量：`writable: bool = false`（默认只读）；`writeAddress: str | null`（mqtt 写 topic，缺省回落 `address`）。
+- 数据源写配置（`config` 增量）：
+  - `RestConfig.writeUrl / writeMethod(POST|PUT) / writeBodyTemplate`（占位 `{key}` `{value}`，缺省 `{"key":value}`；无 writeUrl 即不可写）
+  - `WebsocketConfig.writeFrameTemplate`（占位同上）
+  - `MqttConfig.writeQos`（0|1；订阅 topics 不变，写 topic 在变量 writeAddress）
+  - `mock`：本地回环（写入直接走 onRaw → toEngineering 全链路，绑定/报警/历史一致生效）
+- `MockSpec` 新增 `{kind:'hold'}`（保持型）：不周期推送，仅启动时推一次 `defaultValue`，此后只随写入回环变化。反控演示与受控开关量（泵启停/阀门/设定值）用它，否则周期波形会立刻覆盖用户写入。
+- 校验：`writeVar` 事件动作的目标变量必须 `writable=true`（doc_service 引用校验，422）。
+
+### 7.2 虚拟变量
+
+- `VariableDef.expr: str | null` 非空即为虚拟变量，此时 `datasourceId` 必须为哨兵 `'virtual'`（不入 datasources 数组，doc_service 校验特判）。
+- 表达式引用其它变量 **key**，前端引擎（`utils/expr.ts` 白名单文法，非 eval）求值：`+ - * / %`、比较、`&& || !`、三元、内置 `abs/min/max/floor/ceil/round/pow/sqrt`。
+- 依赖图前向传播：任一变量变化 → 传递闭包内的虚拟变量按拓扑序重算；循环引用按出现序求值并 warn（不死循环）。
+- 虚拟变量不可写（write 拒绝）；换算流水（scale/offset）对其不生效（表达式产出即工程值）。
+
+### 7.3 事件与行为（ComponentNode.events）
+
+```ts
+interface NodeEventDef { id; trigger: 'click'|'dblclick'|'contextmenu'; actions: EventActionDef[] }
+interface EventActionDef {
+  type: 'writeVar'|'showPopup'|'hidePopup'|'switchPage'|'openUrl'|'toggleVisible'
+  variableId?; value?; targetId?; pageId?; url?
+}
+```
+
+- 运行态生效（编辑态不响应）；`writeVar` 的 `value` 支持表达式（求值失败按原字符串写入）。
+- 引用校验：writeVar→变量存在且 writable；showPopup/hidePopup/toggleVisible→目标组件存在；switchPage→页面存在；openUrl→url 非空。
+
+### 7.4 悬停信息与弹框
+
+- `ComponentNode.tooltip: { enabled, template }`：模板占位 `{变量key}` 运行态实时替换（el-tooltip）。
+- `ComponentNode.popup: { style: 'dialog'|'menu', title?, triggerExpr? }`：**仅 group**（非 group 配 popup → 422）。
+  - 运行态默认隐藏；事件动作（showPopup/hidePopup/toggleVisible）经覆盖层控制显隐。
+  - `triggerExpr` 条件弹框：表达式真值时自动显示（与事件动作独立生效，同为覆盖层通道）。
+  - 显示时带全页遮罩（dialog 半透明 / menu 透明仅拦截外点关闭），弹框组 z 抬升至 9000 段。
+
+### 7.5 动效扩展
+
+- `ComponentAnimations.move: { enabled, path(SVG path，相对组件原点), periodMs, mode:'loop'|'pingpong' }`：CSS Motion Path 轨迹运动。
+- 绑定目标路径新增动效通道（§2.8 四类扩为五类）：
+  `anim.rotateOn | anim.rotatePeriod | anim.flowOn | anim.blinkOn | anim.moveOn`（仅 mode='value'；优先级高于静态 animations，符合 K12）。
+- `ScreenCfg.lockPan: bool = false`：运行态锁定画面（禁滚动/拖拽，BY「不让实时画面移动」）。
+
+### 7.6 M7 新组件（props 由 registry schema 驱动）
+
+| type | 说明 | 关键 props |
+|---|---|---|
+| var-display | 变量值显示（前缀/精度/单位） | prefix/precision/unit，绑 props.value |
+| state-text | 多状态文本（枚举→文本+色） | states(JSON)/defaultText，绑 props.value |
+| switch | 开关（读写一体反控） | variableId/onValue/offValue/confirm/label |
+| multi-switch | 多档开关（反控） | variableId/levels(JSON) |
+| input-cmd | 输入框指令（反控） | variableId/placeholder/unit/buttonText/clearAfter |
+| tank | 水池（液位动画） | percent(绑)/wave |
+| flow-bar | 流动条（变量控流速/方向） | speed(绑，0=停)/showArrow/vertical |
+| image-switch | 变量驱动图片切换 | images(JSON)/alt，绑 props.value |
+| web-frame | 网页 iframe 嵌入 | url/sandbox |
+| video | HTML5 视频（RTSP 需流媒体网关转封装） | url/autoPlay/muted/loop/controls |
+| weather | 天气（open-meteo，无 key） | city/lat/lon |
+| clock | 日期时钟 | showDate/showSeconds/layout |
+| history-chart | 历史图表（分钟桶 localStorage 持久化，1h/6h/24h/3d） | variableId/title/unit/rangeMs/compact（隐坐标轴）/live（引擎内存近 60 点实时滚动，启动即有曲线） |
+| breaker/isolator/ground/ct/pt/transformer | 二次接线单线图符号 | 颜色走 style.color（--dev-color） |
+
+### 7.7 历史数据（浏览器本地）
+
+`runtime/history.ts`：分钟桶 `[tsMin, sum, n]` 均值环形缓冲；单变量 3 天 / 全局 12 万桶上限；`webscada:hist:v1` 持久化（10s 节流落盘，beforeunload 兜底）。同源分享页同样可读。**不引入服务端时序存储**（保持 P0 架构边界，企业版再做）。
+
+### 7.8 画面嵌入
+
+- 分享页 `/s/:token?embed=1`：隐藏标题栏纯画面嵌入（iframe 场景）；恒只读。
+- `RuntimeStage` props：`writable`（写通道开关，分享页恒 false）、`embed`（隐藏标题栏）。
+
+### 7.9 演示案例集（对齐 BY组态 演示站）
+
+工程管理页「演示案例」按钮可一键生成 6 个开箱即用案例（单一 mock 数据源，可直接预览/分享）：
+生成器在 `web/src/utils/demos/`，`index.ts` 的 `DEMO_CASES` 为清单。
+
+| 案例 | 覆盖能力 |
+|---|---|
+| 案例一 · 污水处理系统（1920×1080） | 水池液位、泵旋转启停、管道流动、状态文本、仪表、趋势/历史图、报警、悬停信息、右键菜单弹框、条件弹框（pH>9.5 自动弹出）、输入框指令、开关反控、画面锁定 |
+| 案例二 · 电力系统（单线图） | 二次接线图元全套（PT/断路器/CT/隔离/接地/变压器）、母线、分闸闪烁（anim.blinkOn 区间绑定）、遥测仪表、右键分合闸菜单、遥控写前确认 |
+| 案例三 · 轨迹运动 | 小车匀速循环、小球抛物线往返（move pingpong）、风机变量控转速（anim.rotatePeriod）、传送带流动、hold 反控开关 |
+| 案例四 · 移动端（375×812 / 812×375 双页） | 自定义分辨率、时钟/天气、水箱、开关/多档/输入框、紧凑 live 迷你趋势、画面锁定 |
+| 案例五 · MQTT 通讯测试 | 订阅回读、发布写入、链路状态、报文曲线、writeVar/openUrl 事件（mock 回环演示同一条链路） |
+| 案例六 · 反控指令集（双页） | 多档开关、confirm 开关、输入框指令、档位控转速、switchPage、showPopup/hidePopup/toggleVisible、右键菜单、条件弹框、悬停信息 |
+
+案例遵守与产品一致的口径：文案不提及具体商业产品；引用第三方数据（天气 open-meteo）实时获取。
+
+### 7.10 关键实现约束（M7 踩坑留档）
+
+- `RuntimeStage` 的 `writable` 必须用 `withDefaults(..., { writable: true })`：Vue 对 Boolean 类型 prop 未传时转换为 `false`，否则编辑器预览会被误判为只读。
+- 运行态必须挂载**全部**节点（不可在 `v-for` 里按 `visible` 过滤）：静态 `visible:false` 的组件需要能被子图事件 `toggleVisible` 重新显示。
+- 弹框遮罩 `z-index:-1`（父节点已建栈上下文）：正值会盖住弹框内容导致按钮不可点。
+- ECharts 数据数组必须传**副本**（`historyOf` 返回 `[...]`）：引擎内部数组原地 push，传引用时调用方 ref 赋值得不到响应式更新，图表会停在首次快照。
+- 编辑态画布与运行态 Overlay 的 DOM 同时存在，自动化测试/选择器需限定 `.runtime-stage` 作用域。

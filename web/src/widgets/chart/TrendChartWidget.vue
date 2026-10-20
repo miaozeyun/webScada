@@ -20,10 +20,10 @@ const option = computed(() => {
     yAxis: { type: 'value', name: String(props.nodeProps.unit ?? ''), nameTextStyle: { color: '#909399' }, ...AXIS },
     series: bound
       ? [
-          { name: '序列1', type: 'line', smooth: true, symbol: 'none', data: d1, lineStyle: { color: '#409eff', width: 2 }, itemStyle: { color: '#409eff' }, areaStyle: { color: 'rgba(64,158,255,0.18)' } },
+          { name: '序列1', type: 'line', smooth: true, symbol: 'none', data: d1, lineStyle: { color: '#1ba7b8', width: 2 }, itemStyle: { color: '#1ba7b8' }, areaStyle: { color: 'rgba(27,167,184,0.2)' } },
         ]
       : [
-          { name: '序列1', type: 'line', smooth: true, symbol: 'none', data: [62, 71, 86, 79, 68, 74], lineStyle: { color: '#409eff', width: 2 }, itemStyle: { color: '#409eff' }, areaStyle: { color: 'rgba(64,158,255,0.18)' } },
+          { name: '序列1', type: 'line', smooth: true, symbol: 'none', data: [62, 71, 86, 79, 68, 74], lineStyle: { color: '#1ba7b8', width: 2 }, itemStyle: { color: '#1ba7b8' }, areaStyle: { color: 'rgba(27,167,184,0.2)' } },
           { name: '序列2', type: 'line', smooth: true, symbol: 'none', data: [40, 48, 55, 52, 46, 50], lineStyle: { color: '#67c23a', width: 2 }, itemStyle: { color: '#67c23a' }, areaStyle: { color: 'rgba(103,194,58,0.15)' } },
         ],
   }
