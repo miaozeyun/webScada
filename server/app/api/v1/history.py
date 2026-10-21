@@ -1,6 +1,7 @@
 """历史区间查询（M8，契约 §4.2 / 03 §2.10）：JWT 任意角色或分享 token 双通道。
 
-- stepMs>0：服务端窗口均值聚合（降采样）；点数仍超 maxPoints 时自动增大步长
+- stepMs>0：服务端窗口聚合降采样，agg 缺省 mean，可选 min/max/last/sum（阶段二 Task 1）；
+  点数仍超 maxPoints 时自动增大步长（强制聚合路径同样按所选 agg）
 - stepMs=0：原始采样点；超 maxPoints 等距抽稀（保真采样值，不造数）
 - 行数上限：逐 key 最多拉取 HISTORY_MAX_ROWS_PER_KEY 行（终审 #2），触顶且原始模式时
   自动提升 stepMs 强制聚合（防分享 token 免登录通道全窗加载 OOM DoS）
@@ -68,24 +69,48 @@ async def _resolve_viewer(db: AsyncSession, creds: HTTPAuthorizationCredentials 
     await _resolve_share_token(db, token, project_id)
 
 
-def _bucket_mean(pts: list[tuple[int, float]], from_ms: int, step_ms: int) -> list[list[float]]:
-    acc: dict[int, list[float]] = {}
+def _bucket_agg(pts: list[tuple[int, float]], from_ms: int, step_ms: int, agg: str) -> list[list[float]]:
+    """窗口聚合（单点实现，阶段二 Task 1 泛化自 _bucket_mean）：桶内一次累积 count/sum/min/max/last，按 agg 取值。
+
+    pts 须按 ts 升序（last=窗口内最后一个点依赖此序：升序输入下最后写入桶的即窗口末点）。
+    """
+    acc: dict[int, list[float]] = {}  # 桶起点 → [count, sum, min, max, last]
     for t, v in pts:
         b = from_ms + ((t - from_ms) // step_ms) * step_ms
-        s = acc.setdefault(b, [0.0, 0])
-        s[0] += v
-        s[1] += 1
-    return [[float(b), acc[b][0] / acc[b][1]] for b in sorted(acc)]
+        c = acc.get(b)
+        if c is None:
+            acc[b] = [1.0, v, v, v, v]
+        else:
+            c[0] += 1
+            c[1] += v
+            if v < c[2]:
+                c[2] = v
+            if v > c[3]:
+                c[3] = v
+            c[4] = v
+
+    def _pick(c: list[float]) -> float:
+        if agg == "mean":
+            return c[1] / c[0]
+        if agg == "min":
+            return c[2]
+        if agg == "max":
+            return c[3]
+        if agg == "sum":
+            return c[1]
+        return c[4]  # last
+
+    return [[float(b), _pick(acc[b])] for b in sorted(acc)]
 
 
-def _build_series(rows, from_ms: int, step_ms: int, max_points: int) -> list[list[float]]:
+def _build_series(rows, from_ms: int, step_ms: int, max_points: int, agg: str = "mean") -> list[list[float]]:
     pts = [(_ts_ms(ts), float(v)) for ts, v in rows]
     if step_ms > 0:
         step = step_ms
-        out = _bucket_mean(pts, from_ms, step)
+        out = _bucket_agg(pts, from_ms, step, agg)
         while len(out) > max_points:  # 03 §2.10：超出自动增大 stepMs
             step *= max(2, -(-len(out) // max_points))
-            out = _bucket_mean(pts, from_ms, step)
+            out = _bucket_agg(pts, from_ms, step, agg)
         return out
     if len(pts) <= max_points:
         return [[float(t), v] for t, v in pts]
@@ -101,6 +126,7 @@ async def query_history(
     to: datetime | None = Query(default=None),
     stepMs: int = Query(default=0, ge=0),
     maxPoints: int = Query(default=2000, ge=1, le=10000),
+    agg: str = Query(default="mean", pattern="^(mean|min|max|last|sum)$"),
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> HistoryResponse:
@@ -162,5 +188,5 @@ async def query_history(
         if step_ms <= 0 and len(rows) >= cap:
             # 行数触顶且为原始模式：自动提升 stepMs 强制聚合，不给 422 保可用性
             step_ms = forced_step
-        series[key] = _build_series(rows, from_ms, step_ms, maxPoints)
+        series[key] = _build_series(rows, from_ms, step_ms, maxPoints, agg)
     return HistoryResponse(series=series)

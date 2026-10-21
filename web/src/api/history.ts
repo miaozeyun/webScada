@@ -11,10 +11,12 @@ export interface HistoryQuery {
   /** 起止 epoch 毫秒（含），内部转 ISO8601 UTC；跨度 ≤ HISTORY_RETENTION_DAYS */
   from: number
   to: number
-  /** >0 服务端按窗口均值聚合（降采样）；0/缺省=原始采样点 */
+  /** >0 服务端按窗口聚合降采样（口径见 agg）；0/缺省=原始采样点 */
   stepMs?: number
   /** 单序列返回点数上限（≤10000；超出服务端自动增大 stepMs） */
   maxPoints?: number
+  /** 窗口聚合口径（阶段二 Task 1）：mean=均值（缺省）/min/max/last=窗口内最后一点/sum=窗口内求和 */
+  agg?: 'mean' | 'min' | 'max' | 'last' | 'sum'
 }
 
 export interface HistorySeries {
@@ -55,6 +57,7 @@ export function queryHistory(projectId: string, q: HistoryQuery): Promise<Histor
   }
   if (q.stepMs && q.stepMs > 0) params.stepMs = q.stepMs
   if (q.maxPoints && q.maxPoints > 0) params.maxPoints = q.maxPoints
+  if (q.agg) params.agg = q.agg
   const config = shareToken
     ? { params, headers: { Authorization: `Bearer ${shareToken}` } }
     : { params }

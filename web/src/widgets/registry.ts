@@ -402,7 +402,7 @@ register({
   epIcon: markRaw(Timer),
   category: 'chart',
   defaultSize: { w: 420, h: 240 },
-  defaultProps: () => ({ variableId: '', title: '历史趋势', unit: '', rangeMs: 3600000 }),
+  defaultProps: () => ({ variableId: '', title: '历史趋势', unit: '', rangeMs: 3600000, agg: 'mean' }),
   propsSchema: [
     { key: 'variableId', label: '变量', type: 'variable', defaultValue: '' },
     { key: 'title', label: '标题', type: 'text', defaultValue: '' },
@@ -418,6 +418,19 @@ register({
         { label: '3 天', value: 259200000 },
       ],
       defaultValue: 3600000,
+    },
+    {
+      key: 'agg',
+      label: '窗口聚合',
+      type: 'select',
+      options: [
+        { label: '均值', value: 'mean' },
+        { label: '最小值', value: 'min' },
+        { label: '最大值', value: 'max' },
+        { label: '末值', value: 'last' },
+        { label: '求和', value: 'sum' },
+      ],
+      defaultValue: 'mean',
     },
     { key: 'compact', label: '紧凑模式（隐坐标轴）', type: 'switch', defaultValue: false },
     { key: 'live', label: '实时滚动（近 60 点，不等历史落库）', type: 'switch', defaultValue: false },

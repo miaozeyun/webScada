@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 历史图表（M7 引入，M8 改造）：优先查询服务端 /history 区间接口（03 §2.10，服务端 historian 入库），
  * 服务端不可达或该区间无入库数据时回落本地分钟桶缓冲（runtime/history，演示/离线兜底）并亮「本地缓存」角标。
- * 运行态右上角可切时间范围（1h/6h/24h/3d），stepMs 随 range 联动（服务端窗口均值降采样）；30s 自动刷新；
+ * 运行态右上角可切时间范围（1h/6h/24h/3d），stepMs 随 range 联动（服务端窗口聚合降采样，agg 口径可选 mean/min/max/last/sum）；30s 自动刷新；
  * live 模式仍直接消费引擎内存滚动序列；编辑态显示空态示意。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import EchartsBase from '../EchartsBase.vue'
@@ -62,6 +62,14 @@ const variableKey = computed(() => {
 /** stepMs 联动 range：范围越大步长越大，固定约 200 个聚合点 */
 const stepMs = computed(() => Math.max(1000, Math.floor(rangeMs.value / STEP_TARGET_POINTS)))
 
+/** 窗口聚合口径（阶段二 Task 1）：缺省 mean；非法/旧工程缺失值回落 mean */
+type HistoryAgg = 'mean' | 'min' | 'max' | 'last' | 'sum'
+const AGG_VALUES: HistoryAgg[] = ['mean', 'min', 'max', 'last', 'sum']
+const agg = computed<HistoryAgg>(() => {
+  const v = props.nodeProps.agg
+  return AGG_VALUES.includes(v as HistoryAgg) ? (v as HistoryAgg) : 'mean'
+})
+
 /** 本地分钟桶兜底查询（服务端不可达/无数据时的演示/离线路径） */
 function fallbackLocal(): void {
   points.value = query(variableId.value, Date.now() - rangeMs.value)
@@ -84,6 +92,7 @@ async function refresh(): Promise<void> {
         to: Date.now(),
         stepMs: stepMs.value,
         maxPoints: MAX_POINTS,
+        agg: agg.value,
       })
       serverDown.value = false
       const series = resp.series[key]

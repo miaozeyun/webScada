@@ -282,3 +282,92 @@ async def test_keys_filter_and_default_all(api, env):
     # 请求了但无数据的 key → 空数组
     r = await api.client.get(f"/api/v1/projects/{pid}/history", params={**q, "keys": "zz"}, headers=h)
     assert r.json()["series"] == {"zz": []}
+
+
+# ---------------- 聚合扩展（阶段二 Task 1：agg=min/max/last/sum） ----------------
+
+async def test_agg_modes_single_bucket(api, env):
+    """六点同窗（1,5,3,7,9,2）→ 五种聚合精确值；last 取窗口内最后一个点（≠max，可区分实现）。"""
+    u = await make_user(env)
+    pid = (await make_project(env, u.id)).id
+    await seed(env, pid, "temp", [(0, 1.0), (100, 5.0), (200, 3.0), (300, 7.0), (400, 9.0), (500, 2.0)])
+    token = create_access_token(str(u.id))[0]
+    expect = {"mean": 4.5, "min": 1.0, "max": 9.0, "last": 2.0, "sum": 27.0}
+    for agg, val in expect.items():
+        r = await api.client.get(
+            f"/api/v1/projects/{pid}/history",
+            params={"keys": "temp", "from": "2026-01-01T00:00:00Z", "to": "2026-01-01T00:00:05Z",
+                    "stepMs": 5000, "agg": agg},
+            headers=auth(token),
+        )
+        assert r.status_code == 200, agg
+        assert r.json()["series"]["temp"] == [[ms(0), val]], agg
+
+
+async def test_agg_multi_bucket(api, env):
+    """跨桶：last=各窗口内最后一点，max=各窗口内极值（桶锚定窗口起点，逐桶独立聚合）。"""
+    u = await make_user(env)
+    pid = (await make_project(env, u.id)).id
+    await seed(env, pid, "temp", [(0, 5.0), (400, 3.0), (500, 8.0), (900, 6.0)])
+    token = create_access_token(str(u.id))[0]
+    for agg, expect in {
+        "last": [[ms(0), 3.0], [ms(500), 6.0]],
+        "max": [[ms(0), 5.0], [ms(500), 8.0]],
+        "min": [[ms(0), 3.0], [ms(500), 6.0]],
+    }.items():
+        r = await api.client.get(
+            f"/api/v1/projects/{pid}/history",
+            params={"keys": "temp", "from": "2026-01-01T00:00:00Z", "to": "2026-01-01T00:00:05Z",
+                    "stepMs": 500, "agg": agg},
+            headers=auth(token),
+        )
+        assert r.status_code == 200, agg
+        assert r.json()["series"]["temp"] == expect, agg
+
+
+async def test_agg_invalid_422(api, env):
+    u = await make_user(env)
+    pid = (await make_project(env, u.id)).id
+    token = create_access_token(str(u.id))[0]
+    r = await api.client.get(
+        f"/api/v1/projects/{pid}/history",
+        params={"keys": "temp", "from": "2026-01-01T00:00:00Z", "to": "2026-01-01T00:00:01Z", "agg": "avg"},
+        headers=auth(token),
+    )
+    assert r.status_code == 422
+    assert r.json()["code"] == "validation_error"
+
+
+async def test_agg_share_token_channel(api, env):
+    """分享 token 免登录通道同样支持 agg（历史图分享页与编辑器同口径）。"""
+    owner = await make_user(env, role="admin")
+    p = await make_project(env, owner.id)
+    await seed(env, p.id, "temp", [(0, 1.0), (100, 5.0), (200, 9.0)])
+    share = await make_share(env, p.id, "tok_agg_aaaaaaaaaaaaaaaaaaaaaa")
+    r = await api.client.get(
+        f"/api/v1/projects/{p.id}/history",
+        params={"keys": "temp", "from": "2026-01-01T00:00:00Z", "to": "2026-01-01T00:00:05Z",
+                "stepMs": 5000, "agg": "max"},
+        headers=auth(share.token),
+    )
+    assert r.status_code == 200
+    assert r.json()["series"]["temp"] == [[ms(0), 9.0]]
+
+
+async def test_row_cap_forced_agg_respects_agg(api, env, monkeypatch):
+    """行数触顶强制聚合：同样走所选 agg（max 与 mean 结果不同，防止强制路径漏传参数）。"""
+    monkeypatch.setattr(settings, "HISTORY_MAX_ROWS_PER_KEY", 6)
+    u = await make_user(env)
+    pid = (await make_project(env, u.id)).id
+    await seed(env, pid, "temp", [(o, float(o // 100)) for o in range(0, 5000, 100)])  # 50 点
+    token = create_access_token(str(u.id))[0]
+    r = await api.client.get(
+        f"/api/v1/projects/{pid}/history",
+        params={"keys": "temp", "from": "2026-01-01T00:00:00Z", "to": "2026-01-01T00:00:05Z",
+                "maxPoints": 10, "agg": "max"},
+        headers=auth(token),
+    )
+    assert r.status_code == 200
+    # 原始模式触顶 → 强制步长 ceil(5000/10)=500；仅留最新 6 行（4400~4900 → 44~49）
+    # 桶 4000=[44]；桶 4500=[45,46,47,48,49] → max=49（mean=47，可区分）
+    assert r.json()["series"]["temp"] == [[ms(4000), 44.0], [ms(4500), 49.0]]

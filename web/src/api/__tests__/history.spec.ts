@@ -50,3 +50,16 @@ describe('R3-5b 分享页历史通道', () => {
     expect(getHistoryProjectId()).toBe('')
   })
 })
+
+describe('agg 聚合参数透传（阶段二 Task 1）', () => {
+  it('显式 agg → 序列化为查询参数（服务端窗口聚合口径）', async () => {
+    await queryHistory('p1', { keys: ['t1'], from: 0, to: 1, agg: 'max' })
+    const cfg = getSpy.mock.calls[0]?.[1]
+    expect(cfg?.params).toMatchObject({ agg: 'max' })
+  })
+
+  it('未设置 agg 不下发参数（旧调用零影响，服务端缺省 mean）', async () => {
+    await queryHistory('p1', { keys: ['t1'], from: 0, to: 1 })
+    expect(getSpy.mock.calls[0]?.[1]?.params).not.toHaveProperty('agg')
+  })
+})
