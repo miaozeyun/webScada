@@ -20,6 +20,7 @@ import secrets
 import string
 import time
 import uuid as uuidlib
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -30,6 +31,7 @@ from app.core.config import settings
 from app.schemas.doc import DataSource, VariableDef
 from app.services import convert
 from app.services.convert import MISSING
+from app.services.modbus_codec import decode_modbus_registers, modbus_word_count
 
 _NANOID_ALPHABET = string.ascii_letters + string.digits
 
@@ -509,10 +511,20 @@ class _Entry:
         await self.source.stop()
 
 
-# ---------------- modbus（M8 阶段 1 后半） ----------------
+# ---------------- modbus（M8 阶段 1 后半；工厂可用阶段一批量读深化） ----------------
 
 # 变量 address 的 Modbus 惯用区位：首字符 4=保持寄存器 3=输入寄存器 0=线圈 1=离散输入（doc.py ModbusConfig 同注释）
 _MODBUS_AREAS = {"4": "holding", "3": "input", "0": "coil", "1": "discrete"}
+
+# bit 区（coil/discrete）与寄存器区（holding/input）走不同读方法、上限与解码路径
+_MODBUS_BIT_AREAS = frozenset({"coil", "discrete"})
+
+# 单组批量读上限：寄存器区 120 字（Modbus PDU 253 字节 ≈ 125 字，留余量）；bit 区 1000 位
+_MODBUS_MAX_REGISTERS = 120
+_MODBUS_MAX_BITS = 1000
+
+# 相邻间隙 ≤2 个地址单位仍合并（小空洞多读 2 字换取读次数减半）
+_MODBUS_MERGE_GAP = 2
 
 
 def modbus_parse_address(address: str) -> tuple[str, int] | None:
@@ -526,14 +538,74 @@ def modbus_parse_address(address: str) -> tuple[str, int] | None:
     return area, int(s) % 10000 - 1  # 惯用地址 1-based → 协议 offset 0-based
 
 
+@dataclass
+class ModbusReadGroup:
+    """一次批量读计划：同 (unitId, 区) 内 offset 升序、相邻间隙 ≤2 合并（受单组上限约束）。"""
+
+    unit_id: int
+    area: str  # holding / input / coil / discrete
+    start: int  # 组首 offset（协议 0-based）
+    count: int  # 组跨度：寄存器区=字数、bit 区=位数
+    items: list[tuple[VariableDef, int, int]]  # (变量, 绝对 offset, 字宽)；bit 区 width 恒 1
+
+
+def plan_modbus_reads(variables: list[VariableDef], default_unit_id: int) -> list[ModbusReadGroup]:
+    """变量列表 → 批量读组计划（模块级纯函数，便于单测）。
+
+    - 地址解析失败的变量不入组——由 run 每轮标 bad（语义同逐变量读时代）；
+    - unitId 解析：var.unitId 缺省回落 default_unit_id（源级 config.unitId）；
+    - 按 (unit_id, area) 分组、组内 offset 升序；相邻间隙 ≤ _MODBUS_MERGE_GAP 合并；
+    - 单组上限：寄存器区 _MODBUS_MAX_REGISTERS 字 / bit 区 _MODBUS_MAX_BITS 位，超限另起组；
+    - 32 位变量占 2 字（modbus_word_count）；bit 区忽略 modbusDataType（值即 bool）。
+    """
+    buckets: dict[tuple[int, str], list[tuple[int, int, VariableDef]]] = {}
+    for var in variables:
+        parsed = modbus_parse_address(var.address)
+        if parsed is None:
+            continue
+        area, offset = parsed
+        unit_id = var.unitId if var.unitId is not None else default_unit_id
+        if area in _MODBUS_BIT_AREAS:
+            width = 1  # bit 区忽略 modbusDataType
+        else:
+            width = modbus_word_count(var.modbusDataType or "int16")
+        buckets.setdefault((unit_id, area), []).append((offset, width, var))
+
+    groups: list[ModbusReadGroup] = []
+    for (unit_id, area), entries in buckets.items():
+        entries.sort(key=lambda e: e[0])
+        cap = _MODBUS_MAX_BITS if area in _MODBUS_BIT_AREAS else _MODBUS_MAX_REGISTERS
+        cur: ModbusReadGroup | None = None
+        for offset, width, var in entries:
+            # 并入当前组：与组尾间隙 ≤2 且并后跨度不超上限；否则另起一组
+            if (
+                cur is not None
+                and offset - (cur.start + cur.count) <= _MODBUS_MERGE_GAP
+                and offset + width - cur.start <= cap
+            ):
+                cur.count = offset + width - cur.start
+                cur.items.append((var, offset, width))
+                continue
+            cur = ModbusReadGroup(
+                unit_id=unit_id, area=area, start=offset, count=width, items=[(var, offset, width)]
+            )
+            groups.append(cur)
+    # 输出定序（unit → area → start）：测试断言与日志可读
+    groups.sort(key=lambda g: (g.unit_id, g.area, g.start))
+    return groups
+
+
 class ModbusSource(BaseSource):
-    """Modbus TCP 轮询源（pymodbus 异步客户端；单值逐变量读，批量读优化后置）。"""
+    """Modbus TCP 轮询源（pymodbus 异步客户端）：按组批量读 + 16/32 位解码 + 变量级 unitId。"""
 
     async def run(self) -> None:
         from pymodbus.client import AsyncModbusTcpClient
 
         cfg = self.ds.config
         interval = max(cfg.intervalMs, 100) / 1000
+        # 地址不变则分组不变（变量增删/修改会整源重建）——组计划与非法地址清单在循环外一次算好
+        groups = plan_modbus_reads(self.variables, cfg.unitId)
+        bad_vars = [v for v in self.variables if modbus_parse_address(v.address) is None]
         client = AsyncModbusTcpClient(cfg.host, port=cfg.port, timeout=cfg.timeoutMs / 1000)
         try:
             while True:
@@ -541,25 +613,10 @@ class ModbusSource(BaseSource):
                 try:
                     if not client.connected:
                         await client.connect()
-                    for var in self.variables:
-                        parsed = modbus_parse_address(var.address)
-                        if parsed is None:
-                            self._ingest(var, None)  # 地址非法 = bad（换算流水保持上一有效值语义）
-                            continue
-                        area, offset = parsed
-                        if area == "holding":
-                            rr = await client.read_holding_registers(offset, count=1, device_id=cfg.unitId)
-                            raw = None if rr.isError() else rr.registers[0]
-                        elif area == "input":
-                            rr = await client.read_input_registers(offset, count=1, device_id=cfg.unitId)
-                            raw = None if rr.isError() else rr.registers[0]
-                        elif area == "coil":
-                            rr = await client.read_coils(offset, count=1, device_id=cfg.unitId)
-                            raw = None if rr.isError() else rr.bits[0]
-                        else:
-                            rr = await client.read_discrete_inputs(offset, count=1, device_id=cfg.unitId)
-                            raw = None if rr.isError() else rr.bits[0]
-                        self._ingest(var, raw)
+                    for var in bad_vars:
+                        self._ingest(var, None)  # 地址非法 = bad（换算流水保持上一有效值语义）
+                    for group in groups:
+                        await self._poll_group(client, group)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001
@@ -570,6 +627,35 @@ class ModbusSource(BaseSource):
                 await asyncio.sleep(max(interval - elapsed, 0.05))
         finally:
             client.close()
+
+    async def _poll_group(self, client: Any, group: ModbusReadGroup) -> None:
+        """单组一次读 + 组内按变量 offset 切片解码入池；读失败整组标 bad。"""
+        if group.area == "holding":
+            rr = await client.read_holding_registers(group.start, count=group.count, device_id=group.unit_id)
+        elif group.area == "input":
+            rr = await client.read_input_registers(group.start, count=group.count, device_id=group.unit_id)
+        elif group.area == "coil":
+            rr = await client.read_coils(group.start, count=group.count, device_id=group.unit_id)
+        else:
+            rr = await client.read_discrete_inputs(group.start, count=group.count, device_id=group.unit_id)
+        if rr.isError():
+            for var, _offset, _width in group.items:
+                self._ingest(var, None)
+            return
+        for var, offset, width in group.items:
+            i = offset - group.start  # 绝对 offset → 组内切片起点
+            if group.area in _MODBUS_BIT_AREAS:
+                self._ingest(var, rr.bits[i])  # bit 区忽略 modbusDataType，值即 bool
+                continue
+            try:
+                words = rr.registers[i : i + width]
+                value = decode_modbus_registers(
+                    words, var.modbusDataType or "int16", var.modbusByteOrder or "ABCD"
+                )
+            except ValueError:
+                self._ingest(var, None)  # 应答字数不足等解码失败 = 该变量 bad（不拖垮同组其余变量）
+                continue
+            self._ingest(var, value)
 
     async def write(self, variable: VariableDef, value: Any) -> None:
         from pymodbus.client import AsyncModbusTcpClient
