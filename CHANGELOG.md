@@ -7,6 +7,29 @@ webScada 的所有显著变更记录在本文件。
 
 ## [Unreleased] — 运维与法务文档包 + 服务端闭环改造（进行中）
 
+### 工厂可用阶段一「接得进来」：Modbus 深化 + MQTT 通配修复 + 点位 CSV 导入 + 仿真验证台（2026-10-22）
+
+#### Added
+
+- **Modbus 16/32 位编解码与批量读**：变量级契约字段 `modbusDataType`（int16/uint16/int32/uint32/float32）、
+  `modbusByteOrder`（ABCD/CDAB/BADC/DCBA）、`unitId`（doc.ts ↔ doc.py 双侧同步，均缺省安全）；采集端按
+  (unitId, 区) 分组合并读（相邻间隙 ≤2 合并、单组 ≤120 字/1000 位），500 连续点位仅需 5 组请求；
+  反控写支持 32 位多寄存器编码（float32/int32 写入）。
+- **点位 CSV 批量导入**：数据抽屉变量表新增「导入 CSV」——17 列表头解析（容忍 BOM/CRLF/引号包裹字段）、
+  前 20 行预览与错误行全量提示、与既有变量重复 key 自动跳过并计数。
+- **仿真验证台（compose sim profile）**：`sim-modbus`（Modbus TCP 从站：秒计数正弦区 + 23.5/ABCD、
+  88.0/CDAB 双字节序 float32、int32=-123456、线圈，及 512 字零值区）与 `sim-mqtt-gateway`
+  （line1~line3 温度正弦 + run/press 主题；line1 每 60s 扫过 80，供报警演示）；
+  `scripts/seed_demo.py` 幂等建立「仿真演示工程」——双数据源 + 通配变量 + 报警规则 + 演示页，
+  `--points N` 批量追加连续点位。阶段端到端验收（WS 帧级）全绿：m_temp=23.5 / m_temp_swap=88.0
+  （双字节序）、m_int32=-123456、通配地址 any_run 有值、line1_temp>75 warn 报警 90s 内触发、
+  500 点 60s 零「modbus 轮询失败」且值流不堆积。
+
+#### Fixed
+
+- **MQTT 变量地址支持 +/# 通配**：变量 address 改按订阅规则匹配送达主题（`+` 恰匹配一层、`#` 仅末段
+  且匹配零或多层，非法 `#` 位置恒不匹配），原先非全等地址的变量永远收不到值。
+
 ### 大屏长时运行优化 + 分享页无边框 + 台账缩略图修复（2026-10-21）
 
 #### Changed
