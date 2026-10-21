@@ -1,9 +1,12 @@
 /**
- * 演示案例集入口（对齐 BY组态 演示站「画面案例」）：
+ * 演示案例集入口（对齐业界主流组态 演示站「画面案例」）：
  * 六个开箱即用案例（mock 数据源），一键导入后可直接预览/分享。
  */
 import type { MockSpec, ProjectDoc } from '@/types/doc'
 import { flushNow, seedSeries } from '@/runtime/history'
+import { buildPvDoc } from './pv'
+import { buildHeatingDoc } from './heating'
+import { buildAirDoc } from './air'
 import { buildWwtpDoc } from './wwtp'
 import { buildPowerDoc } from './power'
 import { buildTrajectoryDoc } from './trajectory'
@@ -19,6 +22,24 @@ export interface DemoCase {
 }
 
 export const DEMO_CASES: DemoCase[] = [
+  {
+    key: 'pv',
+    name: '光伏电站集控',
+    description: '行业 demo·破晓琥珀：辐照驱动阵列辉度四档渐亮，出力/PR/组串电流表达式联动，并网点频率报警',
+    build: buildPvDoc,
+  },
+  {
+    key: 'heating',
+    name: '无人值守换热站',
+    description: '行业 demo·红蓝双温：一次/二次网语义色管网对冲流动，气候补偿曲线，供水超限条件弹框一键降阀位',
+    build: buildHeatingDoc,
+  },
+  {
+    key: 'air',
+    name: '空压站集控',
+    description: '行业 demo·灰蓝能量橙：三机待机/加载/卸载三态联动（多档反控），母管压力呼吸表盘，露点与压力报警',
+    build: buildAirDoc,
+  },
   {
     key: 'wwtp',
     name: '污水处理系统',

@@ -28,6 +28,7 @@ export default defineConfig({
     port: 5199,
     strictPort: true, // 端口被占直接报错（本机 5173 已被其他应用占用，静默换端口会误导 E2E）
     // 本地开发：/api 代理到 compose 的 nginx 入口（server 容器 8000 端口不暴露宿主机）
-    proxy: { '/api': 'http://localhost:8088' },
+    // ws:true：M8 运行态走 /api/v1/ws WebSocket，简写字符串代理不转发升级请求会永挂"连接中"
+    proxy: { '/api': { target: 'http://localhost:8088', ws: true } },
   },
 })

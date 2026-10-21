@@ -1,5 +1,5 @@
 /**
- * 演示案例工程构造器（M7 案例集，对齐 BY组态 演示站）：共享快捷工厂。
+ * 演示案例工程构造器（M7 案例集，对齐业界主流组态 演示站）：共享快捷工厂。
  * 全部案例用单一 mock 数据源（开箱即用）；可控量用 hold 波形（反控回环保持）。
  */
 import type {
@@ -18,6 +18,7 @@ import type {
   ValueMapping,
   VariableDef,
 } from '@/types/doc'
+import { VIRTUAL_DATASOURCE_ID } from '@/types/doc'
 
 export const DS = 'ds_demo'
 
@@ -36,6 +37,8 @@ export interface MVarOpts {
   unit?: string
   def?: number | boolean | string
   writable?: boolean
+  /** 服务端入池前统一舍入（G3），KPI 翻牌等直读工程值的组件不出现 17 位浮点 */
+  precision?: number
 }
 
 export function mvar(id: string, key: string, label: string, o: MVarOpts = {}): VariableDef {
@@ -51,6 +54,16 @@ export function mvar(id: string, key: string, label: string, o: MVarOpts = {}): 
   return {
     id, key, label, type: 'number', unit: o.unit ?? null,
     defaultValue: o.def ?? null, datasourceId: DS, writable: o.writable === true, mock,
+    precision: o.precision ?? null,
+  }
+}
+
+/** 虚拟变量（M7/M9）：表达式引用其它变量 key（可含 _tick），引擎级联求值刷新 */
+export function vvar(id: string, key: string, label: string, expr: string, o: { unit?: string; precision?: number } = {}): VariableDef {
+  return {
+    id, key, label, type: 'number', unit: o.unit ?? null,
+    defaultValue: null, datasourceId: VIRTUAL_DATASOURCE_ID, expr,
+    precision: o.precision ?? null,
   }
 }
 
@@ -106,10 +119,10 @@ export function txt(id: string, x: number, y: number, w: number, h: number, text
 
 // ---- 页面 / 工程 ----
 
-export function pg(id: string, name: string, w: number, h: number, components: ComponentNode[], o: { order?: number; lockPan?: boolean } = {}): Page {
+export function pg(id: string, name: string, w: number, h: number, components: ComponentNode[], o: { order?: number; lockPan?: boolean; bg?: string } = {}): Page {
   return {
     id, name, order: o.order ?? 0,
-    background: { color: '#0b1220' },
+    background: { color: o.bg ?? '#0b1220' },
     screen: { designWidth: w, designHeight: h, mode: 'fit-contain', lockPan: o.lockPan === true },
     components,
   }
@@ -120,6 +133,13 @@ export function alm(id: string, name: string, variableId: string, op: AlarmOp, t
 }
 
 export function demoDoc(name: string, description: string, variables: VariableDef[], pages: Page[], alarms: AlarmRule[] = []): ProjectDoc {
+  // 统一层序：按数组书写顺序重赋 z（循环构造的节点块先于字面量求值，nd() 的自增 z
+  // 会与数组序脱节，后写的面板 rect 反而 zIndex 更高压住前面的卡片；组内 children 同理递归）
+  const renumber = (nodes: ComponentNode[]): void => nodes.forEach((c, i) => {
+    c.z = i + 1
+    if (c.children) renumber(c.children)
+  })
+  pages.forEach((pg) => renumber(pg.components))
   return {
     schemaVersion: 1,
     project: {

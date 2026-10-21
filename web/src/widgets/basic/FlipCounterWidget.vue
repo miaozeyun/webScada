@@ -1,10 +1,17 @@
 <script setup lang="ts">
-/** 翻牌数字（KPI 大数值展示）：值与单位可调，M3 起接变量绑定实时刷新。 */
+/** 翻牌数字（KPI 大数值展示）：值与单位可调，M3 起接变量绑定实时刷新。
+ * decimals 设定时数值按定位数+千分位格式化（等宽读数，KPI 观感统一）。 */
 import { computed } from 'vue'
 
 const props = defineProps<{ nodeProps: Record<string, unknown> }>()
 
-const value = computed(() => String(props.nodeProps.value ?? '86.5'))
+const value = computed(() => {
+  const raw = props.nodeProps.value ?? '86.5'
+  const d = props.nodeProps.decimals
+  const num = Number(raw)
+  if (d === undefined || d === null || d === '' || !Number.isFinite(num)) return String(raw)
+  return num.toLocaleString('zh-CN', { minimumFractionDigits: Number(d), maximumFractionDigits: Number(d) })
+})
 const unit = computed(() => String(props.nodeProps.unit ?? ''))
 </script>
 
