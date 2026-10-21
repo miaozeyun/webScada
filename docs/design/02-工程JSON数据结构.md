@@ -10,7 +10,7 @@
 2. **报警阈值口径**：`AlarmRule.threshold` 一律针对工程值配置，与用户在界面看到的数值一致。
 3. **载荷格式**：MQTT / REST / WebSocket 三类数据源的载荷**仅支持 UTF-8 JSON**。CSV、十六进制、二进制帧不支持（值标记 `q='bad'`），此为 P0 明确边界（旧网关非 JSON 输出属企业版二期评估项）。
 4. **jsonPath 子集**：仅支持点路径 + 数组下标（如 `data.temp`、`list.0.value`），不支持 JSONPath 完整语法与过滤表达式。后端自写点路径解析（约 30 行），不引入第三方 jsonpath 库。
-5. **图片资产**：一律外链 URL，不进 doc、不做上传（企业版候选）。
+5. **图片资产**：二进制不进 doc——组件图片由编辑器直传 `POST /api/v1/uploads` 落盘（命名卷持久化），doc 只存返回的相对 URL（`/api/v1/uploads/{name}`）；同时兼容外链 URL。读取匿名开放（分享页无登录态）。
 6. **浏览器兼容基线**：Chrome / Edge ≥ 90（构建目标 `vite` target `es2020`；**不使用 `structuredClone`**，undo 快照等深拷贝由自写 util 实现）。不承诺 IE 与 Firefox 与旧内核国产浏览器；产线嵌入式一体机部署前须核验内核版本。
 7. **MQTT 订阅语义**：P0 固定 `cleanSession=true`、默认 QoS 0，避免重连后 EMQX 回放离线堆积消息造成值跳变与告警误判；QoS 1 仅作为数据源可选项，且 `cleanSession` 恒为 true（配置项存在但导入时强制重置为 true）。
 8. **规模上限（验收标尺）**：单机 2C4G、单 worker；≤50 浏览器连接、≤5000 变量、单页 ≤200 组件（软上限，仅提示）、单份 doc 序列化体积 ≤ 1MB 编辑器 UI 告警、> 2MB 服务端 422（`code=doc_too_large`，硬校验）。

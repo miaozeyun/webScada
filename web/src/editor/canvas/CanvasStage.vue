@@ -8,6 +8,7 @@
  * （保证"一次拖拽全程仅 1 条 undo 记录、纯点击零记录"）；Alt 复制的克隆发生在首次移动时。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { FullScreen, Minus, Plus } from '@element-plus/icons-vue'
 import html2canvas from 'html2canvas'
 import type { ComponentNode } from '@/types/doc'
 import { useEditorStore } from '@/stores/editor'
@@ -47,7 +48,9 @@ async function captureThumbnail(): Promise<string | null> {
       useCORS: true,
     })
     return canvas.toDataURL('image/jpeg', 0.72)
-  } catch {
+  } catch (err) {
+    // 截图失败不阻断保存，但必须留痕：此前静默 catch 让台账缩略图长期为空且无从排查
+    console.warn('[thumbnail] 画面截图失败：', err)
     return null
   } finally {
     el.classList.remove('capturing')
@@ -70,8 +73,28 @@ const stageStyle = computed(() => ({
 
 // ---------------- 坐标换算 ----------------
 
+/** 手势期间的视口矩形缓存：pointermove 里反复 getBoundingClientRect 会强制同步布局（拖动掉帧源） */
+let vpRect: DOMRect | null = null
+
+function beginGesture(): void {
+  vpRect = viewportEl.value?.getBoundingClientRect() ?? null
+}
+
+function endGesture(): void {
+  vpRect = null
+}
+
+/** 画布按下时收走面板输入框焦点：节点 pointerdown 会 preventDefault（阻止原生焦点转移），
+ *  焦点留在属性面板输入框里会让 Delete/方向键等快捷键被键盘层按「输入中」吞掉。 */
+function blurTypingTarget(): void {
+  const el = document.activeElement as HTMLElement | null
+  if (!el) return
+  const tag = el.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable) el.blur()
+}
+
 function toDesign(e: { clientX: number; clientY: number }): { x: number; y: number } {
-  const rect = viewportEl.value!.getBoundingClientRect()
+  const rect = vpRect ?? viewportEl.value!.getBoundingClientRect()
   return {
     x: (e.clientX - rect.left - editor.pan.x) / editor.zoom,
     y: (e.clientY - rect.top - editor.pan.y) / editor.zoom,
@@ -136,17 +159,36 @@ const guideOffset = computed(() => {
  */
 let lastEv: { clientX: number; clientY: number; shiftKey: boolean } | null = null
 
+/** 指针移动按帧合帧：高刷鼠标/触控板一次手势可发上百个 pointermove，
+ *  逐个处理会在一帧内重复写 doc + 重算吸附（卡顿主因）；rAF 内只落最后一次位置。 */
+let pendingEv: PointerEvent | null = null
+let moveRAF = 0
+
+function flushMove(): void {
+  moveRAF = 0
+  const ev = pendingEv
+  pendingEv = null
+  if (ev) processDrag(ev)
+}
+
 function bindWindowDrag(): void {
   const move = (ev: PointerEvent) => {
     lastEv = ev
-    processDrag(ev)
+    pendingEv = ev
+    if (!moveRAF) moveRAF = requestAnimationFrame(flushMove)
   }
   const up = (ev: PointerEvent) => {
+    // 抬起前先把最后一次移动落盘：快速甩动时末帧可能尚未执行
+    lastEv = ev
+    pendingEv = ev
+    if (moveRAF) cancelAnimationFrame(moveRAF)
+    flushMove()
     onPointerUp(ev)
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     window.removeEventListener('pointercancel', up)
     stopEdgePan()
+    endGesture()
   }
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', up)
@@ -194,6 +236,7 @@ function stopEdgePan(): void {
 function onNodeDown(e: PointerEvent, node: ComponentNode): void {
   if (drag.value || editor.spaceHeld) return
   if (e.button !== 0) return
+  blurTypingTarget() // 先夺回焦点，Delete 等快捷键才落到画布
   // 锁定：可选不可拖（与 visual-drag-demo 一致；解锁入口=图层/右键/工具栏）
   if (node.locked) {
     if (e.ctrlKey || e.metaKey) editor.toggleSelect(node.id)
@@ -209,6 +252,7 @@ function onNodeDown(e: PointerEvent, node: ComponentNode): void {
     editor.select([node.id])
   }
 
+  beginGesture()
   editor.beginChange() // 交互开始前快照（提交点=按下；Alt 复制时快照即复制前状态）
   const start = toDesign(e)
   const origins = new Map<string, { x: number; y: number; w: number; h: number }>()
@@ -225,6 +269,8 @@ function onNodeDown(e: PointerEvent, node: ComponentNode): void {
 function onResizeStart(dir: ResizeDir, e: PointerEvent): void {
   const node = editor.primarySelected
   if (!node) return
+  blurTypingTarget()
+  beginGesture()
   editor.beginChange()
   const rect0 = { x: node.x, y: node.y, w: node.w, h: node.h, rotate: node.rotate ?? 0 }
   drag.value = {
@@ -244,6 +290,8 @@ function onResizeStart(dir: ResizeDir, e: PointerEvent): void {
 function onRotateStart(e: PointerEvent): void {
   const node = editor.primarySelected
   if (!node) return
+  blurTypingTarget()
+  beginGesture()
   editor.beginChange()
   const center = { x: node.x + node.w / 2, y: node.y + node.h / 2 }
   const p = toDesign(e)
@@ -262,12 +310,17 @@ function onRotateStart(e: PointerEvent): void {
 
 function onViewportDown(e: PointerEvent): void {
   if (drag.value) return
+  blurTypingTarget()
+  beginGesture()
   if (editor.spaceHeld || e.button === 1) {
     drag.value = { kind: 'pan', startX: e.clientX, startY: e.clientY, panX: editor.pan.x, panY: editor.pan.y }
     bindWindowDrag()
     return
   }
-  if (e.button !== 0) return
+  if (e.button !== 0) {
+    endGesture() // 右键等非拖拽按键：不进入手势，别留着矩形缓存
+    return
+  }
   const start = toDesign(e)
   drag.value = { kind: 'marquee', start, additive: e.ctrlKey || e.metaKey }
   marquee.value = { x: start.x, y: start.y, w: 0, h: 0 }
@@ -414,6 +467,7 @@ function onPointerUp(e: PointerEvent): void {
 
 function onContextMenu(e: MouseEvent): void {
   e.preventDefault()
+  blurTypingTarget() // 右键选中的组件随后按 Delete 也要生效
   const rect = viewportEl.value!.getBoundingClientRect()
   // 右键命中规则（业界惯例）：
   // - 命中未选中的组件 → 单选它（保持多选若已在选中集），弹组件菜单
@@ -519,11 +573,48 @@ const gridOpacity = computed(() => (editor.zoom < 0.4 ? 0 : 1))
 /** 空页面引导（中心淡字，不挡交互） */
 const showEmptyGuide = computed(() => (page.value?.components.length ?? 0) === 0)
 
-/** 适配视口：整页等比缩放居中（实现在 store.fitToView，工具栏"适应"按钮共用）。 */
+/** 适配视口：整页等比缩放居中（实现在 store.fitToView，缩放坞「适应」按钮共用）。 */
 function fitToView(): void {
   const vp = viewportEl.value
   if (!vp) return
   editor.fitToView(vp.clientWidth, vp.clientHeight)
+}
+
+// ---------------- 画布浮层：页面铭牌 / 缩放坞 ----------------
+
+/** 空页面引导对准页面中心（屏幕坐标：字号不随缩放变化，任何缩放级别都可读） */
+const emptyGuideStyle = computed(() => {
+  const p = page.value
+  if (!p) return {}
+  return {
+    left: `${editor.pan.x + (p.screen.designWidth * editor.zoom) / 2}px`,
+    top: `${editor.pan.y + (p.screen.designHeight * editor.zoom) / 2}px`,
+  }
+})
+
+/** 页面铭牌贴住页面左上角（屏幕坐标，不随缩放变形）；页面上沿移出视口即隐去 */
+const pageTagVisible = computed(() => !!page.value && editor.pan.y >= 28)
+const pageTagStyle = computed(() => ({
+  left: `${Math.max(editor.pan.x, 8)}px`,
+  top: `${editor.pan.y - 26}px`,
+}))
+
+/** 以视口中心为锚点缩放（与 Ctrl+滚轮同口径，快捷键 Ctrl+0/1 复用同一换算） */
+function zoomStep(factor: number): void {
+  const vp = viewportEl.value
+  if (!vp) return
+  const cx = vp.clientWidth / 2
+  const cy = vp.clientHeight / 2
+  const newZoom = clamp(editor.zoom * factor, MIN_ZOOM, MAX_ZOOM)
+  const dx = (cx - editor.pan.x) / editor.zoom
+  const dy = (cy - editor.pan.y) / editor.zoom
+  editor.setPan(cx - dx * newZoom, cy - dy * newZoom)
+  editor.setZoom(newZoom)
+}
+
+/** 回到 100%（锚点同上） */
+function zoomReset(): void {
+  if (editor.zoom !== 1) zoomStep(1 / editor.zoom)
 }
 
 onMounted(() => {
@@ -569,13 +660,6 @@ watch(
           </defs>
           <rect width="100%" height="100%" fill="url(#wsGridDotsMajor)" />
         </svg>
-        <!-- 空页面引导：三步上手提示（不参与交互） -->
-        <div v-if="showEmptyGuide" class="empty-guide">
-          <div class="empty-title">空白画面</div>
-          <div class="empty-line">从左侧组件库 <b>拖入</b> 或 <b>点击</b> 放置组件</div>
-          <div class="empty-line">右侧属性面板绑定数据与外观</div>
-          <div class="empty-line">顶部「预览」查看运行效果 · 修改自动保存</div>
-        </div>
         <CanvasNode
           v-for="node in page.components"
           :key="node.id"
@@ -609,6 +693,38 @@ watch(
       </div>
     </div>
     <div v-else class="canvas-empty">无页面</div>
+
+    <!-- 空页面引导：画在屏幕空间（不随缩放变小），对准页面中心 -->
+    <div v-if="showEmptyGuide" class="empty-guide" :style="emptyGuideStyle">
+      <div class="empty-title">空白画面</div>
+      <div class="empty-line">从左侧组件库 <b>拖入</b> 或 <b>点击</b> 放置组件</div>
+      <div class="empty-line">右侧面板绑定数据与外观，顶部「预览」查看运行效果</div>
+      <div class="empty-tip">也可以切到左侧「模板」，一键生成整页画面</div>
+    </div>
+
+    <!-- 页面铭牌：贴在页面左上角，屏幕尺寸恒定（缩放不改变字号） -->
+    <div v-if="pageTagVisible" class="page-tag" :style="pageTagStyle">
+      <span class="page-tag-name">{{ page?.name }}</span>
+      <span class="page-tag-size ws-readout">{{ page?.screen.designWidth }} × {{ page?.screen.designHeight }}</span>
+    </div>
+
+    <!-- 缩放坞：画布右下角常驻，替代顶部工具条的缩放输入 -->
+    <div class="zoom-dock" @pointerdown.stop @click.stop @dblclick.stop>
+      <button class="zd-btn" type="button" title="缩小（Ctrl+滚轮）" aria-label="缩小" @click="zoomStep(1 / 1.2)">
+        <el-icon :size="13"><Minus /></el-icon>
+      </button>
+      <button class="zd-value ws-readout" type="button" title="点击回到 100%" @click="zoomReset">
+        {{ Math.round(editor.zoom * 100) }}%
+      </button>
+      <button class="zd-btn" type="button" title="放大（Ctrl+滚轮）" aria-label="放大" @click="zoomStep(1.2)">
+        <el-icon :size="13"><Plus /></el-icon>
+      </button>
+      <span class="zd-sep" aria-hidden="true"></span>
+      <button class="zd-btn" type="button" title="适应画布（Ctrl+1）" aria-label="适应画布" @click="fitToView">
+        <el-icon :size="13"><FullScreen /></el-icon>
+      </button>
+    </div>
+
     <ContextMenu />
   </div>
 </template>
@@ -659,6 +775,8 @@ watch(
   position: absolute;
   left: 0;
   top: 0;
+  /* 平移/缩放只改变本层 transform：提升为独立合成层，避免整页重绘（大画幅+图表时尤明显） */
+  will-change: transform;
 }
 
 .canvas-page {
@@ -726,37 +844,149 @@ watch(
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
 }
 
-/* 空页面引导：画布中央淡字组 */
+/* 空页面引导：屏幕空间绘制，固定中性色（深浅画布底色均可读） */
 .empty-guide {
   position: absolute;
-  left: 50%;
-  top: 50%;
+  z-index: 5;
+  width: 420px;
+  padding: 26px 26px 22px;
   transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  color: var(--ws-text-3);
+  gap: 8px;
+  border: 1px dashed rgba(148, 163, 184, 0.5);
+  border-radius: 6px;
+  background: rgba(15, 24, 34, 0.62);
+  color: rgba(190, 201, 213, 0.95);
+  text-align: center;
   pointer-events: none;
   user-select: none;
 }
 
 .empty-title {
+  margin-bottom: 2px;
   font-size: 20px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  color: var(--ws-text-2);
-  opacity: 0.75;
+  letter-spacing: 0.16em;
+  text-indent: 0.16em;
+  color: rgba(226, 232, 240, 0.9);
 }
 
 .empty-line {
   font-size: 13px;
-  line-height: 1.2;
+  line-height: 1.6;
 }
 
 .empty-line b {
   font-weight: 600;
+  color: rgba(240, 245, 250, 0.96);
+}
+
+.empty-tip {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.24);
+  width: 100%;
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+/* 页面铭牌：白底浮签，压在页面左上角外侧（像图纸标签） */
+.page-tag {
+  position: absolute;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--ws-steel-3);
+  border-radius: var(--ws-radius);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 3px rgba(20, 33, 46, 0.1);
+  color: var(--ws-text-3);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.page-tag-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
   color: var(--ws-text-2);
+}
+
+.page-tag-size {
+  letter-spacing: 0.02em;
+}
+
+/* 缩放坞：玻璃白浮动条，悬浮在画布右下角 */
+.zoom-dock {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 32px;
+  padding: 0 4px;
+  border: 1px solid var(--ws-steel-3);
+  border-radius: var(--ws-radius-lg);
+  /* 不透明底：backdrop-filter 会在每帧画布重绘时重算整块模糊（拖动掉帧源），此处不需要毛玻璃 */
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: var(--ws-shadow-float);
+}
+
+.zd-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ws-text-2);
+  cursor: pointer;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+}
+
+.zd-btn:hover {
+  background: var(--ws-signal-soft);
+  color: var(--ws-signal);
+}
+
+.zd-value {
+  min-width: 46px;
+  height: 26px;
+  padding: 0 2px;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ws-text);
+  font-family: var(--ws-font-tech);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+.zd-value:hover {
+  background: var(--ws-signal-soft);
+  color: var(--ws-signal);
+}
+
+.zd-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--ws-steel-2);
 }
 
 /* 点阵网格（minor/major 双档密度，着色随主题令牌；缩放淡出走行内 opacity） */

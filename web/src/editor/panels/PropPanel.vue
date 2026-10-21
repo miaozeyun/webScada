@@ -8,6 +8,7 @@ import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
+import ImagePicker from '@/editor/panels/ImagePicker.vue'
 import { registry, type PropSchemaItem } from '@/widgets/registry'
 import { newId } from '@/utils/nanoid'
 import type {
@@ -270,6 +271,7 @@ function removeEvent(evId: string, actIdx: number): void {
     <template v-if="!node && !multi">
       <p class="attr-title">画布属性</p>
       <div v-if="editor.currentPage" class="attr-body">
+        <p class="group-label">画面</p>
         <el-form label-position="left" label-width="80px" size="small">
           <el-form-item label="设计宽度">
             <el-input-number
@@ -304,11 +306,16 @@ function removeEvent(evId: string, actIdx: number): void {
             </el-select>
             <span class="form-hint">不符时运行态旋转 90°</span>
           </el-form-item>
+        </el-form>
+
+        <p class="group-label">外观</p>
+        <el-form label-position="left" label-width="80px" size="small">
           <el-form-item label="背景色">
             <el-color-picker
               :model-value="editor.currentPage.background.color"
               @update:model-value="editor.updatePage({}, $event ?? '#0b1220')"
             />
+            <span class="form-hint ws-readout">{{ editor.currentPage.background.color }}</span>
           </el-form-item>
           <el-form-item label="锁定画面">
             <el-switch
@@ -318,20 +325,22 @@ function removeEvent(evId: string, actIdx: number): void {
             <span class="form-hint">运行态禁止滚动/拖拽</span>
           </el-form-item>
         </el-form>
-        <p class="attr-title sub">上手提示</p>
-        <div class="hint">
-          · 从左侧面板把组件拖到画布，点它即可在此改样式<br />
-          · 拖动自动对齐；四角柄缩放，顶部柄旋转<br />
-          · Ctrl+滚轮缩放视图，空格键拖移画面<br />
-          · Ctrl+Z 撤销，Ctrl+Shift+Z 重做
-        </div>
+
+        <p class="group-label">快速上手</p>
+        <ol class="guide-card">
+          <li><b>拖</b> 组件到画布，选中后在此改属性</li>
+          <li><b>吸</b> 拖动自动对齐，四角缩放、顶部旋转</li>
+          <li><b>看</b> Ctrl+滚轮缩放，空格拖动画布</li>
+          <li><b>撤</b> Ctrl+Z 撤销，修改自动保存</li>
+        </ol>
       </div>
     </template>
 
     <!-- 多选：批量编辑公共属性（单条 undo 覆盖全部选中项） -->
-    <div v-else-if="multi" class="attr-body">
+    <template v-else-if="multi">
       <p class="attr-title">多选（{{ editor.selectedNodes.length }} 项）</p>
-      <div class="hint">以下修改应用到全部选中项；整体拖动 / 删除 / 成组照常可用。</div>
+      <div class="attr-body">
+        <div class="hint">以下修改应用到全部选中项；整体拖动 / 删除 / 成组照常可用。</div>
       <el-collapse v-model="multiSections">
         <el-collapse-item title="几何（同值覆盖）" name="m-geometry">
           <div class="grid-2">
@@ -396,11 +405,12 @@ function removeEvent(evId: string, actIdx: number): void {
       </el-collapse>
 
       <el-button size="small" style="margin-top: 8px" @click="editor.groupSelection()">合并成组</el-button>
-    </div>
+      </div>
+    </template>
 
     <!-- 单选：折叠分区（参照 CommonAttr.vue 的 el-collapse 结构） -->
     <template v-else-if="node">
-      <p class="attr-title">{{ selectionTitle }}属性</p>
+      <p class="attr-title">{{ selectionTitle }}<span class="title-suffix">属性</span></p>
       <el-scrollbar class="attr-scroll">
         <div class="attr-body">
           <el-collapse v-model="activeSections">
@@ -765,6 +775,12 @@ function removeEvent(evId: string, actIdx: number): void {
                     type="textarea" :rows="2"
                     @change="(v: string) => setProp(item, v)"
                   />
+                  <ImagePicker
+                    v-else-if="item.type === 'image' || item.type === 'imagelist'"
+                    :model-value="String(getProp(item) ?? '')"
+                    :multiple="item.type === 'imagelist'"
+                    @update:model-value="(v: string) => setProp(item, v)"
+                  />
                   <el-input v-else :model-value="String(getProp(item) ?? '')" @change="(v: string) => setProp(item, v)" />
                 </el-form-item>
               </el-form>
@@ -789,8 +805,8 @@ function removeEvent(evId: string, actIdx: number): void {
 .attr-title {
   position: relative;
   margin: 0;
-  height: 34px;
-  line-height: 34px;
+  height: var(--ws-panel-head-h);
+  line-height: var(--ws-panel-head-h);
   padding: 0 14px 0 13px;
   border-bottom: 1px solid var(--ws-steel-2);
   background: var(--ws-steel-0);
@@ -814,6 +830,15 @@ function removeEvent(evId: string, actIdx: number): void {
   background: var(--ws-signal);
 }
 
+/* 标题后缀：把「组件名」和「属性」拆成两级字重，标题不再读成一长串 */
+.title-suffix {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--ws-text-3);
+}
+
 .attr-title.sub {
   height: 30px;
   line-height: 30px;
@@ -827,6 +852,48 @@ function removeEvent(evId: string, actIdx: number): void {
 
 .attr-title.sub::before {
   display: none;
+}
+
+/* 属性分组小标题：与面板大标题拉开两级层次 */
+.group-label {
+  margin: 0 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--ws-text-3);
+}
+
+.group-label + .el-form {
+  margin-bottom: 15px;
+}
+
+/* 快速上手：动作字做角标，四条一屏读完 */
+.guide-card {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guide-card li {
+  position: relative;
+  padding: 7px 10px 7px 30px;
+  border: 1px solid var(--ws-steel-2);
+  border-radius: var(--ws-radius);
+  background: var(--ws-steel-0);
+  color: var(--ws-text-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.guide-card li b {
+  position: absolute;
+  left: 10px;
+  top: 7px;
+  color: var(--ws-signal);
+  font-weight: 600;
 }
 
 .attr-body {

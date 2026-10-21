@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 图片轮播：urls 每行一个外链，intervalSec 切换间隔。 */
+/** 图片轮播：urls 每行一个（属性面板可多选上传），intervalSec 切换间隔。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRuntimeStore } from '@/runtime/store'
 
@@ -30,7 +30,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="carousel-widget">
     <img v-if="urls.length" :src="urls[idx % urls.length]" alt="" draggable="false" />
-    <div v-else class="ws-canvas-empty">{{ runtime.running ? '轮播图片未配置' : '在右侧属性填入图片 URL（每行一个）' }}</div>
+    <div v-else class="ws-canvas-empty">{{ runtime.running ? '轮播图片未配置' : '在右侧属性上传图片（可多张）' }}</div>
     <span v-if="urls.length > 1" class="dots">
       <i v-for="n in urls.length" :key="n" :class="{ on: (idx % urls.length) === n - 1 }" />
     </span>

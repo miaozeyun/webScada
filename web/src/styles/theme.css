@@ -66,11 +66,17 @@
   --ws-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
 
   /* 结构 */
-  --ws-radius: 2px;
+  --ws-radius: 3px;
+  --ws-radius-lg: 5px;
   --ws-border: 1px solid var(--ws-steel-3);
   --ws-border-soft: 1px solid var(--ws-steel-2);
   --ws-shadow-panel: 0 1px 2px rgba(20, 33, 46, 0.06);
-  --ws-topbar-h: 44px;
+  /* 侧栏浮起阴影：面板与画布之间留一道极浅的深度，避免整片贴死 */
+  --ws-shadow-panel-left: 3px 0 10px rgba(20, 33, 46, 0.06);
+  --ws-shadow-panel-right: -3px 0 10px rgba(20, 33, 46, 0.06);
+  --ws-shadow-float: 0 6px 18px rgba(20, 33, 46, 0.16), 0 1px 3px rgba(20, 33, 46, 0.12);
+  --ws-panel-head-h: 34px;
+  --ws-topbar-h: 46px;
   --ws-statusbar-h: 26px;
 
   /* 编辑器舞台（theme.ts applyTheme 按主题重算；此处为 electric 静态默认）：
@@ -154,8 +160,8 @@
   --el-bg-color-page: #e9edf1;
   --el-bg-color-overlay: #ffffff;
 
-  --el-border-radius-base: 2px;
-  --el-border-radius-small: 2px;
+  --el-border-radius-base: 3px;
+  --el-border-radius-small: 3px;
 
   --el-font-family: var(--ws-font-ui);
   --el-font-size-base: 13px;
@@ -208,8 +214,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 26px;
-  padding: 0 10px;
+  height: 27px;
+  padding: 0 9px;
   border: 1px solid var(--ws-inv-line);
   border-radius: var(--ws-radius);
   background: transparent;
@@ -217,12 +223,17 @@ body {
   font-family: inherit;
   font-size: 12px;
   cursor: pointer;
+  transition: border-color 0.12s ease-out, background-color 0.12s ease-out, color 0.12s ease-out;
 }
 
 .ws-ghost-btn:hover {
-  border-color: var(--ws-signal-bright);
+  border-color: var(--ws-signal-a45);
   background: var(--ws-signal-a12);
   color: #fff;
+}
+
+.ws-ghost-btn:active {
+  background: var(--ws-signal-a18);
 }
 
 /* 组件空态（配置前/无数据共用）：画布内容不随界面主题，用固定中性色保证深浅画布均可读 */
@@ -577,7 +588,7 @@ input[type='radio']:focus-visible {
 }
 
 @keyframes wsFlow {
-  to { background-position-x: -28px; }
+  to { transform: translateX(-28px); }
 }
 
 @keyframes wsMove {
@@ -595,10 +606,19 @@ input[type='radio']:focus-visible {
 }
 
 /* 流动（管道/直线）：条纹覆盖层位移动画，speed 为像素/秒 */
+/* 计算属性动画（background-position）改为 transform：条纹层左右各多出 1 个周期，
+   由节点 overflow 裁剪；transform 走合成层，不再每帧触发 style recalc + 重绘 */
+.ws-anim-flow {
+  overflow: hidden;
+}
+
 .ws-anim-flow::after {
   content: '';
   position: absolute;
-  inset: 0;
+  top: 0;
+  bottom: 0;
+  left: -28px;
+  right: -28px;
   pointer-events: none;
   background-image: repeating-linear-gradient(
     115deg,
@@ -606,6 +626,7 @@ input[type='radio']:focus-visible {
     transparent 8px 28px
   );
   animation: wsFlow 1s linear infinite;
+  will-change: transform;
 }
 
 /* 轨迹运动（M7）：CSS Motion Path，路径坐标相对组件原点 */

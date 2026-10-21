@@ -257,18 +257,27 @@ export const useEditorStore = defineStore('editor', {
     deleteSelection(): void {
       const page = this.currentPage
       if (!page || this.selection.length === 0) return
-      this.beginChange()
       const g = this.editingGroup
+      const pool = g ? (g.children ?? []) : page.components
+      // 选中项可能已失效（组内删除后残留、快照恢复竞态等）：先收敛到当前上下文里真实存在的 id，
+      // 否则「按 Delete 没反应」且会写一条空历史记录
+      const ids = this.selection.filter((id) => pool.some((c) => c.id === id))
+      if (ids.length === 0) {
+        this.selection = []
+        return
+      }
+      this.beginChange()
       if (g) {
         // 组内删除：子组件坐标相对组原点，直接剔除；组删空则连同空组一并移除并退出编辑
-        g.children = (g.children ?? []).filter((c) => !this.selection.includes(c.id))
+        g.children = (g.children ?? []).filter((c) => !ids.includes(c.id))
+        this.selection = [] // 组内上下文不自动退出，但已删 id 必须清掉（否则后续操作指向幽灵节点）
         if (g.children.length === 0) {
           page.components = page.components.filter((c) => c.id !== g.id)
           normalizeZ(page)
           this.exitGroup()
         }
       } else {
-        page.components = page.components.filter((c) => !this.selection.includes(c.id))
+        page.components = page.components.filter((c) => !ids.includes(c.id))
         normalizeZ(page)
         this.selection = []
       }
@@ -310,10 +319,19 @@ export const useEditorStore = defineStore('editor', {
       this._markDirty()
     },
 
-    /** 拖拽/缩放过程中直接写坐标（历史快照由交互开始时的 beginChange 负责） */
+    /** 拖拽/缩放过程中直接写坐标（历史快照由交互开始时的 beginChange 负责）。
+     *  值未变（同一帧重复位置、亚像素抖动取整后相同）直接返回：避免每帧无谓的响应式写入与重渲染 */
     setNodeRect(id: string, patch: Partial<Pick<ComponentNode, 'x' | 'y' | 'w' | 'h' | 'rotate'>>): void {
       const node = this.findNodeDeep(id)
       if (!node) return
+      let changed = false
+      for (const k of Object.keys(patch) as (keyof typeof patch)[]) {
+        if (node[k] !== patch[k]) {
+          changed = true
+          break
+        }
+      }
+      if (!changed) return
       Object.assign(node, patch)
       this._markDirty()
     },
@@ -348,10 +366,12 @@ export const useEditorStore = defineStore('editor', {
       this._markDirty()
     },
 
-    /** 台账缩略图（编辑器保存前由画布截图写入，随 doc 一并 PUT；不单独触发保存） */
+    /** 台账缩略图（编辑器保存前由画布截图写入，随 doc 一并 PUT）。
+     *  必须标脏：截图发生在保存动作之前，若此时已有在途保存把 dirty 清掉，缩略图会只留在内存里。 */
     setThumbnail(dataUrl: string): void {
-      if (!this.doc) return
+      if (!this.doc || this.doc.project.thumbnail === dataUrl) return
       this.doc.project = { ...this.doc.project, thumbnail: dataUrl }
+      this._markDirty()
     },
 
     updateNodeProps(id: string, key: string, value: unknown): void {

@@ -336,27 +336,53 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 </template>
 
 <style scoped>
+/* 高度由编辑器左栏的 --palette-h 控制（分隔条可拖），缺省 65% */
 .component-panel {
-  height: 65%;
+  position: relative;
+  height: var(--palette-h, 65%);
+  min-height: 160px;
   display: flex;
   flex-direction: column;
   border-bottom: 1px solid var(--ws-steel-3);
 }
 
+/* 底部渐隐：提示列表可继续滚动，而不是被硬切一刀 */
+.component-panel::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 16px;
+  background: linear-gradient(180deg, transparent, var(--ws-panel));
+  pointer-events: none;
+}
+
 /* 面板标题：工程分区短标题 + 右侧条目读数 */
 .panel-head {
-  height: 34px;
+  position: relative;
+  height: var(--ws-panel-head-h);
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
+  padding: 0 12px;
   background: var(--ws-steel-0);
   border-bottom: 1px solid var(--ws-steel-2);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--ws-text-2);
+}
+
+.panel-head::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  background: var(--ws-signal);
 }
 
 .head-count {
@@ -368,64 +394,55 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   color: var(--ws-signal);
 }
 
-/* Tab 条（组件 / 图元 / 装饰 / 模板 / 我的） */
+/* Tab 条（组件 / 图元 / 装饰 / 模板 / 我的）：分段控件，激活项为浅青药丸 */
 .palette-tabs {
-  height: 32px;
   flex-shrink: 0;
   display: flex;
+  gap: 2px;
+  padding: 5px 8px;
   border-bottom: 1px solid var(--ws-steel-2);
+  background: var(--ws-panel);
 }
 
 .tab {
   position: relative;
   flex: 1;
   min-width: 0;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 3px;
-  border: none;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--ws-radius);
   background: transparent;
   font-size: 11px;
   color: var(--ws-text-3);
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.12s ease-out;
-}
-
-/* 激活指示：底部 2px 青条（scaleX 过渡，合成层友好） */
-.tab::after {
-  content: '';
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  bottom: 0;
-  height: 2px;
-  background: var(--ws-signal);
-  transform: scaleX(0);
-  transform-origin: center;
-  transition: transform 0.15s ease-out;
+  transition: background-color 0.12s ease-out, color 0.12s ease-out, border-color 0.12s ease-out;
 }
 
 .tab:hover {
+  background: var(--ws-steel-1);
   color: var(--ws-text);
 }
 
 .tab.active {
+  border-color: var(--ws-signal-a18);
+  background: var(--ws-signal-soft);
   color: var(--ws-signal);
-}
-
-.tab.active::after {
-  transform: scaleX(1);
+  font-weight: 600;
 }
 
 .component-list {
   flex: 1;
   min-height: 0;
-  padding: 0 8px 8px;
+  padding: 2px 8px 10px;
   display: grid;
-  grid-gap: 8px;
-  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  grid-gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
   align-content: start;
   overflow-y: auto;
 }
@@ -435,10 +452,12 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 1px 0;
+  padding: 7px 1px 1px;
   font-size: 10px;
-  letter-spacing: 0.08em;
+  font-weight: 600;
+  letter-spacing: 0.1em;
   color: var(--ws-text-3);
+  text-transform: uppercase;
 }
 
 .group-count {
@@ -459,16 +478,17 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   margin-top: 4px;
 }
 
-/* 竖排缩略卡片：图标居上、名称居下，与图元库卡片同一骨架 */
+/* 缩略卡：三列密排（图标居上、名称居下），40 个组件一屏可见过半 */
 .list {
-  min-height: 56px;
-  padding: 8px 4px 6px;
+  min-width: 0;
+  height: 54px;
+  padding: 7px 3px 5px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  border: 1px solid var(--ws-steel-3);
+  gap: 4px;
+  border: 1px solid var(--ws-steel-2);
   border-radius: var(--ws-radius);
   background: var(--ws-panel);
   color: var(--ws-text-2);
@@ -476,7 +496,7 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   user-select: none;
   text-align: center;
   transition: border-color 0.12s ease-out, background-color 0.12s ease-out,
-    color 0.12s ease-out, transform 0.12s ease-out;
+    color 0.12s ease-out, box-shadow 0.12s ease-out;
 }
 
 .list:active {
@@ -487,13 +507,13 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   border-color: var(--ws-signal);
   background: var(--ws-signal-soft);
   color: var(--ws-signal);
-  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(11, 114, 133, 0.12);
 }
 
-/* 图标台：统一 26px 见方刻度底，线宽与图元库缩略图一致 */
+/* 图标台：统一 22px 见方刻度底，线宽与图元库缩略图一致 */
 .list-icon {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -507,7 +527,7 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 .label {
   max-width: 100%;
   font-size: 11px;
-  line-height: 1.2;
+  line-height: 1.15;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -533,14 +553,22 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   padding: 0 10px;
   border: 1px solid var(--ws-steel-3);
   border-radius: var(--ws-radius);
-  background: var(--ws-panel);
+  background: var(--ws-steel-0);
   color: var(--ws-text);
   font-size: 12px;
   outline: none;
+  transition: border-color 0.12s ease-out, background-color 0.12s ease-out,
+    box-shadow 0.12s ease-out;
+}
+
+.symbol-search::placeholder {
+  color: var(--ws-text-3);
 }
 
 .symbol-search:focus {
   border-color: var(--ws-signal);
+  background: var(--ws-panel);
+  box-shadow: 0 0 0 2px var(--ws-signal-a12);
 }
 
 .my-save {
@@ -577,20 +605,27 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 }
 
 .cat {
-  padding: 2px 8px;
-  border: 1px solid var(--ws-steel-3);
-  border-radius: var(--ws-radius);
+  padding: 2px 9px;
+  border: 1px solid var(--ws-steel-2);
+  border-radius: 999px;
   background: var(--ws-panel);
   font-size: 11px;
+  line-height: 16px;
   color: var(--ws-text-2);
   cursor: pointer;
   transition: border-color 0.12s ease-out, background-color 0.12s ease-out, color 0.12s ease-out;
+}
+
+.cat:hover {
+  border-color: var(--ws-signal);
+  color: var(--ws-signal);
 }
 
 .cat.active {
   border-color: var(--ws-signal);
   background: var(--ws-signal-soft);
   color: var(--ws-signal);
+  font-weight: 600;
 }
 
 .symbol-grid {
@@ -598,8 +633,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   min-height: 0;
   padding: 0 8px 8px;
   display: grid;
-  grid-gap: 8px;
-  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  grid-gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
   align-content: start;
   overflow-y: auto;
 }
@@ -610,19 +645,20 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 
 .symbol-item {
   position: relative;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 6px 2px 4px;
-  border: 1px solid var(--ws-steel-3);
+  gap: 3px;
+  padding: 5px 2px 4px;
+  border: 1px solid var(--ws-steel-2);
   border-radius: var(--ws-radius);
   background: var(--ws-panel);
   cursor: grab;
   user-select: none;
   transition: border-color 0.12s ease-out, background-color 0.12s ease-out,
-    transform 0.12s ease-out;
+    box-shadow 0.12s ease-out;
 }
 
 .symbol-item:active {
@@ -632,19 +668,19 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 .symbol-item:hover {
   border-color: var(--ws-signal);
   background: var(--ws-signal-soft);
-  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(11, 114, 133, 0.12);
 }
 
 /* 缩略图衬底：浅钢灰刻度台，灰线图元在白面板上清晰可辨 */
 .symbol-thumb {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--ws-steel-2);
-  border-radius: var(--ws-radius);
+  border-radius: 2px;
   background: var(--ws-steel-0);
   color: var(--ws-text-2);
 }
@@ -756,7 +792,7 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 /* 触屏 / 窄面板：减少网格列宽浪费 */
 @media (max-width: 1200px) {
   .component-list {
-    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
   }
 }
 </style>

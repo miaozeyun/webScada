@@ -30,10 +30,10 @@ onMounted(() => {
   ro.observe(el.value!)
 })
 
+// option 由各图表 computed 整体新建，引用变化即需重设；deep 遍历大数组（历史序列）纯属浪费
 watch(
   () => props.option,
   (o) => chart?.setOption(o, true),
-  { deep: true },
 )
 
 onBeforeUnmount(() => {

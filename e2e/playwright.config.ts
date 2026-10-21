@@ -8,11 +8,14 @@ import { defineConfig } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './tests',
+  // 冒烟共享同一后端与同一工程（放置/删除/自动保存互相干扰），必须串行
+  workers: 1,
   timeout: 30_000,
   use: {
     baseURL: 'http://localhost:8088',
     headless: true,
     screenshot: 'only-on-failure',
+    trace: 'retain-on-failure',
     viewport: { width: 1728, height: 960 },
   },
 })

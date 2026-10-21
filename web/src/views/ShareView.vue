@@ -2,7 +2,7 @@
 /** 分享页（M6/M7，M8 扩展）：/s/:token 匿名只读运行态。
  * M8：快照 doc 仅决定渲染；值流/报警经服务端 WS（shareToken 通道，只读）。
  * reload 帧（分享快照被刷新）→ 重取快照 doc 并整体重启引擎（03 §3.4 换版语义）。
- * ?embed=1 纯画面嵌入（iframe 场景隐藏标题栏）。 */
+ * 顶栏：分享页默认无顶栏（chromeless，画面铺满视口，右上角悬浮全屏）；?embed=1 连悬浮按钮一并隐藏。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import type { ProjectDoc } from '@/types/doc'
@@ -64,6 +64,7 @@ onBeforeUnmount(() => {
       :writable="false"
       :server-token="token"
       :embed="embed"
+      :chromeless="true"
       @server-reload="onServerReload"
     />
     <div v-else-if="loadError" class="share-fallback">

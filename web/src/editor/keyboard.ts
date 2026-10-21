@@ -12,9 +12,11 @@ function isTypingTarget(e: KeyboardEvent): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable
 }
 
-export function installKeyboard(store: EditorStore): () => void {
+/** isBlocked：预览/数据抽屉等覆盖层打开时返回 true——画布快捷键必须让位（否则 Delete
+ *  会在看不见的画布上删组件） */
+export function installKeyboard(store: EditorStore, isBlocked: () => boolean = () => false): () => void {
   const onKeyDown = (e: KeyboardEvent): void => {
-    if (isTypingTarget(e)) return
+    if (isTypingTarget(e) || isBlocked()) return
     const mod = e.ctrlKey || e.metaKey
 
     if (e.code === 'Space') {

@@ -17,6 +17,9 @@ __pycache__/
 
 # 测试/调试产物
 artifacts/
+
+# 本地上传的图片（生产走 compose 命名卷，不入库）
+server/uploads/
 scripts/debug*.py
 scripts/recon_login.py
 

@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     DOC_WARN_BYTES: int = 1024 * 1024      # ≤1MB 编辑器 UI 告警（前端消费）
     DOC_MAX_BYTES: int = 2 * 1024 * 1024   # >2MB 服务端 422 doc_too_large
 
+    # ---- 图片上传（编辑器图片/轮播组件直传）----
+    # 落盘目录（compose 以命名卷持久化；非 root 运行时目录须可写）
+    UPLOAD_DIR: str = "uploads"
+    UPLOAD_MAX_BYTES: int = 5 * 1024 * 1024
+
     # ---- 报警保留（G15；清理任务由 background_jobs 消费）----
     ALARM_RETENTION_DAYS: int = 30
     ALARM_MAX_ROWS_PER_PROJECT: int = 200_000

@@ -96,9 +96,14 @@ export const useRuntimeStore = defineStore('runtime', {
       else this.activeAlarms.delete(ev.id)
     },
 
-    /** M8：alarmAck 帧到达（REST ack 广播）→ D 包据此更新列表确认态 */
+    /** M8：alarmAck 帧到达（REST ack 广播）→ D 包据此更新列表确认态。
+     *  长期值班大屏会不断收到 ack，Set 需封顶（保留最近 2000 个，插入序即时间序） */
     markAlarmAcked(alarmId: number): void {
       this.serverAckedAlarmIds.add(alarmId)
+      if (this.serverAckedAlarmIds.size > 2000) {
+        const oldest = this.serverAckedAlarmIds.values().next().value
+        if (oldest !== undefined) this.serverAckedAlarmIds.delete(oldest)
+      }
     },
 
     /** M8：变量质量态登记（q!=='good'），WidgetHost 灰显依据 */

@@ -222,6 +222,11 @@ services:
       JWT_WS_MAX_PER_USER_PROJECT: ${JWT_WS_MAX_PER_USER_PROJECT:-10}
       RATE_LIMIT_CONNECT_PER_MIN: ${RATE_LIMIT_CONNECT_PER_MIN:-30}
       WS_MAX_CONNECTIONS: ${WS_MAX_CONNECTIONS:-50}
+      # 图片上传：落盘命名卷（多副本/重建不丢），上限与 nginx client_max_body_size 同口径
+      UPLOAD_DIR: /app/uploads
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-5242880}
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -280,3 +285,4 @@ volumes:
   pgdata:
   emqx_data:
   emqx_log:
+  uploads_data:

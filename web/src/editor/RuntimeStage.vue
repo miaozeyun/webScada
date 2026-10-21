@@ -31,8 +31,10 @@ const props = withDefaults(
     writable?: boolean
     /** M7：纯画面嵌入（隐藏标题栏，供 iframe 场景；等价 URL ?embed=1） */
     embed?: boolean
+    /** 无顶栏展示（分享页）：隐藏标题栏/页签，禁滚动条，仅保留右上角悬浮全屏按钮 */
+    chromeless?: boolean
   }>(),
-  { closable: false, writable: true, embed: false },
+  { closable: false, writable: true, embed: false, chromeless: false },
 )
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'serverReload'): void }>()
@@ -89,6 +91,12 @@ provideRuntime(
 )
 
 const embed = computed(() => props.embed === true)
+/** 分享页无顶栏（embed 优先：iframe 场景连悬浮按钮也不要） */
+const bare = computed(() => props.chromeless === true && !embed.value)
+/** 无顶栏/嵌入时画面即视口：禁滚动条，页面按 mode 自适应铺满 */
+const noScroll = computed(() => embed.value || bare.value)
+/** 无顶栏时舞台底色跟页面底色：留白区与画面同色，视觉上「铺满」视口 */
+const stageBg = computed(() => (noScroll.value ? (page.value?.background.color ?? '#0d1823') : undefined))
 
 /** M9 批次5：画面方向强制——视口方向与设定不符时页面旋转 90°（横屏画面在竖屏手机上强制横看，反之亦然） */
 const rotated = computed(() => {
@@ -251,12 +259,17 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', measure)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   engine.stop()
+  // AudioContext 是浏览器稀缺资源（同页上限约 6 个），预览反复开关不释放会累积泄漏
+  if (audioCtx) {
+    void audioCtx.close().catch(() => {})
+    audioCtx = null
+  }
 })
 </script>
 
 <template>
-  <div ref="stageEl" class="runtime-stage" :class="{ 'is-fullscreen': isFullscreen }">
-    <header v-if="!embed" class="stage-bar">
+  <div ref="stageEl" class="runtime-stage" :class="{ 'is-fullscreen': isFullscreen }" :style="stageBg ? { background: stageBg } : undefined">
+    <header v-if="!embed && !bare" class="stage-bar">
       <span class="title">{{ title }}</span>
       <nav class="stage-tabs">
         <span
@@ -282,7 +295,18 @@ onBeforeUnmount(() => {
       />
       <el-button v-if="closable" size="small" :icon="Close" @click="emit('close')">退出</el-button>
     </header>
-    <div ref="bodyEl" class="stage-body" :class="{ 'lock-pan': page?.screen.lockPan === true }">
+    <!-- 分享页：无顶栏，仅留右上角悬浮全屏（值班大屏场景），画面铺满视口 -->
+    <button
+      v-if="bare"
+      class="float-fs"
+      type="button"
+      :title="isFullscreen ? '退出全屏' : '全屏展示'"
+      :aria-label="isFullscreen ? '退出全屏' : '全屏展示'"
+      @click="toggleFullscreen"
+    >
+      <el-icon :size="16"><FullScreen /></el-icon>
+    </button>
+    <div ref="bodyEl" class="stage-body" :class="{ 'lock-pan': page?.screen.lockPan === true, 'no-scroll': noScroll }">
       <div v-if="page" class="stage-rot-wrap" :style="wrapStyle">
         <div class="stage-page" :style="pageStyle">
           <!-- 全部节点都挂载：静态 visible:false 的组件可能被事件（toggleVisible）/绑定恢复显示，
@@ -407,6 +431,42 @@ onBeforeUnmount(() => {
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: none;
+}
+
+/* 分享页/嵌入：画面即视口，任何情况下都不出滚动条 */
+.stage-body.no-scroll {
+  overflow: hidden;
+}
+
+/* 分享页悬浮全屏：贴右上角，半透明深底，不抢画面但随时可点 */
+.float-fs {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  /* 页面组件 z-index 可到 9000（弹框组），悬浮按钮必须压在其上 */
+  z-index: 9500;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+  background: rgba(13, 24, 35, 0.55);
+  color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out;
+}
+
+.float-fs:hover,
+.float-fs:focus-visible {
+  opacity: 1;
+  background: rgba(13, 24, 35, 0.82);
+  border-color: var(--ws-signal);
+  color: #fff;
+  outline: none;
 }
 
 /* 旋转态外层占位（M9 批次5）：非旋转时 auto 尺寸包裹，与原布局一致 */

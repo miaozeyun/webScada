@@ -31,7 +31,9 @@ COPY alembic ./alembic
 COPY alembic.ini ./
 COPY scripts ./scripts
 COPY entrypoint.sh ./
-RUN chmod +x entrypoint.sh
+# 上传图片落盘目录：命名卷首挂载时按镜像内属主初始化，非 root（appuser）须可写
+RUN mkdir -p /app/uploads && chown appuser:appuser /app/uploads \
+    && chmod +x entrypoint.sh
 USER appuser
 EXPOSE 8000
 ENTRYPOINT ["bash", "entrypoint.sh"]

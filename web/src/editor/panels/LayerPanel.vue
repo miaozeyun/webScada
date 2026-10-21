@@ -41,7 +41,7 @@ function removeLayer(id: string): void {
 
 <template>
   <div class="layer-panel">
-    <div class="panel-head">
+    <div class="panel-head" :class="{ 'in-group': !!editor.editingGroup }">
       <template v-if="editor.editingGroup">
         <button class="back-btn" title="返回顶层（Esc）" @click="backToTop">
           <el-icon :size="12"><Back /></el-icon>
@@ -88,25 +88,41 @@ function removeLayer(id: string): void {
 
 <style scoped>
 .layer-panel {
-  height: 35%;
+  flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
 .panel-head {
-  height: 34px;
+  position: relative;
+  height: var(--ws-panel-head-h);
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
+  padding: 0 12px;
   background: var(--ws-steel-0);
   border-bottom: 1px solid var(--ws-steel-2);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--ws-text-2);
+}
+
+.panel-head::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  background: var(--ws-signal);
+}
+
+/* 组内编辑时强调条改为警示橙：当前不在顶层 */
+.panel-head.in-group::before {
+  background: var(--ws-warn);
 }
 
 .panel-count {

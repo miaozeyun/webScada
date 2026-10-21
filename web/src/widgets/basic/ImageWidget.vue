@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 图片组件：仅外链 URL（P0 不做上传，设计边界 D7）。 */
+/** 图片组件：属性面板可本地上传（落盘 /api/v1/uploads）或直接填 URL。 */
 import { computed } from 'vue'
 import { useRuntimeStore } from '@/runtime/store'
 
@@ -13,7 +13,7 @@ const fit = computed(() => String(props.nodeProps.fit ?? 'contain') as 'contain'
 <template>
   <div class="image-widget">
     <img v-if="src" :src="src" :style="{ objectFit: fit }" alt="" draggable="false" />
-    <div v-else class="ws-canvas-empty">{{ runtime.running ? '图片未配置' : '在右侧属性填入图片 URL' }}</div>
+    <div v-else class="ws-canvas-empty">{{ runtime.running ? '图片未配置' : '在右侧属性上传图片或填 URL' }}</div>
   </div>
 </template>
 

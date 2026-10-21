@@ -19,7 +19,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.api.v1 import alarms, audit, auth, datasources, health, history, metrics, projects, shares, users, ws
+from app.api.v1 import alarms, audit, auth, datasources, health, history, metrics, projects, shares, uploads, users, ws
 from app.core.config import settings
 from app.core.errors import register_handlers
 from app.core.rate_limit import RateLimitMiddleware
@@ -81,6 +81,7 @@ def create_app() -> FastAPI:
     api.include_router(auth.router)
     api.include_router(projects.router)
     api.include_router(shares.router)
+    api.include_router(uploads.router)      # 图片直传（编辑器图片/轮播）
     api.include_router(datasources.router)   # A：连通性测试（凭证注回）
     api.include_router(ws.router)            # A：/ws/runtime 服务端推送
     api.include_router(alarms.router)        # B：报警列表/ack（状态机）

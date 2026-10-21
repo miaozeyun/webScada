@@ -17,30 +17,23 @@ const levelH = computed(() => (76 * percent.value) / 100)
 </script>
 
 <template>
+  <div class="tank">
   <svg class="dev-svg tank-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-    <defs>
-      <clipPath id="tank-inner">
-        <rect x="12" y="12" width="76" height="76" rx="3" />
-      </clipPath>
-      <linearGradient id="tank-liquid" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="currentColor" stop-opacity="0.85" />
-        <stop offset="100%" stop-color="currentColor" stop-opacity="0.45" />
-      </linearGradient>
-    </defs>
     <!-- 罐体 -->
     <rect x="12" y="12" width="76" height="76" fill="none" stroke="currentColor" stroke-width="3" />
-    <!-- 液体（clip 防溢出圆角） -->
-    <g clip-path="url(#tank-inner)">
-      <rect :y="levelY" width="100" height="76" fill="url(#tank-liquid)">
-        <animate
-          v-if="nodeProps.wave !== false && percent > 1"
-          attributeName="y"
-          :values="`${levelY};${levelY - 1.5};${levelY}`"
-          dur="2.2s"
-          repeatCount="indefinite"
-        />
-      </rect>
-    </g>
+    <!-- 液体：CSS transform 波动（原 SMIL <animate> 每帧改 y 属性，会触发整页 layout，
+         长时间停留的大屏上等于每秒 50+ 次重排；transform 走合成层，不触发布局）。
+         不用渐变/clipPath id：多实例同 id 会互相串色，且 html2canvas 对 SVG 引用支持差。 -->
+    <rect
+      class="liquid"
+      x="12"
+      :y="levelY"
+      width="76"
+      :height="Math.max(0, 88 - levelY)"
+      rx="3"
+      fill="currentColor"
+      opacity="0.6"
+    />
     <!-- 刻度线 -->
     <line x1="12" y1="31" x2="19" y2="31" stroke="currentColor" stroke-width="1.5" opacity="0.6" />
     <line x1="12" y1="50" x2="19" y2="50" stroke="currentColor" stroke-width="1.5" opacity="0.6" />
@@ -50,9 +43,24 @@ const levelH = computed(() => (76 * percent.value) / 100)
       {{ percent.toFixed(0) }}%
     </text>
   </svg>
+  <!-- 液面波动：HTML 覆盖层做 transform 动画（合成层，不触发布局）；
+       SVG 子元素的 transform 动画在 Chrome 里仍会每帧重排，曾占满屏 40+ 次/秒 -->
+  <div
+    v-if="nodeProps.wave !== false && percent > 1"
+    class="surface"
+    :style="{ top: `${levelY}%` }"
+    aria-hidden="true"
+  />
+  </div>
 </template>
 
 <style scoped>
+.tank {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
 .dev-svg {
   width: 100%;
   height: 100%;
@@ -64,5 +72,25 @@ const levelH = computed(() => (76 * percent.value) / 100)
   font-size: 13px;
   font-weight: 600;
   font-family: Consolas, monospace;
+}
+
+/* 液面高光条：同步液体颜色，随液位定位，只做合成友好的 transform 波动 */
+.surface {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.45;
+  pointer-events: none;
+  will-change: transform;
+  animation: tank-surface 2.2s ease-in-out infinite;
+}
+
+@keyframes tank-surface {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.5px); }
 }
 </style>

@@ -7,6 +7,47 @@ webScada 的所有显著变更记录在本文件。
 
 ## [Unreleased] — 运维与法务文档包 + 服务端闭环改造（进行中）
 
+### 大屏长时运行优化 + 分享页无边框 + 台账缩略图修复（2026-10-21）
+
+#### Changed
+
+- **分享页去掉顶部工具条**：`/s/{token}` 默认无标题栏/页签，画面铺满视口（舞台底色跟随页面底色），
+  不出现任何滚动条；右上角保留悬浮「全屏」按钮（`?embed=1` 连按钮也不显示）。多页画面仍可由
+  组件事件（switchPage）切换。
+- **长时运行开销**：水箱液面波动从 SMIL/SVG transform 改为 HTML 合成层动画（Layout 60/s → 7~14/s）；
+  管道流动从 `background-position` 改为 `transform`；`AudioContext` 卸载即关闭；
+  已确认报警 id 集合封顶 2000；历史落盘间隔 10s → 60s。
+
+#### Fixed
+
+- **台账缩略图一直为空**：`TitleBarWidget` 的 `color-mix` 让 html2canvas 整页截图抛错（catch 静默），
+  且手动保存与 3s 自动保存存在「先落库无缩略图、后 save 因 dirty 已清直接返回」的竞态。
+  标题栏改兼容色值、截图失败留痕、保存前清理待触发定时器、`setThumbnail` 标脏。
+  修复后卡片视图缩略图正常（320×180 JPEG），旧工程下次保存时自动补齐。
+
+### 图片直传 + 编辑器流畅度 + 画面模板重做（2026-10-21）
+
+#### Added
+
+- **图片/轮播组件直传**：属性面板新增 `ImagePicker`（单图 + 多图轮播），支持本地上传
+  （png/jpg/gif/webp，≤5MB，可多选）与 URL 双入口；新增 `POST /api/v1/uploads`（operator/admin，
+  按魔数校验，落盘 `UPLOAD_DIR`）与匿名读取 `GET /api/v1/uploads/{name}`（分享页可直接加载）。
+  compose 增加 `uploads_data` 命名卷，server 镜像预建 `/app/uploads` 并 chown appuser。
+- **画面模板重做**：四套模板（大屏总览/单线图框架/双栏控制面板/移动端竖屏）统一深色 HMI 视觉：
+  卡片分组、信号色标题、显式文字色、真实占位读数；单线图补齐母线-回路线缆、CT/PT/变压器/负荷、
+  图例与全站遥测；移动端改为 375 宽度可读的卡片式布局。
+
+#### Fixed
+
+- **Delete 偶发删不掉组件**：画布 pointerdown 的 `preventDefault()` 阻止焦点离开属性面板输入框，
+  键盘层把 Delete 当作「输入中」吞掉。画布按下/右键现在先收走输入焦点；组内删除后清空选中，
+  避免残留幽灵 id；预览/抽屉/帮助/导入等覆盖层打开时画布快捷键整体旁路。
+- **拖动/编辑卡顿**：pointermove 改为 rAF 合帧（抬起前 flush 末帧）；手势期间缓存视口矩形避免
+  逐事件强制重排；自动保存的缩略图截图节流 30s（手动保存/导出/分享/离开仍即时刷新）；移除缩放坞
+  `backdrop-filter`；`setNodeRect` 值未变不写；画布舞台 `will-change: transform`。
+- **模板多行文案被压成一行**：text 组件 `ellipsis` 默认 nowrap，模板图例/说明改用显式
+  `ellipsis=false` 的多行文本。
+
 ### 编辑器交互打磨批次（对标业界最好用编辑器，2026-10-21）
 
 #### Added

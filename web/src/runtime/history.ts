@@ -8,7 +8,7 @@ const LS_KEY = 'webscada:hist:v1'
 const BUCKET_MS = 60_000
 const PER_VAR_MAX = 4320
 const GLOBAL_MAX = 120_000
-const FLUSH_INTERVAL_MS = 10_000
+const FLUSH_INTERVAL_MS = 60_000 // 长期值班：满容量后每次落盘要序列化数 MB JSON，10s 一次会造成周期性卡顿
 
 type Bucket = [ts: number, sum: number, n: number]
 

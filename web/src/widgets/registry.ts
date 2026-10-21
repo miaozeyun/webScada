@@ -72,8 +72,18 @@ import StatusLightWidget from './device/StatusLightWidget.vue'
 import TankWidget from './device/TankWidget.vue'
 import ValveWidget from './device/ValveWidget.vue'
 
-/** 属性面板表单项类型（PropPanel 据此渲染）；variable=动态变量下拉（editor.doc.variables） */
-export type PropFieldType = 'text' | 'textarea' | 'number' | 'color' | 'select' | 'switch' | 'variable'
+/** 属性面板表单项类型（PropPanel 据此渲染）；variable=动态变量下拉（editor.doc.variables），
+ *  image/imagelist=图片直传（单图 / 换行分隔的多图列表） */
+export type PropFieldType =
+  | 'text'
+  | 'textarea'
+  | 'number'
+  | 'color'
+  | 'select'
+  | 'switch'
+  | 'variable'
+  | 'image'
+  | 'imagelist'
 
 export interface PropSchemaItem {
   key: string
@@ -174,7 +184,7 @@ register({
   defaultSize: { w: 320, h: 200 },
   defaultProps: () => ({ src: '', fit: 'contain' }),
   propsSchema: [
-    { key: 'src', label: '图片 URL（外链，P0 不做上传）', type: 'text', defaultValue: '' },
+    { key: 'src', label: '图片', type: 'image', defaultValue: '' },
     {
       key: 'fit',
       label: '填充方式',
@@ -211,7 +221,7 @@ register({
   defaultSize: { w: 360, h: 240 },
   defaultProps: () => ({ urls: '', intervalSec: 5 }),
   propsSchema: [
-    { key: 'urls', label: '图片 URL 列表（每行一个）', type: 'textarea', defaultValue: '' },
+    { key: 'urls', label: '图片', type: 'imagelist', defaultValue: '' },
     { key: 'intervalSec', label: '切换间隔（秒）', type: 'number', min: 1, max: 120, step: 1, defaultValue: 5 },
   ],
   renderer: CarouselWidget,

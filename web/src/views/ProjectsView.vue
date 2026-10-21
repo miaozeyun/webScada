@@ -389,13 +389,16 @@ function fmtTime(iso: string): string {
             :title="`${row.name}（双击进入编辑器）`"
             @dblclick="router.push(`/editor/${row.id}`)"
           >
-            <div class="card-thumb">
+            <div class="card-thumb" :class="{ 'is-empty': !row.thumbnail }">
               <img v-if="row.thumbnail" :src="row.thumbnail" :alt="`${row.name} 首页画面`" loading="lazy" />
-              <svg v-else class="thumb-placeholder" viewBox="0 0 48 48" aria-hidden="true">
-                <rect x="5.5" y="9.5" width="37" height="29" />
-                <path d="M5.5 17.5 H42.5 M11.5 13.5 H13 M15.5 13.5 H17" />
-                <path d="M12 30 L18 30 L21 22 L26 35 L30 27 L36 27" />
-              </svg>
+              <template v-else>
+                <svg class="thumb-placeholder" viewBox="0 0 48 48" aria-hidden="true">
+                  <rect x="5.5" y="9.5" width="37" height="29" />
+                  <path d="M5.5 17.5 H42.5 M11.5 13.5 H13 M15.5 13.5 H17" />
+                  <path d="M12 30 L18 30 L21 22 L26 35 L30 27 L36 27" />
+                </svg>
+                <span class="thumb-hint">保存后自动生成预览</span>
+              </template>
               <span class="card-rev ws-readout">r{{ row.revision }}</span>
             </div>
             <div class="card-body">
@@ -791,23 +794,43 @@ function fmtTime(iso: string): string {
   flex-direction: column;
   background: var(--ws-panel);
   border: 1px solid var(--ws-steel-3);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  border-radius: var(--ws-radius);
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .project-card:hover {
   border-color: var(--ws-signal);
-  box-shadow: var(--ws-shadow-panel);
+  box-shadow: 0 6px 18px rgba(20, 33, 46, 0.1);
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-card,
+  .project-card:hover {
+    transform: none;
+  }
 }
 
 .card-thumb {
   position: relative;
   aspect-ratio: 16 / 9;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   background: var(--ws-steel-1);
   border-bottom: 1px solid var(--ws-steel-2);
   overflow: hidden;
+}
+
+/* 无缩略图卡：点阵蓝图底 + 线稿占位，看起来是「待生成」而不是「坏图」 */
+.card-thumb.is-empty {
+  background-color: var(--ws-steel-0);
+  background-image: radial-gradient(var(--ws-steel-3) 1px, transparent 1px);
+  background-size: 12px 12px;
+  background-position: center;
 }
 
 .card-thumb img {
@@ -818,13 +841,27 @@ function fmtTime(iso: string): string {
 }
 
 .thumb-placeholder {
-  width: 40px;
-  height: 40px;
+  width: 52px;
+  height: 52px;
+  padding: 6px;
+  border: 1px solid var(--ws-steel-2);
+  border-radius: var(--ws-radius);
+  background: rgba(255, 255, 255, 0.86);
   fill: none;
-  stroke: var(--ws-steel-3);
+  stroke: var(--ws-text-3);
   stroke-width: 1.4;
   stroke-linecap: round;
   stroke-linejoin: round;
+  opacity: 0.55;
+}
+
+.thumb-hint {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ws-text-3);
+  font-size: 11px;
+  line-height: 18px;
 }
 
 .card-rev {

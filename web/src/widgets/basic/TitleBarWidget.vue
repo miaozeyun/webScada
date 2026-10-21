@@ -28,7 +28,9 @@ const text = computed(() => String(props.nodeProps.text ?? '标题'))
   align-items: center;
   padding: 0 28px;
   position: relative;
-  background: linear-gradient(180deg, color-mix(in srgb, currentColor 10%, transparent), transparent 85%);
+  /* 固定中性半透明底，不用 color-mix：① Chrome 90 基线不支持 ② html2canvas 解析
+     color-mix/color() 会抛错，直接导致台账缩略图整页截图失败（见 docs/经验教训.md） */
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.12), transparent 85%);
   color: var(--dev-color, #909399);
   border-bottom: 2px solid currentColor;
   box-sizing: border-box;
