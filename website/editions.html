@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>版本与授权 — 开源核心（AGPL-3.0）与企业版 | webScada</title>
+  <meta name="description" content="webScada 采用开源核心 + 企业版双授权：开源核心以 AGPL-3.0 发布，含组态编辑器、多数据源采集、报警闭环与历史趋势全部能力；企业版提供 RTSP 视频、主备冗余、白标 OEM 与 SLA 支持，欢迎商务洽谈。">
+  <meta name="keywords" content="webScada授权,开源组态,AGPL,企业版组态,白标OEM,商业授权,SLA支持">
+  <meta name="robots" content="index,follow">
+  <meta name="applicable-device" content="pc,mobile">
+  <meta name="theme-color" content="#0e7490">
+  <link rel="canonical" href="https://webscada.example.com/editions.html">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="webScada">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:title" content="webScada 版本与授权">
+  <meta property="og:description" content="开源核心 AGPL-3.0 免费使用；企业版 RTSP 视频、主备冗余、白标 OEM 与 SLA 支持。">
+  <meta property="og:url" content="https://webscada.example.com/editions.html">
+  <meta property="og:image" content="https://webscada.example.com/assets/img/og-cover.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "首页", "item": "https://webscada.example.com/" },
+          { "@type": "ListItem", "position": 2, "name": "版本对比", "item": "https://webscada.example.com/editions.html" }
+        ]
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          { "@type": "Question", "name": "开源核心和企业版的区别是什么？", "acceptedAnswer": { "@type": "Answer", "text": "开源核心包含组态编辑器、多数据源采集、报警闭环、历史趋势、RBAC 审计等全部已实现能力，以 AGPL-3.0 授权；企业版在其之上提供 RTSP 视频转码、主备冗余、白标 OEM、License 授权管理与 SLA 企业支持。" } },
+          { "@type": "Question", "name": "我们是设备厂商，想把 webScada 嵌入自己的产品，需要哪种授权？", "acceptedAnswer": { "@type": "Answer", "text": "闭源集成或以自有品牌分发（白标 OEM）需要企业版商业授权；如果您的产品同样以 AGPL-3.0 开源（网络服务须提供源码），可以直接使用免费的开源核心。" } },
+          { "@type": "Question", "name": "企业版什么时候可用？如何收费？", "acceptedAnswer": { "@type": "Answer", "text": "企业版能力按路线图分阶段交付（RTSP 视频转码、主备冗余、白标 OEM、SLA 支持），License 机制骨架已就绪。欢迎联系我们洽谈早期合作与试用，正式定价随商业版本发布。" } },
+          { "@type": "Question", "name": "升级新版本会丢数据吗？", "acceptedAnswer": { "@type": "Answer", "text": "不会。开源核心按语义化版本发布，schema 采用 N-1 兼容窗口与自动迁移（migrateDoc），升级前有备份指引与脚本，确保工程与历史数据平滑迁移。" } }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html" aria-label="webScada 首页">
+        <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0e7490"/><path d="M16 42a16 16 0 0 1 32 0" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><line x1="32" y1="42" x2="42" y2="30" stroke="#ffd28a" stroke-width="3.5" stroke-linecap="round"/><circle cx="32" cy="42" r="4" fill="#fff"/><circle cx="16" cy="42" r="2" fill="#9fd8e8"/><circle cx="48" cy="42" r="2" fill="#9fd8e8"/><circle cx="32" cy="26" r="2" fill="#9fd8e8"/><line x1="12" y1="50" x2="52" y2="50" stroke="#9fd8e8" stroke-width="3" stroke-linecap="round" opacity=".55"/></svg>
+        webScada
+      </a>
+      <button class="nav-toggle" aria-expanded="false" aria-controls="site-nav" aria-label="打开导航菜单">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <nav class="nav" id="site-nav" aria-label="主导航">
+        <a href="features.html">功能特性</a>
+        <a href="editions.html" aria-current="page">版本对比</a>
+        <a href="about.html">关于我们</a>
+        <a class="btn btn-primary" href="about.html#contact">联系我们</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="page-head">
+      <div class="container">
+        <nav class="crumbs" aria-label="面包屑"><ol><li><a href="index.html">首页</a></li><li aria-current="page">版本对比</li></ol></nav>
+        <h1>版本与授权</h1>
+        <p>webScada 采用双授权模式：组态编辑器、多数据源采集、报警闭环、历史趋势等<strong>全部已实现能力以 AGPL-3.0 免费开源</strong>（网络服务须提供源码）；RTSP 视频转码、主备冗余、白标 OEM 与 SLA 企业支持随企业版按路线图交付。</p>
+      </div>
+    </div>
+
+    <section class="section">
+      <div class="container">
+        <div class="editions">
+          <article class="edition">
+            <h3>开源核心</h3>
+            <p class="price"><b>免费</b>AGPL-3.0 授权（网络服务须提供源码）</p>
+            <ul>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>组态编辑器 + 41 组件 + 75 行业图元</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>MQTT / REST / WebSocket / Modbus TCP 采集</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>服务端 7×24 报警闭环与历史趋势</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>RBAC 用户管理与操作审计</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>全站 TLS、备份恢复与 CI 质量门禁</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>社区支持（GitHub Issues）+ 语义化版本维护</li>
+            </ul>
+            <a class="btn btn-ghost" href="about.html#contact">获取部署指引</a>
+          </article>
+
+          <article class="edition featured">
+            <span class="tag">商务洽谈</span>
+            <h3>企业版</h3>
+            <p class="price"><b>联系我们</b>按路线图分阶段交付，接受早期合作</p>
+            <ul>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>包含开源核心全部能力</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>RTSP 转码视频监控接入</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>主备冗余高可用部署</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>白标 OEM 与 License 授权管理</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>SLA 企业支持：P1 缺陷目标 4 小时响应</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>培训认证与 i18n 国际化</li>
+            </ul>
+            <a class="btn btn-primary" href="about.html#contact">商务洽谈</a>
+          </article>
+        </div>
+
+        <div class="table-wrap" style="margin-top:40px">
+          <table>
+            <caption style="position:absolute;left:-9999px">webScada 开源核心与企业版能力对比</caption>
+            <thead>
+              <tr><th scope="col">能力</th><th scope="col">开源核心</th><th scope="col">企业版</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>组态编辑器与图元库</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+              <tr><td>多数据源采集与报警闭环</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+              <tr><td>历史趋势与 RBAC 审计</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+              <tr><td>分享发布与反控写指令</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+              <tr><td>闭源集成 / 白标 OEM 授权</td><td class="no">—</td><td>规划中</td></tr>
+              <tr><td>RTSP 视频转码</td><td class="no">—</td><td>规划中</td></tr>
+              <tr><td>主备冗余</td><td class="no">—</td><td>规划中</td></tr>
+              <tr><td>SLA 企业支持</td><td class="no">—</td><td>规划中</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:14px;font-size:13px;color:var(--muted)">* 企业版能力按路线图分阶段交付（License 机制骨架已就绪），以正式发布清单为准；开源核心与企业版授权边界详见 NOTICE.md。</p>
+
+        <div class="section-head" style="margin-top:64px"><h2>版本常见问题</h2></div>
+        <div class="faq">
+          <details>
+            <summary>开源核心和企业版的区别是什么？</summary>
+            <div class="faq-a">开源核心包含组态编辑器、多数据源采集、报警闭环、历史趋势、RBAC 审计等全部已实现能力，以 AGPL-3.0 授权；企业版在其之上提供 RTSP 视频转码、主备冗余、白标 OEM、License 授权管理与 SLA 企业支持。</div>
+          </details>
+          <details>
+            <summary>我们是设备厂商，想把 webScada 嵌入自己的产品，需要哪种授权？</summary>
+            <div class="faq-a">闭源集成或以自有品牌分发（白标 OEM）需要企业版商业授权；如果您的产品同样以 AGPL-3.0 开源（网络服务须提供源码），可以直接使用免费的开源核心。</div>
+          </details>
+          <details>
+            <summary>企业版什么时候可用？如何收费？</summary>
+            <div class="faq-a">企业版能力按路线图分阶段交付（RTSP 视频转码、主备冗余、白标 OEM、SLA 支持），License 机制骨架已就绪。欢迎联系我们洽谈早期合作与试用，正式定价随商业版本发布。</div>
+          </details>
+          <details>
+            <summary>升级新版本会丢数据吗？</summary>
+            <div class="faq-a">不会。开源核心按语义化版本发布，schema 采用 N-1 兼容窗口与自动迁移（migrateDoc），升级前有备份指引与脚本，确保工程与历史数据平滑迁移。</div>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div>
+          <div class="footer-brand">
+            <svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0e7490"/><path d="M16 42a16 16 0 0 1 32 0" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><line x1="32" y1="42" x2="42" y2="30" stroke="#ffd28a" stroke-width="3.5" stroke-linecap="round"/><circle cx="32" cy="42" r="4" fill="#fff"/></svg>
+            webScada
+          </div>
+          <p class="footer-desc">Web 原生、轻量、低代码拖拽组态的实时监控大屏。开源核心 + 企业版双授权。</p>
+        </div>
+        <nav aria-label="产品"><h4>产品</h4><ul><li><a href="features.html">功能特性</a></li><li><a href="editions.html">版本对比</a></li><li><a href="index.html#faq">常见问题</a></li></ul></nav>
+        <nav aria-label="资源"><h4>资源</h4><ul><li><a href="features.html#deploy">部署指南</a></li><li><a href="about.html#contact">问题反馈</a></li></ul></nav>
+        <nav aria-label="公司"><h4>公司</h4><ul><li><a href="about.html">关于我们</a></li><li><a href="about.html#contact">商务合作</a></li></ul></nav>
+      </div>
+      <div class="footer-bottom">
+        <span>© <span id="year">2026</span> webScada · 开源核心以 AGPL-3.0 授权 · 本软件不构成工业安全部件，不得用于安全关键场景</span>
+        <span><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" style="color:inherit">X ICP 备 00000000 号</a></span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/js/main.js" defer></script>
+</body>
+</html>

@@ -217,7 +217,7 @@ register({
   renderer: CarouselWidget,
 })
 
-// ---- M7 新增（对齐 BY组态） ----
+// ---- M7 新增（对齐业界主流组态） ----
 
 register({
   type: 'var-display',
@@ -504,7 +504,7 @@ register({
   renderer: TransformerWidget,
 })
 
-// ---- 行业图元（M9 批次1，对标 BY组态「图元图库」）：一个通用组件承载资产库全部 SVG ----
+// ---- 行业图元（M9 批次1，对标业界主流组态「图元图库」）：一个通用组件承载资产库全部 SVG ----
 
 register({
   type: 'symbol',
@@ -519,7 +519,7 @@ register({
   renderer: SymbolWidget,
 })
 
-// ---- 画面装饰（M9 批次3，对标 BY组态「画面装饰」）：纯装饰组件不绑数据 ----
+// ---- 画面装饰（M9 批次3，对标业界主流组态「画面装饰」）：纯装饰组件不绑数据 ----
 
 register({
   type: 'title-bar',
@@ -641,6 +641,7 @@ register({
   propsSchema: [
     { key: 'value', label: '数值', type: 'text', defaultValue: '0' },
     { key: 'unit', label: '单位', type: 'text', defaultValue: '' },
+    { key: 'decimals', label: '小数位（空=原样，数字=定位数+千分位）', type: 'number', min: 0, max: 6, step: 1, defaultValue: 2 },
   ],
   renderer: FlipCounterWidget,
 })

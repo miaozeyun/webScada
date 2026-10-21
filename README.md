@@ -224,9 +224,9 @@ pytest）与 web job（npm ci + vue-tsc --noEmit + vite build）。
 ## 支持渠道
 
 - 问题反馈 / 功能建议：`<GitHub Issues 占位>`（开源核心）
-- 商业授权 / 企业版（RTSP 转码、主备冗余、白标 OEM、SLA）：`<商务邮箱占位>`，
-  授权边界见 [NOTICE.md](NOTICE.md)
-- 安全漏洞报告：请勿公开 Issue，发 `<security@ 占位>`
+- 商业授权 / 企业版（RTSP 转码、主备冗余、白标 OEM、SLA）：`18835132457@163.com` /
+  微信 `miaozeyun2020`，授权边界见 [NOTICE.md](NOTICE.md)
+- 安全漏洞报告：请勿公开 Issue，发 `18835132457@163.com`（主题注明 [security]）
 
 ## License
 

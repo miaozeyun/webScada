@@ -165,7 +165,7 @@ export type WidgetType =
   | 'gauge' | 'progress' | 'trend-chart'
   // 设备类（SVG：启停变色 / 管道流动 / 闪烁 / 旋转）
   | 'status-light' | 'motor' | 'pump' | 'valve' | 'pipe'
-  // M7 增量（对齐 BY组态，详见 §7）
+  // M7 增量（对齐业界主流组态，详见 §7）
   | 'var-display' | 'state-text' | 'switch' | 'multi-switch' | 'input-cmd'
   | 'tank' | 'flow-bar' | 'image-switch' | 'web-frame' | 'video'
   | 'weather' | 'clock' | 'history-chart'
@@ -847,7 +847,7 @@ CREATE INDEX idx_history_proj_var_ts ON history_values(project_id, variable_key,
 
 ## 7. M7 增量契约（反控 / 虚拟变量 / 事件与行为 / 弹框 / 动效扩展）
 
-> M7 对齐 BY组态（www.byzt.net:60）功能集引入。**全部字段可选或带默认值，向后兼容，schemaVersion 不变**。
+> M7 对齐业界主流组态功能集引入。**全部字段可选或带默认值，向后兼容，schemaVersion 不变**。
 > 双端实现：`web/src/types/doc.ts` ↔ `server/app/schemas/doc.py`（本节为权威描述，改动须双侧同步）。
 
 ### 7.1 反控（写通道）
@@ -928,7 +928,7 @@ interface EventActionDef {
 - 分享页 `/s/:token?embed=1`：隐藏标题栏纯画面嵌入（iframe 场景）；恒只读。
 - `RuntimeStage` props：`writable`（写通道开关，分享页恒 false）、`embed`（隐藏标题栏）。
 
-### 7.9 演示案例集（对齐 BY组态 演示站）
+### 7.9 演示案例集（对齐业界主流组态 演示站）
 
 工程管理页「演示案例」按钮可一键生成 6 个开箱即用案例（单一 mock 数据源，可直接预览/分享）：
 生成器在 `web/src/utils/demos/`，`index.ts` 的 `DEMO_CASES` 为清单。
@@ -954,7 +954,7 @@ interface EventActionDef {
 
 ## 8. M9 增量契约（行业图元库）
 
-> M9 批次1 对标 BY组态「图元图库」引入。**WidgetType 新增可选值 + 组件 props 可选字段，旧 doc 不含即不受影响，schemaVersion 不变（仍为 1）**。
+> M9 批次1 对标业界主流组态「图元图库」引入。**WidgetType 新增可选值 + 组件 props 可选字段，旧 doc 不含即不受影响，schemaVersion 不变（仍为 1）**。
 > 双端实现：`web/src/types/doc.ts` ↔ `server/app/schemas/doc.py`；资产层仅前端（服务端不加载 SVG）。
 
 ### 8.1 symbol 组件（通用图元载体）

@@ -176,11 +176,11 @@ export type WidgetType =
   | 'text' | 'image' | 'rect' | 'circle' | 'line' | 'table' | 'button' | 'carousel'
   | 'flip-counter' | 'line-chart' | 'bar-chart' | 'pie-chart' | 'gauge' | 'progress' | 'trend-chart'
   | 'status-light' | 'motor' | 'pump' | 'valve' | 'pipe'
-  // ---- M7 新增（对齐 BY组态）----
+  // ---- M7 新增（对齐业界主流组态）----
   | 'var-display' | 'state-text' | 'switch' | 'multi-switch' | 'input-cmd'
   | 'tank' | 'flow-bar' | 'image-switch' | 'web-frame' | 'video' | 'weather' | 'clock' | 'history-chart'
   | 'breaker' | 'isolator' | 'ground' | 'ct' | 'pt' | 'transformer'
-  // ---- M9 批次1 新增（对标 BY组态「图元图库」）----
+  // ---- M9 批次1 新增（对标业界主流组态「图元图库」）----
   | 'symbol'
   // ---- M9 批次3 新增（画面装饰）----
   | 'title-bar'
@@ -192,7 +192,7 @@ export interface ScreenCfg {
   designWidth: number
   designHeight: number
   mode: AdaptiveMode
-  /** 运行态锁定画面：禁止滚动/拖拽（BY组态「不让实时画面移动」） */
+  /** 运行态锁定画面：禁止滚动/拖拽（业界主流组态「不让实时画面移动」） */
   lockPan?: boolean
   /** M9 批次5：画面方向强制（auto=跟随时口；landscape/portrait 在视口方向不符时运行态自动旋转 90°） */
   orientation?: 'auto' | 'landscape' | 'portrait'
@@ -232,7 +232,7 @@ export interface Binding {
   mapping?: ValueMapping | null
 }
 
-// ---- 事件与行为（M7，对齐 BY组态「事件与行为」） ----
+// ---- 事件与行为（M7，对齐业界主流组态「事件与行为」） ----
 
 export type EventTrigger = 'click' | 'dblclick' | 'contextmenu'
 

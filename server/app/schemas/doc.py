@@ -278,7 +278,7 @@ WidgetType = Literal[
     "flip-counter", "line-chart", "bar-chart", "pie-chart", "gauge", "progress", "trend-chart",
     # 设备类（SVG）
     "status-light", "motor", "pump", "valve", "pipe",
-    # M7 新增（对齐 BY组态）
+    # M7 新增（对齐业界主流组态）
     "var-display", "state-text", "switch", "multi-switch", "input-cmd",
     "tank", "flow-bar", "image-switch", "web-frame", "video", "weather", "clock", "history-chart",
     "breaker", "isolator", "ground", "ct", "pt", "transformer",
@@ -420,7 +420,7 @@ class Binding(DocModel):
         return self
 
 
-# ---- 事件与行为 / 悬停信息 / 弹框（M7，对齐 BY组态） ----
+# ---- 事件与行为 / 悬停信息 / 弹框（M7，对齐业界主流组态） ----
 
 class EventActionDef(DocModel):
     type: Literal["writeVar", "showPopup", "hidePopup", "switchPage", "openUrl", "toggleVisible"]

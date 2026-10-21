@@ -32,3 +32,5 @@ skills-lock.json
 backup/
 deploy/certs/
 backups/
+
+docs/

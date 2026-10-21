@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>webScada — 纯 Web 工业组态与实时监控平台 | 低代码组态大屏</title>
+  <meta name="description" content="webScada 是 Web 原生、轻量、低代码拖拽组态的工业实时监控大屏：41 种组件与 75 个行业图元拖拽搭画面，MQTT / REST / WebSocket / Modbus TCP 多数据源接入，服务端 7×24 报警与历史趋势，开源核心（AGPL-3.0）+ 企业版双授权。">
+  <meta name="keywords" content="webScada,工业组态,Web组态,组态软件,SCADA,低代码大屏,实时监控,Modbus,MQTT,报警,历史趋势,开源组态软件">
+  <meta name="robots" content="index,follow">
+  <meta name="applicable-device" content="pc,mobile">
+  <meta name="theme-color" content="#0a1322">
+  <link rel="canonical" href="https://webscada.example.com/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="webScada">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:title" content="webScada — 纯 Web 工业组态与实时监控平台">
+  <meta property="og:description" content="拖拽搭画面、多数据源接入、服务端 7×24 报警与历史趋势。零插件、开源核心、数据自持。">
+  <meta property="og:url" content="https://webscada.example.com/">
+  <meta property="og:image" content="https://webscada.example.com/assets/img/og-cover.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="webScada — 纯 Web 工业组态与实时监控平台">
+  <meta name="twitter:description" content="浏览器里的低代码组态与实时监控：零插件、开源核心、数据自持。">
+  <meta name="twitter:image" content="https://webscada.example.com/assets/img/og-cover.svg">
+  <link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <!-- 结构化数据：TODO 将 webscada.example.com 替换为正式域名 -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://webscada.example.com/#org",
+        "name": "webScada",
+        "url": "https://webscada.example.com/",
+        "logo": "https://webscada.example.com/assets/img/favicon.svg",
+        "email": "18835132457@163.com",
+        "sameAs": []
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://webscada.example.com/#website",
+        "url": "https://webscada.example.com/",
+        "name": "webScada",
+        "inLanguage": "zh-CN",
+        "publisher": { "@id": "https://webscada.example.com/#org" }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "name": "webScada",
+        "url": "https://webscada.example.com/",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web, Linux, Docker",
+        "inLanguage": "zh-CN",
+        "description": "webScada 是一款 Web 原生、轻量、低代码拖拽组态的工业实时监控大屏，面向中小工厂单机场景，介于数据 BI 大屏与重型 SCADA 之间。开源核心以 AGPL-3.0 授权，企业版提供商业授权。",
+        "featureList": ["拖拽组态编辑器（对齐吸附/50 步撤销/跨页粘贴）", "41 种注册组件 + 75 个自绘行业图元与画面模板", "多数据源接入：MQTT / REST 轮询 / WebSocket / Modbus TCP / Mock", "服务端 7×24 报警判定（阈值/回差/持续时间）与 ack 状态机", "历史趋势 historian（5s 采样 / 30 天保留 / 区间聚合）", "RBAC 三级角色与八类操作审计", "Docker Compose 一键部署（nginx/FastAPI/PostgreSQL/EMQX）"],
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" },
+        "publisher": { "@id": "https://webscada.example.com/#org" }
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          { "@type": "Question", "name": "webScada 是什么？", "acceptedAnswer": { "@type": "Answer", "text": "webScada 是一款 Web 原生、轻量、低代码拖拽组态的工业实时监控大屏，面向中小工厂单机场景，介于数据 BI 大屏与重型 SCADA 之间，提供组态编辑、只读实时监控与报警展示。开源核心以 AGPL-3.0 授权，另提供企业版。" } },
+          { "@type": "Question", "name": "webScada 需要安装客户端或浏览器插件吗？", "acceptedAnswer": { "@type": "Answer", "text": "不需要。webScada 基于 HTML5，组态编辑与运行监控全部在浏览器中完成，客户端零安装、零插件，推荐 Chrome / Edge 90 及以上版本。" } },
+          { "@type": "Question", "name": "webScada 支持哪些数据源？", "acceptedAnswer": { "@type": "Answer", "text": "支持 MQTT、REST 轮询、WebSocket、Modbus TCP 与 Mock（演示）五类数据源，服务端常驻采集，数据源凭证 Fernet 加密存储。" } },
+          { "@type": "Question", "name": "webScada 的数据存储在哪里？", "acceptedAnswer": { "@type": "Answer", "text": "所有工程画面与实时、历史数据都保存在用户自己服务器的 PostgreSQL 数据库中，源码与数据完全自持，不经任何第三方云；工程导出时凭证自动脱敏。" } },
+          { "@type": "Question", "name": "如何部署 webScada？", "acceptedAnswer": { "@type": "Answer", "text": "提供 Docker Compose 编排，一条命令拉起 nginx、FastAPI、PostgreSQL 与 EMQX 四个容器，内置 TLS 支持与备份恢复脚本。" } },
+          { "@type": "Question", "name": "开源核心可以用于商业项目吗？", "acceptedAnswer": { "@type": "Answer", "text": "开源核心以 AGPL-3.0 授权（网络服务须提供源码），遵守协议即可免费使用；闭源集成、白标 OEM 等商业授权属于企业版，欢迎商务洽谈。" } },
+          { "@type": "Question", "name": "webScada 支持什么规模？", "acceptedAnswer": { "@type": "Answer", "text": "规模基线为单机 2C4G 部署，可承载不超过 50 个连接、5000 个变量、单画面 200 个组件。" } }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html" aria-label="webScada 首页">
+        <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0f1d33"/><path d="M16 42a16 16 0 0 1 32 0" fill="none" stroke="#3ee0ff" stroke-width="3.5" stroke-linecap="round"/><line x1="32" y1="42" x2="42" y2="30" stroke="#ffb020" stroke-width="3.5" stroke-linecap="round"/><circle cx="32" cy="42" r="4" fill="#eaf3fb"/><circle cx="16" cy="42" r="2" fill="#2b4a6e"/><circle cx="48" cy="42" r="2" fill="#2b4a6e"/><circle cx="32" cy="26" r="2" fill="#2b4a6e"/><line x1="12" y1="50" x2="52" y2="50" stroke="#2b4a6e" stroke-width="3" stroke-linecap="round" opacity=".6"/></svg>
+        webScada
+      </a>
+      <button class="nav-toggle" aria-expanded="false" aria-controls="site-nav" aria-label="打开导航菜单">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <nav class="nav" id="site-nav" aria-label="主导航">
+        <a href="features.html">功能特性</a>
+        <a href="editions.html">版本对比</a>
+        <a href="about.html">关于我们</a>
+        <a class="btn btn-primary" href="about.html#contact">联系我们</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- Hero：遥测面板 -->
+    <section class="hero">
+      <div class="container hero-inner">
+        <div class="hero-copy">
+          <p class="status"><span class="status-dot" aria-hidden="true"></span>SYSTEM ONLINE · 服务端闭环 M8</p>
+          <h1>把工业现场<br>搬进浏览器</h1>
+          <p class="lede">webScada 是 Web 原生、轻量、低代码拖拽组态的工业实时监控大屏：拖拽搭画面、MQTT / Modbus 多数据源接入、服务端 7×24 报警与历史趋势，Docker 一键部署。</p>
+          <div class="hero-cta">
+            <a class="btn btn-primary btn-lg" href="editions.html">查看版本与授权</a>
+            <a class="btn btn-ghost btn-lg" href="features.html">了解功能</a>
+          </div>
+          <p class="hero-note">纯 Web 架构，零插件零安装，Chrome / Edge 90+ 直接访问</p>
+        </div>
+        <div class="hero-art">
+          <svg viewBox="0 0 560 400" role="img" aria-label="webScada 组态监控画面示意：水箱液位、水泵、阀门、仪表与趋势曲线实时跳动">
+            <defs>
+              <pattern id="grid" width="18" height="18" patternUnits="userSpaceOnUse">
+                <path d="M18 0H0V18" fill="none" stroke="rgba(62,224,255,.10)" stroke-width="1"/>
+              </pattern>
+              <clipPath id="win"><rect x="8" y="8" width="544" height="384" rx="12"/></clipPath>
+            </defs>
+            <!-- 实时徽标 -->
+            <g class="a-fade">
+              <rect x="398" y="2" width="134" height="26" rx="13" fill="#0f1d33" stroke="#2b4a6e"/>
+              <circle class="a-blink" cx="414" cy="15" r="4" fill="#3ddc97"/>
+              <text x="426" y="19" fill="#3ee0ff" font-size="11.5" font-family="Consolas,monospace">LIVE · 500ms</text>
+            </g>
+            <!-- 面板窗口 -->
+            <rect x="8" y="8" width="544" height="384" rx="12" fill="#0f1d33" stroke="#24425f"/>
+            <g clip-path="url(#win)">
+              <circle cx="30" cy="27" r="4.5" fill="#1c314e"/><circle cx="48" cy="27" r="4.5" fill="#1c314e"/><circle cx="66" cy="27" r="4.5" fill="#1c314e"/>
+              <rect x="88" y="19" width="190" height="16" rx="8" fill="#0c1729"/>
+              <!-- 侧栏 -->
+              <rect x="8" y="44" width="56" height="348" fill="#0c1729"/>
+              <line x1="64" y1="44" x2="64" y2="392" stroke="#1c314e"/>
+              <rect x="20" y="60" width="32" height="32" rx="8" fill="rgba(62,224,255,.12)" stroke="#3ee0ff" stroke-width="1.5"/>
+              <rect x="29" y="69" width="14" height="14" rx="3" fill="none" stroke="#3ee0ff" stroke-width="1.8"/>
+              <rect x="20" y="104" width="32" height="32" rx="8" fill="#101d33"/><path d="M26 126l5-6 4 4 5-8 4 10" fill="none" stroke="#4a6b8c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <rect x="20" y="148" width="32" height="32" rx="8" fill="#101d33"/><path d="M36 155l7 12H29z" fill="none" stroke="#4a6b8c" stroke-width="2" stroke-linejoin="round"/>
+              <rect x="20" y="192" width="32" height="32" rx="8" fill="#101d33"/><path d="M27 201h18M27 207h18M27 213h12" stroke="#4a6b8c" stroke-width="2" stroke-linecap="round"/>
+              <rect x="20" y="236" width="32" height="32" rx="8" fill="#101d33"/><circle cx="36" cy="252" r="7" fill="none" stroke="#4a6b8c" stroke-width="2"/><circle cx="36" cy="252" r="2" fill="#4a6b8c"/>
+              <circle cx="36" cy="368" r="12" fill="#101d33"/><circle cx="36" cy="364" r="4" fill="#4a6b8c"/><path d="M28 374a8 8 0 0 1 16 0" fill="#4a6b8c"/>
+              <!-- 画布网格 -->
+              <rect x="64" y="44" width="488" height="348" fill="url(#grid)"/>
+              <text x="80" y="74" font-size="15" font-weight="700" fill="#eaf3fb">1# 冷站系统 · 实时监控</text>
+              <text x="536" y="74" font-size="11.5" fill="#9db1c9" text-anchor="end" font-family="Consolas,monospace">2026-10-21 14:32:05</text>
+              <line x1="72" y1="86" x2="544" y2="86" stroke="#1c314e"/>
+              <!-- 水箱 -->
+              <rect x="104" y="112" width="88" height="128" rx="10" fill="#0c1729" stroke="#4a6b8c" stroke-width="2"/>
+              <rect x="108" y="158" width="80" height="78" rx="6" fill="rgba(62,224,255,.22)"/>
+              <path class="a-wave" d="M108 158q10 -6 20 0t20 0t20 0t20 0" stroke="#3ee0ff" stroke-width="2" fill="none"/>
+              <text x="148" y="206" text-anchor="middle" font-size="13" font-weight="700" fill="#8fe8ff" font-family="Consolas,monospace">72.4%</text>
+              <text x="148" y="260" text-anchor="middle" font-size="12" fill="#9db1c9">1# 冷冻水箱</text>
+              <!-- 管道与流光 -->
+              <rect x="192" y="234" width="160" height="12" fill="#0c1729" stroke="#24425f"/>
+              <path class="a-flow" d="M194 240H350" stroke="#3ee0ff" stroke-width="3" stroke-dasharray="7 13" fill="none" opacity=".85"/>
+              <circle cx="232" cy="240" r="20" fill="#0f1d33" stroke="#4a6b8c" stroke-width="2"/>
+              <g class="a-spin"><path d="M232 232v16M224 236l16 8M240 236l-16 8" stroke="#3ee0ff" stroke-width="2.4" stroke-linecap="round"/></g>
+              <circle cx="232" cy="240" r="3.5" fill="#0c1729" stroke="#3ee0ff" stroke-width="1.5"/>
+              <text x="232" y="278" text-anchor="middle" font-size="12" fill="#9db1c9">循环泵 P1</text>
+              <path d="M300 233L311 240L300 247Z M324 233L313 240L324 247Z" fill="rgba(62,224,255,.15)" stroke="#3ee0ff" stroke-width="1.8" stroke-linejoin="round"/>
+              <line x1="312" y1="233" x2="312" y2="222" stroke="#3ee0ff" stroke-width="2"/>
+              <line x1="305" y1="222" x2="319" y2="222" stroke="#3ee0ff" stroke-width="2.5" stroke-linecap="round"/>
+              <text x="312" y="212" text-anchor="middle" font-size="12" fill="#9db1c9">电动阀 V1</text>
+              <!-- 状态灯 -->
+              <g font-size="12" fill="#9db1c9">
+                <circle cx="108" cy="308" r="5" fill="#3ddc97"/><text x="120" y="312">运行正常</text>
+                <circle class="a-blink" cx="192" cy="308" r="5" fill="#ffb020"/><text x="204" y="312">液位预警</text>
+                <circle cx="276" cy="308" r="5" fill="#2b4a6e"/><text x="288" y="312">备用停机</text>
+              </g>
+              <!-- 告警条 -->
+              <rect x="96" y="336" width="248" height="40" rx="8" fill="rgba(255,176,32,.10)" stroke="rgba(255,176,32,.45)"/>
+              <circle cx="112" cy="356" r="8" fill="#ffb020"/>
+              <text x="112" y="360" text-anchor="middle" fill="#0a1322" font-size="11" font-weight="700">!</text>
+              <text x="128" y="360" font-size="12" fill="#ffb020">2# 泵出口压力偏高 · 已派单</text>
+              <!-- 仪表卡 -->
+              <rect x="360" y="104" width="160" height="146" rx="10" fill="#0f1d33" stroke="#1c314e"/>
+              <text x="376" y="126" font-size="11.5" fill="#9db1c9">循环泵频率</text>
+              <path d="M392 196a48 48 0 0 1 96 0" fill="none" stroke="#1c314e" stroke-width="10" stroke-linecap="round"/>
+              <path d="M392 196A48 48 0 0 1 457.7 151.4" fill="none" stroke="#3ee0ff" stroke-width="10" stroke-linecap="round"/>
+              <g class="a-needle"><line x1="440" y1="196" x2="474" y2="162" stroke="#ffb020" stroke-width="3" stroke-linecap="round"/></g>
+              <circle cx="440" cy="196" r="4" fill="#eaf3fb"/>
+              <text x="440" y="224" text-anchor="middle" font-size="15" font-weight="700" fill="#8fe8ff" font-family="Consolas,monospace">46.5 Hz</text>
+              <!-- 趋势卡 -->
+              <rect x="360" y="262" width="160" height="114" rx="10" fill="#0f1d33" stroke="#1c314e"/>
+              <text x="376" y="284" font-size="11.5" fill="#9db1c9">供水温度 · 近 12h</text>
+              <line x1="376" y1="312" x2="504" y2="312" stroke="#16273e"/>
+              <line x1="376" y1="338" x2="504" y2="338" stroke="#16273e"/>
+              <path d="M376 332C392 322 400 344 416 336S444 300 456 312S486 346 504 326" fill="none" stroke="#3ee0ff" stroke-width="2.5" stroke-linecap="round"/>
+              <line class="a-cursor" x1="376" y1="292" x2="376" y2="352" stroke="rgba(62,224,255,.5)" stroke-width="1.5"/>
+              <circle class="a-pulse" cx="504" cy="326" r="3.5" fill="#3ee0ff"/>
+              <text x="500" y="306" text-anchor="end" font-size="12" font-weight="700" fill="#8fe8ff" font-family="Consolas,monospace">7.8℃</text>
+              <line x1="376" y1="352" x2="504" y2="352" stroke="#1c314e"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- 数据读数条 -->
+    <section class="stats" aria-label="产品数据速览">
+      <div class="container stats-inner">
+        <div class="stat"><b class="mono">41<span> 种</span></b><span>注册组件</span></div>
+        <div class="stat"><b class="mono">75<span> 个</span></b><span>自绘行业图元</span></div>
+        <div class="stat"><b class="mono">5<span> 类</span></b><span>数据源接入</span></div>
+        <div class="stat"><b class="mono">7×24</b><span>服务端报警判定</span></div>
+      </div>
+    </section>
+
+    <!-- 一分钟了解（GEO 事实卡） -->
+    <section class="section" id="overview">
+      <div class="container">
+        <div class="section-head">
+          <p class="status"><span class="status-dot" aria-hidden="true"></span>OVERVIEW</p>
+          <h2>一分钟了解 webScada</h2>
+          <p class="lede">webScada 是一款 <strong>Web 原生、轻量、低代码拖拽组态</strong>的工业实时监控大屏，面向中小工厂单机场景，介于数据 BI 大屏与重型 SCADA 之间。开源核心以 AGPL-3.0 授权，另提供企业版商业授权。</p>
+        </div>
+        <dl class="facts">
+          <div class="fact"><dt>产品形态</dt><dd>Web 应用（B/S 架构），浏览器零插件零安装，推荐 Chrome / Edge 90+</dd></div>
+          <div class="fact"><dt>核心能力</dt><dd>组态编辑、只读实时监控、报警展示、历史趋势、反控写指令</dd></div>
+          <div class="fact"><dt>数据源</dt><dd>MQTT / REST 轮询 / WebSocket / Modbus TCP / Mock，服务端常驻采集</dd></div>
+          <div class="fact"><dt>报警</dt><dd>阈值 / 回差 / 持续时间规则，服务端 7×24 判定，Webhook 与邮件外发</dd></div>
+          <div class="fact"><dt>规模基线</dt><dd>单机 2C4G：≤ 50 连接 / 5000 变量 / 单页 200 组件</dd></div>
+          <div class="fact"><dt>部署</dt><dd>Docker Compose 四容器（nginx / FastAPI / PostgreSQL / EMQX），全站 TLS</dd></div>
+          <div class="fact"><dt>授权</dt><dd>开源核心 AGPL-3.0（网络服务须提供源码）+ 企业版商业授权</dd></div>
+          <div class="fact"><dt>技术栈</dt><dd>Vue 3 + TypeScript + FastAPI + SQLAlchemy 2.0 + PostgreSQL + EMQX</dd></div>
+          <div class="fact"><dt>支持</dt><dd>社区支持（GitHub Issues）与企业版 SLA；商务合作 18835132457@163.com</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- 核心功能 -->
+    <section class="section alt" id="features">
+      <div class="container">
+        <div class="section-head center">
+          <p class="status"><span class="status-dot" aria-hidden="true"></span>CAPABILITIES</p>
+          <h2>从画面搭建到报警闭环，一个平台全搞定</h2>
+        </div>
+        <div class="grid-3">
+          <article class="card">
+            <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l7 17 2.5-6.5L21 11z"/></svg></div>
+            <h3>拖拽组态编辑器</h3>
+            <p>对齐吸附、旋转缩放、50 步撤销、跨页粘贴，低代码搭好每一屏监控画面。</p>
+          </article>
+          <article class="card">
+            <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="3.5"/><rect x="13" y="3.5" width="7" height="7" rx="1"/><path d="M7 13l4 7H3z"/></svg></div>
+            <h3>41 组件 + 75 行业图元</h3>
+            <p>9 大类图元库与画面装饰件、我的图元资产库、画面模板与状态动画，即拖即用。</p>
+          </article>
+          <article class="card">
+            <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h4l2-6 4 12 2-6h2"/></svg></div>
+            <h3>多数据源接入</h3>
+            <p>MQTT / REST 轮询 / WebSocket / Modbus TCP / Mock，服务端常驻采集，凭证 Fernet 加密。</p>
+          </article>
+          <article class="card">
+            <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M10 21a2 2 0 0 0 4 0"/></svg></div>
+            <h3>服务端 7×24 报警</h3>
+            <p>阈值 / 回差 / 持续时间规则，报警 ack 状态机流转，Webhook 与邮件外发通知。</p>
+          </article>
+          <article class="card">
+            <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16h16"/><path d="M8 16v-3M12 16v-7M16 16v-5"/></svg></div>
+            <h3>历史趋势 historian</h3>
+            <p>服务端 5s 采样、30 天保留、区间聚合查询，每一秒数据随时回溯。</p>
+          </article>
+          <article class="card">
+            <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+            <h3>运行、分享与反控</h3>
+            <p>编辑 / 运行分离、分享快照发布、可控写指令反控，RBAC 三级角色与八类操作审计。</p>
+          </article>
+        </div>
+        <p style="text-align:center;margin-top:36px"><a class="btn btn-ghost" href="features.html">查看全部功能特性</a></p>
+      </div>
+    </section>
+
+    <!-- 适用场景 -->
+    <section class="section" id="scenarios">
+      <div class="container">
+        <div class="section-head center">
+          <p class="status"><span class="status-dot" aria-hidden="true"></span>SCENARIOS</p>
+          <h2>一套平台，覆盖单站点到厂区级监控</h2>
+          <p>内置行业示例画面，开箱即改。</p>
+        </div>
+        <div class="chips" style="justify-content:center">
+          <span class="chip">水务与泵站</span><span class="chip">供热与暖通空调</span><span class="chip">光伏与新能源</span>
+          <span class="chip">空压系统</span><span class="chip">智能制造产线</span><span class="chip">楼宇自控</span>
+          <span class="chip">环境监测</span><span class="chip">能源管理</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section alt" id="faq">
+      <div class="container">
+        <div class="section-head center">
+          <p class="status"><span class="status-dot" aria-hidden="true"></span>FAQ</p>
+          <h2>您可能想了解</h2>
+        </div>
+        <div class="faq">
+          <details>
+            <summary>webScada 是什么？</summary>
+            <div class="faq-a">webScada 是一款 Web 原生、轻量、低代码拖拽组态的工业实时监控大屏，面向中小工厂单机场景，介于数据 BI 大屏与重型 SCADA 之间，提供组态编辑、只读实时监控与报警展示。开源核心以 AGPL-3.0 授权，另提供企业版。</div>
+          </details>
+          <details>
+            <summary>webScada 需要安装客户端或浏览器插件吗？</summary>
+            <div class="faq-a">不需要。webScada 基于 HTML5，组态编辑与运行监控全部在浏览器中完成，客户端零安装、零插件，推荐 Chrome / Edge 90 及以上版本。</div>
+          </details>
+          <details>
+            <summary>webScada 支持哪些数据源？</summary>
+            <div class="faq-a">支持 MQTT、REST 轮询、WebSocket、Modbus TCP 与 Mock（演示）五类数据源，服务端常驻采集，数据源凭证 Fernet 加密存储。</div>
+          </details>
+          <details>
+            <summary>webScada 的数据存储在哪里？</summary>
+            <div class="faq-a">所有工程画面与实时、历史数据都保存在您自己服务器的 PostgreSQL 数据库中，源码与数据完全自持，不经任何第三方云；工程导出时凭证自动脱敏。</div>
+          </details>
+          <details>
+            <summary>如何部署 webScada？</summary>
+            <div class="faq-a">提供 Docker Compose 编排，一条命令拉起 nginx、FastAPI、PostgreSQL 与 EMQX 四个容器，内置 TLS 支持与备份恢复脚本。</div>
+          </details>
+          <details>
+            <summary>开源核心可以用于商业项目吗？</summary>
+            <div class="faq-a">开源核心以 AGPL-3.0 授权（网络服务须提供源码），遵守协议即可免费使用；闭源集成、白标 OEM 等商业授权属于企业版，欢迎商务洽谈。</div>
+          </details>
+          <details>
+            <summary>webScada 支持什么规模？</summary>
+            <div class="faq-a">规模基线为单机 2C4G 部署，可承载不超过 50 个连接、5000 个变量、单画面 200 个组件。</div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="section">
+      <div class="container">
+        <div class="cta-band">
+          <div>
+            <h2>准备好把组态搬到浏览器里了吗？</h2>
+            <p>联系我们，获取部署演示与企业版商务方案。</p>
+          </div>
+          <a class="btn btn-lg" href="about.html#contact">联系我们</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div>
+          <div class="footer-brand">
+            <svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0f1d33"/><path d="M16 42a16 16 0 0 1 32 0" fill="none" stroke="#3ee0ff" stroke-width="3.5" stroke-linecap="round"/><line x1="32" y1="42" x2="42" y2="30" stroke="#ffb020" stroke-width="3.5" stroke-linecap="round"/><circle cx="32" cy="42" r="4" fill="#eaf3fb"/></svg>
+            webScada
+          </div>
+          <p class="footer-desc">Web 原生、轻量、低代码拖拽组态的实时监控大屏。开源核心 + 企业版双授权。</p>
+        </div>
+        <nav aria-label="产品">
+          <h4>产品</h4>
+          <ul>
+            <li><a href="features.html">功能特性</a></li>
+            <li><a href="editions.html">版本对比</a></li>
+            <li><a href="index.html#faq">常见问题</a></li>
+          </ul>
+        </nav>
+        <nav aria-label="资源">
+          <h4>资源</h4>
+          <ul>
+            <li><a href="features.html#deploy">部署指南</a></li>
+            <li><a href="index.html#overview">产品速览</a></li>
+          </ul>
+        </nav>
+        <nav aria-label="公司">
+          <h4>公司</h4>
+          <ul>
+            <li><a href="about.html">关于我们</a></li>
+            <li><a href="about.html#contact">商务合作</a></li>
+          </ul>
+        </nav>
+      </div>
+      <div class="footer-bottom">
+        <span>© <span id="year">2026</span> webScada · 开源核心以 AGPL-3.0 授权 · 本软件不构成工业安全部件，不得用于安全关键场景</span>
+        <span><!-- TODO: 替换为真实 ICP 备案号 --><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" style="color:inherit">X ICP 备 00000000 号</a></span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/js/main.js" defer></script>
+</body>
+</html>

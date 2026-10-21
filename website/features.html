@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>功能特性 — 组态编辑器·多数据源·服务端报警闭环 | webScada</title>
+  <meta name="description" content="webScada 功能全景：拖拽组态编辑器（对齐吸附/50 步撤销/跨页粘贴）、41 种组件与 75 个行业图元、MQTT/REST/WebSocket/Modbus TCP 数据源、服务端 7×24 报警、历史趋势 historian、RBAC 审计与 Docker 部署。">
+  <meta name="keywords" content="webScada功能,组态编辑器,工业图元,Modbus TCP,MQTT数据采集,报警系统,历史趋势,RBAC,Docker部署">
+  <meta name="robots" content="index,follow">
+  <meta name="applicable-device" content="pc,mobile">
+  <meta name="theme-color" content="#0e7490">
+  <link rel="canonical" href="https://webscada.example.com/features.html">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="webScada">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:title" content="webScada 功能特性">
+  <meta property="og:description" content="组态编辑器、多数据源接入、服务端报警闭环、历史趋势——功能全景一览。">
+  <meta property="og:url" content="https://webscada.example.com/features.html">
+  <meta property="og:image" content="https://webscada.example.com/assets/img/og-cover.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "首页", "item": "https://webscada.example.com/" },
+      { "@type": "ListItem", "position": 2, "name": "功能特性", "item": "https://webscada.example.com/features.html" }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html" aria-label="webScada 首页">
+        <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0e7490"/><path d="M16 42a16 16 0 0 1 32 0" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><line x1="32" y1="42" x2="42" y2="30" stroke="#ffd28a" stroke-width="3.5" stroke-linecap="round"/><circle cx="32" cy="42" r="4" fill="#fff"/><circle cx="16" cy="42" r="2" fill="#9fd8e8"/><circle cx="48" cy="42" r="2" fill="#9fd8e8"/><circle cx="32" cy="26" r="2" fill="#9fd8e8"/><line x1="12" y1="50" x2="52" y2="50" stroke="#9fd8e8" stroke-width="3" stroke-linecap="round" opacity=".55"/></svg>
+        webScada
+      </a>
+      <button class="nav-toggle" aria-expanded="false" aria-controls="site-nav" aria-label="打开导航菜单">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <nav class="nav" id="site-nav" aria-label="主导航">
+        <a href="features.html" aria-current="page">功能特性</a>
+        <a href="editions.html">版本对比</a>
+        <a href="about.html">关于我们</a>
+        <a class="btn btn-primary" href="about.html#contact">联系我们</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="page-head">
+      <div class="container">
+        <nav class="crumbs" aria-label="面包屑"><ol><li><a href="index.html">首页</a></li><li aria-current="page">功能特性</li></ol></nav>
+        <h1>功能特性</h1>
+        <p>webScada 的功能覆盖<strong>组态编辑、数据接入与运行、报警与历史、安全部署</strong>四个环节：41 种组件与 75 个行业图元拖拽搭画面，MQTT / REST / WebSocket / Modbus TCP 五类数据源接入，服务端 7×24 报警与历史趋势，Docker Compose 一键部署。以下能力均已在当前版本实现。</p>
+      </div>
+    </div>
+
+    <section class="section">
+      <div class="container">
+        <div class="feat-group">
+          <h2>组态编辑器</h2>
+          <p class="group-desc">低代码拖拽搭建工业画面，像画图一样简单。</p>
+          <div class="grid-3">
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l7 17 2.5-6.5L21 11z"/></svg></div><h3>对齐吸附与旋转缩放</h3><p>图元对齐吸附、自由旋转与缩放，多选批量操作，画面摆放整齐利落。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h12M4 12h8M4 16h10"/><path d="M18 5v14M15 16l3 3 3-3"/></svg></div><h3>50 步撤销与跨页粘贴</h3><p>完整撤销重做历史，图元可跨画面复制粘贴，误操作随时回退。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l3 4h-6zM5 14l3-4v8zM19 14l-3-4v8z"/><rect x="9" y="17" width="6" height="4" rx="1"/></svg></div><h3>我的图元资产库</h3><p>自绘符号一键入库，跨工程复用，沉淀企业专属图元资产。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/></svg></div><h3>75 行业图元与画面模板</h3><p>9 大类自绘图元 + 7 件画面装饰，配合画面模板与标题栏，风格统一开箱即改。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h3l2-6 4 12 3-9 2 3h4"/></svg></div><h3>数据绑定与状态动画</h3><p>数值、颜色、显隐多维度绑定，状态动画让画面随实时数据「活」起来。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><h3>工程管理与导入导出</h3><p>工程 CRUD 带乐观锁（409 冲突检测），导入导出自动脱敏凭证，多画面统一管理。</p></article>
+          </div>
+        </div>
+
+        <div class="feat-group">
+          <h2>数据接入与运行</h2>
+          <p class="group-desc">服务端常驻采集，浏览器只负责展示与交互。</p>
+          <div class="grid-3">
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5"/></svg></div><h3>五类数据源</h3><p>MQTT / REST 轮询 / WebSocket / Modbus TCP / Mock，服务端常驻采集，断线不丢规则。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="2"/></svg></div><h3>凭证加密存储</h3><p>数据源凭证 Fernet 加密落库，运行态带鉴权连接，测试结果自动注回。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>编辑 / 运行分离</h3><p>编辑态与运行态彻底解耦，运行引擎轻量加载，大屏 7×24 挂机稳定。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg></div><h3>分享快照发布</h3><p>运行画面一键生成分享链接（token 访问），分享页恒只读，可挂无人值守大屏。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></div><h3>反控写指令</h3><p>开关、多档、输入框三类写控，仅限显式 writable 变量，分享页恒只读。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg></div><h3>WS 合帧推送</h3><p>WebSocket 实时推送自动合帧，亚秒级刷新，多连接并发受控。</p></article>
+          </div>
+        </div>
+
+        <div class="feat-group">
+          <h2>报警与历史</h2>
+          <p class="group-desc">监控不因页面关闭而中断，数据闭环留痕可查。</p>
+          <div class="grid-3">
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M10 21a2 2 0 0 0 4 0"/></svg></div><h3>服务端 7×24 报警判定</h3><p>阈值 / 回差 / 持续时间规则组合，报警在服务端持续判定，与浏览器无关。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></div><h3>报警 ack 状态机</h3><p>单行状态机流转（触发→确认→恢复），站内横幅 + 列表双呈现，处置全程留痕。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l9 6 9-6"/><rect x="3" y="6" width="18" height="12" rx="2"/></svg></div><h3>Webhook 与邮件外发</h3><p>报警触发即推送 Webhook 回调或邮件，无缝接入企业微信、钉钉等值班体系。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16h16"/><path d="M8 16v-3M12 16v-7M16 16v-5"/></svg></div><h3>历史趋势 historian</h3><p>服务端 5s 采样、30 天保留、区间聚合查询，浏览器本地存储仅作离线兜底。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h4l3-8 4 16 3-8h6"/></svg></div><h3>多曲线趋势对比</h3><p>基于 ECharts 的历史曲线组件，多变量同屏对比、区间缩放随取随查。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div><h3>数据落库可回溯</h3><p>工程、报警、历史值统一存 PostgreSQL（JSONB + revision 乐观锁），审计有据可查。</p></article>
+          </div>
+        </div>
+
+        <div class="feat-group" id="deploy">
+          <h2>安全、部署与运维</h2>
+          <p class="group-desc">从开发环境到生产现场，交付路径短且可控。</p>
+          <div class="grid-3">
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M15 15.5a5 5 0 0 1 6.5 4.5"/></svg></div><h3>RBAC 与操作审计</h3><p>admin / operator / viewer 三级角色，八类关键操作全程审计留痕。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1.5"/></svg></div><h3>全站 TLS 与 EMQX 收口</h3><p>TLS 1.2/1.3 全站加密，EMQX 禁用匿名连接、强制内置库鉴权，安全基线开箱达标。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 18v2M18 18v2M8 12h.01M12 12h.01M16 12h.01"/></svg></div><h3>Docker Compose 一键部署</h3><p>nginx / FastAPI / PostgreSQL / EMQX 四容器编排，一条命令拉起，镜像加速构建。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 3v4h-4"/></svg></div><h3>备份与恢复</h3><p>整库 dump + 工程 JSON 导出双备份，14 天滚动保留，恢复脚本带健康校验。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v6H4zM4 14h10v6H4z"/><path d="M18 17h4M20 15v4"/></svg></div><h3>明确的规模基线</h3><p>单机 2C4G 可承载 ≤50 连接 / 5000 变量 / 单页 200 组件，边界清晰不打太极。</p></article>
+            <article class="card"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg></div><h3>CI 质量门禁</h3><p>每个 PR 自动跑后端（PostgreSQL 迁移冒烟 + pytest）与前端（vue-tsc + build）双流水线。</p></article>
+          </div>
+        </div>
+
+        <div class="cta-band">
+          <div>
+            <h2>想看这些功能跑起来的样子？</h2>
+            <p>联系我们获取部署演示，或了解企业版规划能力。</p>
+          </div>
+          <a class="btn btn-lg" href="about.html#contact">联系我们</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div>
+          <div class="footer-brand">
+            <svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0e7490"/><path d="M16 42a16 16 0 0 1 32 0" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><line x1="32" y1="42" x2="42" y2="30" stroke="#ffd28a" stroke-width="3.5" stroke-linecap="round"/><circle cx="32" cy="42" r="4" fill="#fff"/></svg>
+            webScada
+          </div>
+          <p class="footer-desc">Web 原生、轻量、低代码拖拽组态的实时监控大屏。开源核心 + 企业版双授权。</p>
+        </div>
+        <nav aria-label="产品"><h4>产品</h4><ul><li><a href="features.html">功能特性</a></li><li><a href="editions.html">版本对比</a></li><li><a href="index.html#faq">常见问题</a></li></ul></nav>
+        <nav aria-label="资源"><h4>资源</h4><ul><li><a href="features.html#deploy">部署指南</a></li><li><a href="about.html#contact">问题反馈</a></li></ul></nav>
+        <nav aria-label="公司"><h4>公司</h4><ul><li><a href="about.html">关于我们</a></li><li><a href="about.html#contact">商务合作</a></li></ul></nav>
+      </div>
+      <div class="footer-bottom">
+        <span>© <span id="year">2026</span> webScada · 开源核心以 AGPL-3.0 授权 · 本软件不构成工业安全部件，不得用于安全关键场景</span>
+        <span><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" style="color:inherit">X ICP 备 00000000 号</a></span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/js/main.js" defer></script>
+</body>
+</html>

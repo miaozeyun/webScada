@@ -1,5 +1,5 @@
 /**
- * 行业图元资产库（M9 批次1，对标 BY组态「图元图库」）。
+ * 行业图元资产库（M9 批次1，对标业界主流组态「图元图库」）。
  * - SVG 全部自绘简笔工业风（stroke=currentColor，fill 以 none 为主），版权红线：禁止引入第三方素材
  * - 目录即分类：valve/ pump/ tank/ hvac/ pipe-fitting/ wtp/ power/ instrument/ misc/
  * - symbolId = '<目录>/<文件名>'（如 valve/globe）；新增 SVG 文件即自动入库（glob eager 收集，零代码注册）
