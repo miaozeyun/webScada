@@ -24,6 +24,12 @@ const multiBox = computed(() => {
   return sel.length > 1 ? nodesBBox(sel) : null
 })
 
+/** 组编辑上下文：子节点坐标相对组原点，选中层整体平移到组坐标系 */
+const offset = computed(() => {
+  const g = editor.editingGroup
+  return g ? { x: g.x, y: g.y } : { x: 0, y: 0 }
+})
+
 const handleSize = computed(() => 8 / editor.zoom)
 const rotateOffset = computed(() => -34 / editor.zoom)
 
@@ -57,7 +63,7 @@ function handlePos(dir: ResizeDir) {
 <template>
   <div v-if="primary" class="selection-layer">
     <!-- 主选中框（轴对齐） -->
-    <div class="sel-box" :style="{ left: `${primary.x}px`, top: `${primary.y}px`, width: `${primary.w}px`, height: `${primary.h}px` }">
+    <div class="sel-box" :style="{ left: `${offset.x + primary.x}px`, top: `${offset.y + primary.y}px`, width: `${primary.w}px`, height: `${primary.h}px` }">
       <!-- 旋转柄（顶部上方） -->
       <el-icon
         class="rotate-handle"
@@ -85,7 +91,7 @@ function handlePos(dir: ResizeDir) {
       >{{ Math.round(primary.w) }} × {{ Math.round(primary.h) }}</span>
     </div>
     <!-- 多选整体包围框 -->
-    <div v-if="multiBox" class="multi-box" :style="{ left: `${multiBox.x}px`, top: `${multiBox.y}px`, width: `${multiBox.w}px`, height: `${multiBox.h}px` }" />
+    <div v-if="multiBox" class="multi-box" :style="{ left: `${offset.x + multiBox.x}px`, top: `${offset.y + multiBox.y}px`, width: `${multiBox.w}px`, height: `${multiBox.h}px` }" />
   </div>
 </template>
 

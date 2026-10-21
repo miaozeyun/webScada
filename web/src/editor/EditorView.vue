@@ -42,6 +42,7 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 onMounted(async () => {
   uninstallKeyboard = installKeyboard(editor)
+  window.addEventListener('ws:help', openHelp)
   try {
     await editor.load(String(route.params.id))
   } catch {
@@ -53,8 +54,53 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   uninstallKeyboard?.()
+  window.removeEventListener('ws:help', openHelp)
   if (saveTimer) clearTimeout(saveTimer)
 })
+
+// ---- 快捷键帮助（? 键 / 状态栏提示可点开） ----
+
+const helpVisible = ref(false)
+
+function openHelp(): void {
+  helpVisible.value = true
+}
+
+const SHORTCUTS: { group: string; items: [string, string][] }[] = [
+  {
+    group: '基础',
+    items: [
+      ['Ctrl + Z / Ctrl + Shift + Z', '撤销 / 重做'],
+      ['Ctrl + A', '全选当前页组件'],
+      ['Delete / Backspace', '删除选中'],
+      ['Ctrl + C / X / V', '复制 / 剪切 / 粘贴（阶梯偏移）'],
+      ['Ctrl + D', '原地复制一份'],
+      ['Ctrl + G / Ctrl + Shift + G', '组合 / 拆分'],
+      ['?（Shift + /）', '打开本帮助'],
+    ],
+  },
+  {
+    group: '画布视图',
+    items: [
+      ['Ctrl + 滚轮', '以光标为锚缩放（25%–400%）'],
+      ['滚轮 / 触控板双指', '平移画布（Shift = 水平）'],
+      ['空格 + 拖动 / 中键拖动', '平移画布'],
+      ['Ctrl + 0 / Ctrl + 1', '缩放 100% / 适应画布'],
+    ],
+  },
+  {
+    group: '编辑组件',
+    items: [
+      ['拖动（贴边自动平移）', '移动组件，与其他组件/画布边吸附对齐'],
+      ['Alt + 拖动', '复制一份再拖（原件留在原地）'],
+      ['方向键 / Shift + 方向键', '微调 1px / 10px'],
+      ['双击文本', '行内编辑文字'],
+      ['双击组', '进入组内编辑（Esc / 空白单击退出）'],
+      ['拖动旋转柄', '旋转，近 15° 倍数自动吸附'],
+      ['Shift + 拖缩放柄', '锁定宽高比缩放'],
+    ],
+  },
+]
 
 // ---- 自动保存（3s 防抖；保存前刷新首页缩略图，失败不阻断保存链路） ----
 async function saveWithThumbnail(): Promise<boolean> {
@@ -400,7 +446,7 @@ async function shareProject(): Promise<void> {
         X {{ primaryRect.x }} · Y {{ primaryRect.y }} · W {{ primaryRect.w }} · H {{ primaryRect.h }}
       </span>
       <span class="sb-spacer" />
-      <span class="sb-hint">Ctrl+滚轮缩放 · 空格拖动画布</span>
+      <button class="sb-hint" type="button" title="快捷键帮助（? 键）" @click="openHelp">Ctrl+滚轮缩放 · 空格拖动画布 · ? 快捷键</button>
       <span class="sb-net" :class="online ? 'on' : 'off'" :title="online ? '连接正常' : '网络已断开'">
         <i class="led"></i>{{ online ? '在线' : '离线' }}
       </span>
@@ -412,6 +458,19 @@ async function shareProject(): Promise<void> {
 
     <!-- 工程数据管理（M3/M5） -->
     <DataDrawer v-if="dataDrawerVisible" @close="dataDrawerVisible = false" />
+
+    <!-- 快捷键帮助（? 键 / 状态栏入口） -->
+    <el-dialog v-model="helpVisible" title="快捷键" width="560px" :close-on-click-modal="true">
+      <div class="help-grid">
+        <section v-for="sec in SHORTCUTS" :key="sec.group">
+          <h4>{{ sec.group }}</h4>
+          <div v-for="[key, desc] in sec.items" :key="key" class="help-row">
+            <kbd>{{ key }}</kbd>
+            <span>{{ desc }}</span>
+          </div>
+        </section>
+      </div>
+    </el-dialog>
 
     <!-- 导入 JSON（参照 visual-drag-demo Toolbar 的导入对话框：textarea + 文件选择） -->
     <el-dialog v-model="importVisible" title="导入 JSON 数据" width="600px" :close-on-click-modal="false">
@@ -836,7 +895,60 @@ main {
 
 .sb-hint {
   white-space: nowrap;
+  padding: 2px 6px;
+  border: none;
+  border-radius: var(--ws-radius);
+  background: none;
   color: var(--ws-inv-42);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sb-hint:hover {
+  color: var(--ws-inv-88);
+  background: var(--ws-inv-hover);
+}
+
+/* 快捷键帮助表 */
+.help-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+}
+
+.help-grid h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ws-text-2);
+  border-bottom: 1px solid var(--ws-steel-2);
+  padding-bottom: 6px;
+}
+
+.help-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--ws-text-2);
+}
+
+.help-row kbd {
+  flex-shrink: 0;
+  min-width: 130px;
+  padding: 1px 6px;
+  border: 1px solid var(--ws-steel-3);
+  border-radius: 3px;
+  background: var(--ws-steel-0);
+  color: var(--ws-text);
+  font-family: var(--ws-font-mono);
+  font-size: 11px;
+  text-align: center;
+}
+
+.help-row span {
+  color: var(--ws-text-3);
 }
 
 .sb-zoom {

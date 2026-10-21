@@ -1,16 +1,27 @@
 <script setup lang="ts">
 /** 图层面板：z 序降序常驻列表，hover 显示行内操作（上移/下移/显隐/锁定/删除），与画布双向同步。
+ * 组编辑上下文（双击组进入）时列出该组直接子成员，并提供返回顶层入口。
  * 成组/解组在顶部工具栏与右键菜单。 */
 import { computed } from 'vue'
-import { Bottom, Box, Delete, Hide, Lock, Top, Unlock, View } from '@element-plus/icons-vue'
+import { Back, Bottom, Box, Delete, Hide, Lock, Top, Unlock, View } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { registry } from '@/widgets/registry'
 import WidgetIcon from '@/widgets/WidgetIcon.vue'
 
 const editor = useEditorStore()
 
+// 组编辑上下文：列组内成员；否则列顶层
+const pool = computed(() => editor.editingGroup?.children ?? editor.topLevelNodes)
+
 // z 大者在上 → 列表顶部
-const layers = computed(() => [...editor.topLevelNodes].sort((a, b) => b.z - a.z))
+const layers = computed(() => [...pool.value].sort((a, b) => b.z - a.z))
+
+/** 返回顶层：退出组编辑并重新选中该组（与画布 Esc 行为一致） */
+function backToTop(): void {
+  const gid = editor.editingGroupId
+  editor.exitGroup()
+  if (gid) editor.select([gid])
+}
 
 function rowClick(e: MouseEvent, id: string): void {
   if (e.ctrlKey || e.metaKey) editor.toggleSelect(id)
@@ -31,7 +42,15 @@ function removeLayer(id: string): void {
 <template>
   <div class="layer-panel">
     <div class="panel-head">
-      <span>图层</span>
+      <template v-if="editor.editingGroup">
+        <button class="back-btn" title="返回顶层（Esc）" @click="backToTop">
+          <el-icon :size="12"><Back /></el-icon>
+          <span class="group-name" :title="`${editor.editingGroup.name}（组内成员）`">{{ editor.editingGroup.name }}</span>
+        </button>
+      </template>
+      <template v-else>
+        <span>图层</span>
+      </template>
       <span class="panel-count ws-readout">{{ layers.length }}</span>
     </div>
     <div class="real-time-component-list">
@@ -62,7 +81,7 @@ function removeLayer(id: string): void {
           <el-icon :size="14" class="op" title="删除" @click.stop="removeLayer(node.id)"><Delete /></el-icon>
         </div>
       </div>
-      <div v-if="layers.length === 0" class="layer-empty">当前页面暂无组件</div>
+      <div v-if="layers.length === 0" class="layer-empty">{{ editor.editingGroup ? '组内暂无成员' : '当前页面暂无组件' }}</div>
     </div>
   </div>
 </template>
@@ -94,6 +113,32 @@ function removeLayer(id: string): void {
   font-size: 11px;
   font-weight: 500;
   color: var(--ws-text-3);
+}
+
+/* 组编辑上下文面包屑：返回按钮 + 组名 */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ws-signal);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.back-btn:hover {
+  text-decoration: underline;
+}
+
+.group-name {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .real-time-component-list {

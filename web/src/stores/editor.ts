@@ -7,11 +7,12 @@ import { defineStore } from 'pinia'
 import type { ComponentNode, MySymbolDef, Page, ProjectDoc, WidgetType } from '@/types/doc'
 import { getProject, updateProject } from '@/api/projects'
 import { HistoryStack } from '@/editor/history'
-import { buildGroup, flattenGroup, normalizeZ } from '@/editor/canvas/group'
+import { buildGroup, flattenGroup, normalizeZ, normalizeZOf } from '@/editor/canvas/group'
 import { nodesBBox } from '@/utils/coord'
 import { newComponentId, newPageId } from '@/utils/nanoid'
 import { getSymbol } from '@/assets/symbols'
 import { registry } from '@/widgets/registry'
+import { normalizeComponents, normalizeDoc } from '@/utils/docNormalize'
 
 // 历史栈保持非响应式（模块级实例），版本计数驱动按钮状态
 const history = new HistoryStack(50)
@@ -35,10 +36,16 @@ export const useEditorStore = defineStore('editor', {
     spaceHeld: false, // 空格平移模式（CanvasStage 消费）
     zoom: 1,
     pan: { x: 0, y: 0 },
-    /** 剪贴板（进程内）：粘贴时重新生成全部 id 并整体偏移 10px */
+    /** 剪贴板（进程内）：粘贴时重新生成全部 id 并整体偏移 10px。
+     *  base = 复制时所在组的原点（组内复制的子节点坐标为相对值，顶层粘贴时需还原绝对坐标） */
     clipboard: [] as ComponentNode[],
+    clipboardBase: null as { x: number; y: number } | null,
     /** 行内编辑中的节点 id（双击文本进入，blur/Enter 提交） */
     editingNodeId: '' as string,
+    /** 双击进入的组编辑上下文（空 = 顶层）：选中/拖拽/属性面板均作用于该组 children */
+    editingGroupId: '' as string,
+    /** 组件库拖拽载荷尺寸提示（palette dragstart 写入，画布渲染放置 ghost；dragend/drop 清除） */
+    dropHint: null as { w: number; h: number; label: string } | null,
     /** 画布右键菜单（坐标相对画布视口） */
     contextMenu: { show: false, x: 0, y: 0 } as { show: boolean; x: number; y: number },
   }),
@@ -52,7 +59,15 @@ export const useEditorStore = defineStore('editor', {
       return this.currentPage?.components ?? []
     },
     selectedNodes(state): ComponentNode[] {
-      return this.topLevelNodes.filter((n) => state.selection.includes(n.id))
+      // 组编辑上下文：选中作用于该组直接子节点（坐标相对组原点），其余操作同构
+      const pool = this.editingGroup ? (this.editingGroup.children ?? []) : this.topLevelNodes
+      return pool.filter((n) => state.selection.includes(n.id))
+    },
+    /** 双击进入的编辑组（不存在/非组时视为无编辑上下文） */
+    editingGroup(): ComponentNode | null {
+      const id = this.editingGroupId
+      if (!id) return null
+      return this.topLevelNodes.find((n) => n.id === id && n.type === 'group') ?? null
     },
     /** 主选中（最后一个点选的），属性面板/缩放柄作用对象 */
     primarySelected(): ComponentNode | null {
@@ -70,9 +85,10 @@ export const useEditorStore = defineStore('editor', {
       this.projectId = detail.id
       this.projectName = detail.name
       this.revision = detail.revision
-      this.doc = detail.doc
+      this.doc = normalizeDoc(detail.doc) // 补全模板/历史工程缺省字段（bindings/locked/z 等）
       this.currentPageId = detail.doc.pages[0]?.id ?? ''
       this.selection = []
+      this.editingGroupId = ''
       this.dirty = false
       this.saveError = ''
       history.clear()
@@ -133,7 +149,8 @@ export const useEditorStore = defineStore('editor', {
       this.doc.pages[idx] = JSON.parse(snap)
       // 清掉已不存在的选中项
       const alive = new Set(this.currentPage?.components.map((c) => c.id) ?? [])
-      this.selection = this.selection.filter((id) => alive.has(id))
+      this.selection = this.selection.filter((id) => alive.has(id) || !!this.findNodeDeep(id))
+      this._syncEditingGroup()
       this.historyVersion++
       this._markDirty()
     },
@@ -158,6 +175,17 @@ export const useEditorStore = defineStore('editor', {
 
     // ---------------- 选中 ----------------
 
+    /** 递归查找节点（含组内任意层级；顶层查找的快速路径） */
+    findNodeDeep(id: string): ComponentNode | null {
+      const stack = [...this.topLevelNodes]
+      while (stack.length) {
+        const n = stack.pop()!
+        if (n.id === id) return n
+        if (n.children) stack.push(...n.children)
+      }
+      return null
+    },
+
     select(ids: string[]): void {
       this.selection = ids
     },
@@ -174,12 +202,33 @@ export const useEditorStore = defineStore('editor', {
       this.selection = []
     },
 
+    // ---------------- 组编辑上下文（双击组进入，Esc/空白单击退出） ----------------
+
+    /** 进入组内编辑：选中作用于该组直接子节点。锁定组不可进入（防止误改冻结资产）。 */
+    enterGroup(id: string): void {
+      const g = this.topLevelNodes.find((n) => n.id === id && n.type === 'group')
+      if (!g || g.locked) return
+      this.editingGroupId = id
+      this.selection = []
+    },
+
+    exitGroup(): void {
+      this.editingGroupId = ''
+      this.selection = []
+    },
+
+    /** 快照恢复/删页等 doc 结构变化后校验编辑组仍存在，否则静默退出 */
+    _syncEditingGroup(): void {
+      if (this.editingGroupId && !this.editingGroup) this.exitGroup()
+    },
+
     // ---------------- 组件变更（离散动作内部自带 beginChange） ----------------
 
     addComponent(type: WidgetType, x: number, y: number, extraProps?: Record<string, unknown>): string {
       const page = this.currentPage
       const meta = registry.get(type)
       if (!page || !meta) return ''
+      this.exitGroup() // 新增组件一律落在顶层（坐标为画布绝对坐标）
       // symbol：覆盖默认尺寸（按图元 viewBox 比例）与节点名（图元中文名）
       const symbolAsset = type === 'symbol' ? getSymbol(String(extraProps?.symbolId ?? '')) : undefined
       this.beginChange()
@@ -209,9 +258,20 @@ export const useEditorStore = defineStore('editor', {
       const page = this.currentPage
       if (!page || this.selection.length === 0) return
       this.beginChange()
-      page.components = page.components.filter((c) => !this.selection.includes(c.id))
-      normalizeZ(page)
-      this.selection = []
+      const g = this.editingGroup
+      if (g) {
+        // 组内删除：子组件坐标相对组原点，直接剔除；组删空则连同空组一并移除并退出编辑
+        g.children = (g.children ?? []).filter((c) => !this.selection.includes(c.id))
+        if (g.children.length === 0) {
+          page.components = page.components.filter((c) => c.id !== g.id)
+          normalizeZ(page)
+          this.exitGroup()
+        }
+      } else {
+        page.components = page.components.filter((c) => !this.selection.includes(c.id))
+        normalizeZ(page)
+        this.selection = []
+      }
       this._markDirty()
     },
 
@@ -222,15 +282,17 @@ export const useEditorStore = defineStore('editor', {
       this.beginChange()
       page.components = []
       this.selection = []
+      this.editingGroupId = ''
       this._markDirty()
     },
 
     /** 导入 JSON 覆盖当前工程 doc（宽松前端校验，服务端保存时 schema 兜底；跨 doc 替换历史清空） */
     replaceDoc(doc: ProjectDoc): boolean {
       if (!doc || !Array.isArray(doc.pages) || doc.pages.length === 0) return false
-      this.doc = doc
+      this.doc = normalizeDoc(doc) // 导入数据同口径补全缺省字段
       this.currentPageId = doc.pages[0].id
       this.selection = []
+      this.editingGroupId = ''
       history.clear()
       this.historyVersion++
       this._markDirty()
@@ -250,7 +312,7 @@ export const useEditorStore = defineStore('editor', {
 
     /** 拖拽/缩放过程中直接写坐标（历史快照由交互开始时的 beginChange 负责） */
     setNodeRect(id: string, patch: Partial<Pick<ComponentNode, 'x' | 'y' | 'w' | 'h' | 'rotate'>>): void {
-      const node = this.topLevelNodes.find((n) => n.id === id)
+      const node = this.findNodeDeep(id)
       if (!node) return
       Object.assign(node, patch)
       this._markDirty()
@@ -258,7 +320,7 @@ export const useEditorStore = defineStore('editor', {
 
     /** 属性面板通用更新（mergeKey 合并连续输入） */
     updateNode(id: string, patch: Partial<ComponentNode>, mergeKey?: string): void {
-      const node = this.topLevelNodes.find((n) => n.id === id)
+      const node = this.findNodeDeep(id)
       if (!node) return
       this.beginChange(mergeKey)
       Object.assign(node, patch)
@@ -293,7 +355,7 @@ export const useEditorStore = defineStore('editor', {
     },
 
     updateNodeProps(id: string, key: string, value: unknown): void {
-      const node = this.topLevelNodes.find((n) => n.id === id)
+      const node = this.findNodeDeep(id)
       if (!node) return
       this.beginChange(`props:${id}:${key}`)
       node.props = { ...node.props, [key]: value }
@@ -301,7 +363,7 @@ export const useEditorStore = defineStore('editor', {
     },
 
     updateNodeStyle(id: string, key: string, value: unknown): void {
-      const node = this.topLevelNodes.find((n) => n.id === id)
+      const node = this.findNodeDeep(id)
       if (!node) return
       this.beginChange(`style:${id}:${key}`)
       const style: Record<string, unknown> = { ...(node.style ?? {}) }
@@ -323,9 +385,17 @@ export const useEditorStore = defineStore('editor', {
       this.beginChange()
       const group = buildGroup(members)
       if (!group) return
-      page.components = page.components.filter((c) => !this.selection.includes(c.id))
-      page.components.push(group)
-      normalizeZ(page)
+      const g = this.editingGroup
+      if (g) {
+        // 组内成组：成员与子组坐标同系（相对组原点），剔除后追加，z 接续
+        g.children = (g.children ?? []).filter((c) => !this.selection.includes(c.id))
+        group.z = g.children.length ? Math.max(...g.children.map((c) => c.z)) + 1 : 0
+        g.children.push(group)
+      } else {
+        page.components = page.components.filter((c) => !this.selection.includes(c.id))
+        page.components.push(group)
+        normalizeZ(page)
+      }
       this.selection = [group.id]
       this._markDirty()
     },
@@ -336,13 +406,22 @@ export const useEditorStore = defineStore('editor', {
       if (!page || targets.length === 0) return
       this.beginChange()
       let newIds: string[] = []
+      const eg = this.editingGroup
       for (const g of targets) {
-        const children = flattenGroup(g)
-        const idx = page.components.findIndex((c) => c.id === g.id)
-        page.components.splice(idx, 1, ...children)
+        const children = eg
+          ? [...(g.children ?? [])] // 组内解组：子坐标已相对父组，无需偏移还原
+          : flattenGroup(g)
+        if (eg) {
+          const idx = (eg.children ?? []).findIndex((c) => c.id === g.id)
+          eg.children!.splice(idx, 1, ...children)
+        } else {
+          const idx = page.components.findIndex((c) => c.id === g.id)
+          page.components.splice(idx, 1, ...children)
+        }
         newIds = newIds.concat(children.map((c) => c.id))
       }
       normalizeZ(page)
+      if (eg) eg.children = normalizeZOf(eg.children ?? [])
       this.selection = newIds
       this._markDirty()
     },
@@ -353,7 +432,8 @@ export const useEditorStore = defineStore('editor', {
       const clone: ComponentNode = JSON.parse(JSON.stringify(node))
       const rename = (n: ComponentNode): void => {
         n.id = newComponentId()
-        n.bindings = n.bindings.map((b) => ({ ...b, id: newComponentId() }))
+        // 防御：模板/历史数据可能缺 bindings 键（docNormalize 已在入口补全，此处兜底旧内存态）
+        n.bindings = (n.bindings ?? []).map((b) => ({ ...b, id: newComponentId() }))
         ;(n.children ?? []).forEach(rename)
       }
       rename(clone)
@@ -363,6 +443,9 @@ export const useEditorStore = defineStore('editor', {
     copySelection(): void {
       if (this.selection.length === 0) return
       this.clipboard = this.selectedNodes.map((n) => JSON.parse(JSON.stringify(n)) as ComponentNode)
+      // 记录复制时所在组原点：组内子节点坐标为相对值，跨上下文粘贴时换算
+      const g = this.editingGroup
+      this.clipboardBase = g ? { x: g.x, y: g.y } : null
     },
 
     cutSelection(): void {
@@ -370,19 +453,33 @@ export const useEditorStore = defineStore('editor', {
       this.deleteSelection()
     },
 
-    /** 粘贴：重新生成全部 id（含组内与绑定 id），整体偏移 +10px，粘贴后选中新节点 */
-    pasteClipboard(): void {
+    /** 粘贴：重新生成全部 id（含组内与绑定 id），整体偏移 +10px（连续粘贴阶梯错位），粘贴后选中新节点。
+     *  at：粘贴到指定设计坐标（右键"粘贴到此处"），以剪贴板包围盒原点对齐。 */
+    pasteClipboard(at?: { x: number; y: number }): void {
       const page = this.currentPage
       if (!page || this.clipboard.length === 0) return
       this.beginChange()
+      const eg = this.editingGroup
+      // 粘贴目标上下文与来源上下文不一致时换算坐标系（组内相对 ↔ 画布绝对）
+      const originX = eg ? (this.clipboardBase ? this.clipboardBase.x - eg.x : -eg.x) : (this.clipboardBase?.x ?? 0)
+      const originY = eg ? (this.clipboardBase ? this.clipboardBase.y - eg.y : -eg.y) : (this.clipboardBase?.y ?? 0)
+      let offX = 10
+      let offY = 10
+      if (at) {
+        const minX = Math.min(...this.clipboard.map((n) => n.x))
+        const minY = Math.min(...this.clipboard.map((n) => n.y))
+        offX = at.x - minX - originX
+        offY = at.y - minY - originY
+      }
+      const pool = eg ? (eg.children ?? []) : page.components
       const newIds: string[] = []
-      let maxZ = page.components.length ? Math.max(...page.components.map((c) => c.z)) : -1
+      let maxZ = pool.length ? Math.max(...pool.map((c) => c.z)) : -1
       for (const raw of this.clipboard) {
         const node = this._cloneWithNewIds(raw)
-        node.x += 10
-        node.y += 10
+        node.x = Math.round(node.x + originX + offX)
+        node.y = Math.round(node.y + originY + offY)
         node.z = ++maxZ
-        page.components.push(node)
+        pool.push(node)
         newIds.push(node.id)
       }
       this.selection = newIds
@@ -396,6 +493,26 @@ export const useEditorStore = defineStore('editor', {
       this.pasteClipboard()
     },
 
+    /** Alt+拖动复制的落点：克隆当前选中（原地），改为选中克隆体并返回其 id 列表。
+     *  历史：调用方已在拖动开始时 beginChange（快照为复制前状态，一次拖动 = 一条记录）。 */
+    duplicateForDrag(): string[] {
+      const page = this.currentPage
+      const eg = this.editingGroup
+      if (!page || this.selection.length === 0) return []
+      const pool = eg ? (eg.children ?? []) : page.components
+      const newIds: string[] = []
+      let maxZ = pool.length ? Math.max(...pool.map((c) => c.z)) : -1
+      for (const n of this.selectedNodes) {
+        const clone = this._cloneWithNewIds(n)
+        clone.z = ++maxZ
+        pool.push(clone)
+        newIds.push(clone.id)
+      }
+      this.selection = newIds
+      this._markDirty()
+      return newIds
+    },
+
     // ---------------- 我的图元（M9 批次2）：doc.assets.mySymbols 资产库 ----------------
 
     /** 选中组件/组存为我的图元：group 展平为绝对坐标，整体归一化到包围盒原点 */
@@ -403,9 +520,17 @@ export const useEditorStore = defineStore('editor', {
       const sel = this.selectedNodes
       const doc = this.doc
       if (sel.length === 0 || !doc) return ''
+      const eg = this.editingGroup
       const flat: ComponentNode[] = []
       for (const n of sel) {
         const c = JSON.parse(JSON.stringify(n)) as ComponentNode
+        if (eg) {
+          // 组编辑上下文中选中的是相对坐标成员：还原绝对坐标（children 内部相对坐标不受影响）
+          c.x += eg.x
+          c.y += eg.y
+          flat.push(c)
+          continue
+        }
         if (c.type === 'group') flat.push(...flattenGroup(c))
         else flat.push(c)
       }
@@ -428,15 +553,16 @@ export const useEditorStore = defineStore('editor', {
       return sym.id
     },
 
-    /** 我的图元拖入/点击插入：克隆 + id 重映射，x/y 为放置原点（左上角） */
+    /** 我的图元拖入/点击插入：克隆 + id 重映射，x/y 为放置原点（左上角，画布绝对坐标） */
     insertMySymbol(id: string, x: number, y: number): void {
       const page = this.currentPage
       const sym = this.doc?.assets?.mySymbols.find((s) => s.id === id)
       if (!page || !sym || sym.nodes.length === 0) return
+      this.exitGroup() // 插入一律落顶层
       this.beginChange()
       let maxZ = page.components.length ? Math.max(...page.components.map((c) => c.z)) : -1
       const newIds: string[] = []
-      for (const raw of sym.nodes) {
+      for (const raw of normalizeComponents(sym.nodes)) {
         const node = this._cloneWithNewIds(raw)
         node.x = Math.round(x + node.x)
         node.y = Math.round(y + node.y)
@@ -462,7 +588,7 @@ export const useEditorStore = defineStore('editor', {
     },
 
     commitTextEdit(id: string, text: string): void {
-      const node = this.topLevelNodes.find((n) => n.id === id)
+      const node = this.findNodeDeep(id)
       this.editingNodeId = ''
       if (!node || node.props.text === text) return
       node.props = { ...node.props, text }
@@ -517,7 +643,9 @@ export const useEditorStore = defineStore('editor', {
       const page = this.currentPage
       if (!page || this.selection.length === 0) return
       this.beginChange()
-      const zs = page.components.map((c) => c.z)
+      const eg = this.editingGroup
+      const pool = eg ? (eg.children ?? []) : page.components
+      const zs = pool.map((c) => c.z)
       const maxZ = Math.max(...zs)
       const minZ = Math.min(...zs)
       // 用临时分数 z 表达插入位置，再归一化为连续整数
@@ -527,7 +655,8 @@ export const useEditorStore = defineStore('editor', {
         else if (op === 'forward') node.z += 1.5
         else node.z -= 1.5
       }
-      normalizeZ(page)
+      if (eg) eg.children = normalizeZOf(pool)
+      else normalizeZ(page)
       this._markDirty()
     },
 
@@ -537,6 +666,7 @@ export const useEditorStore = defineStore('editor', {
       if (id === this.currentPageId) return
       this.currentPageId = id
       this.selection = []
+      this.editingGroupId = ''
       history.clear()
       this.historyVersion++
     },
@@ -560,6 +690,7 @@ export const useEditorStore = defineStore('editor', {
       this.doc.pages.push(page)
       this.currentPageId = page.id
       this.selection = []
+      this.editingGroupId = ''
       history.clear()
       this.historyVersion++
       this._markDirty()
@@ -575,10 +706,11 @@ export const useEditorStore = defineStore('editor', {
       p.id = newPageId()
       p.name = name
       p.order = this.doc.pages.length
-      p.components = p.components.map((c) => this._cloneWithNewIds(c))
+      p.components = normalizeComponents(p.components.map((c) => this._cloneWithNewIds(c)))
       this.doc.pages.push(p)
       this.currentPageId = p.id
       this.selection = []
+      this.editingGroupId = ''
       history.clear()
       this.historyVersion++
       this._markDirty()
@@ -596,6 +728,7 @@ export const useEditorStore = defineStore('editor', {
         this.currentPageId = this.doc.pages[0].id
         history.clear()
         this.selection = []
+        this.editingGroupId = ''
       }
       this.historyVersion++
       this._markDirty()

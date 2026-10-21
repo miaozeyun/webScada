@@ -12,6 +12,23 @@ const editor = useEditorStore()
 const hasSelection = computed(() => editor.selection.length > 0)
 const allLocked = computed(() => editor.selectedNodes.length > 0 && editor.selectedNodes.every((n) => n.locked))
 const hasGroup = computed(() => editor.selectedNodes.some((n) => n.type === 'group'))
+const primaryGroup = computed(() => {
+  const n = editor.primarySelected
+  return n && n.type === 'group' && !n.locked ? n : null
+})
+
+function enterPrimaryGroup(): void {
+  const g = primaryGroup.value
+  if (g) editor.enterGroup(g.id)
+}
+
+/** 右键位置（视口坐标）换算设计坐标：粘贴到此处 */
+function menuDesignPoint(): { x: number; y: number } {
+  return {
+    x: (editor.contextMenu.x - editor.pan.x) / editor.zoom,
+    y: (editor.contextMenu.y - editor.pan.y) / editor.zoom,
+  }
+}
 
 function run(fn: () => void): void {
   editor.closeContextMenu()
@@ -34,8 +51,11 @@ async function saveAsMySymbol(): Promise<void> {
   }
 }
 
-// 点击任意处/滚轮 关闭菜单
-function onGlobalDown(): void {
+// 点击菜单外任意处关闭菜单。
+// 注意不能用"捕获阶段直接关"：close 会让 v-if 摘除菜单 DOM，进行中的 click 失去 target
+// 不再派发——菜单项将永远点不动（存量缺陷，2026-10-21 修复：跳过菜单自身内的 pointerdown）。
+function onGlobalDown(e: PointerEvent): void {
+  if ((e.target as HTMLElement | null)?.closest('.ws-contextmenu')) return
   editor.closeContextMenu()
 }
 onMounted(() => window.addEventListener('pointerdown', onGlobalDown, true))
@@ -68,11 +88,15 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalDown, tr
         <li v-if="!allLocked && editor.selection.length >= 2" class="sep" />
         <li v-if="!allLocked && editor.selection.length >= 2" @click="run(() => editor.groupSelection())">组合 <kbd>Ctrl+G</kbd></li>
         <li v-if="!allLocked && hasGroup" @click="run(() => editor.ungroupSelection())">拆分 <kbd>Ctrl+Shift+G</kbd></li>
+        <li v-if="primaryGroup" @click="run(enterPrimaryGroup)">进入组内编辑 <kbd>双击</kbd></li>
         <li v-if="!allLocked" class="sep" />
         <li v-if="!allLocked" @click="run(() => saveAsMySymbol())">存为我的图元</li>
       </template>
       <template v-else>
-        <li :class="{ disabled: editor.clipboard.length === 0 }" @click="editor.clipboard.length && run(() => editor.pasteClipboard())">粘贴</li>
+        <li v-if="editor.editingGroupId" @click="run(() => { const gid = editor.editingGroupId; editor.exitGroup(); if (gid) editor.select([gid]) })">退出组内编辑 <kbd>Esc</kbd></li>
+        <li v-if="editor.editingGroupId" class="sep" />
+        <li :class="{ disabled: editor.clipboard.length === 0 }" @click="editor.clipboard.length && run(() => editor.pasteClipboard())">粘贴 <kbd>Ctrl+V</kbd></li>
+        <li :class="{ disabled: editor.clipboard.length === 0 }" @click="editor.clipboard.length && run(() => editor.pasteClipboard(menuDesignPoint()))">粘贴到此处</li>
       </template>
     </ul>
   </div>

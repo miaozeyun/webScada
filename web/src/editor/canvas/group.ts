@@ -38,9 +38,14 @@ export function flattenGroup(group: ComponentNode): ComponentNode[] {
 
 /** z 序归一化：按当前 z 升序重排并赋连续值 0..n-1（z 大者在上） */
 export function normalizeZ(page: Page): void {
-  const sorted = [...page.components].sort((a, b) => a.z - b.z)
+  page.components = normalizeZOf(page.components)
+}
+
+/** 同 normalizeZ，作用于任意节点数组（组内 children 同样需要连续 z） */
+export function normalizeZOf(nodes: ComponentNode[]): ComponentNode[] {
+  const sorted = [...nodes].sort((a, b) => a.z - b.z)
   sorted.forEach((n, i) => {
     n.z = i
   })
-  page.components = sorted
+  return sorted
 }

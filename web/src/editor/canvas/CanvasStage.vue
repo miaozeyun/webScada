@@ -1,9 +1,11 @@
 <script setup lang="ts">
 /**
  * 画布容器：视口（平移/缩放）+ 页面（设计尺寸）+ 交互状态机。
- * 交互：拖拽移动（吸附）、8 向缩放、旋转、框选、空格/中键平移、Ctrl+滚轮缩放（25%~400%）、拖入组件。
+ * 交互：拖拽移动（吸附）、8 向缩放、旋转、框选、空格/中键平移、Ctrl+滚轮缩放（25%~400%）、
+ * 滚轮/触控板平移（Shift=水平）、Alt+拖动复制、拖到视口边缘自动平移、拖入组件 ghost 预览、
+ * 双击文本行内编辑、双击组进入组内编辑（Esc/空白单击退出）。
  * 快照协议：move/resize/rotate 在 pointerdown 时 beginChange，未实际移动在 up 时 cancelChange
- * （保证"一次拖拽全程仅 1 条 undo 记录、纯点击零记录"）。
+ * （保证"一次拖拽全程仅 1 条 undo 记录、纯点击零记录"）；Alt 复制的克隆发生在首次移动时。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import html2canvas from 'html2canvas'
@@ -76,31 +78,40 @@ function toDesign(e: { clientX: number; clientY: number }): { x: number; y: numb
   }
 }
 
-// ---------------- 缩放（Ctrl+滚轮，光标为锚点） ----------------
+// ---------------- 缩放与平移（滚轮） ----------------
 
 const MIN_ZOOM = 0.25
 const MAX_ZOOM = 4
 
 function onWheel(e: WheelEvent): void {
-  if (!e.ctrlKey && !e.metaKey) return
+  // Firefox 行模式归一到像素
+  const unit = e.deltaMode === 1 ? 16 : 1
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault()
+    const rect = viewportEl.value!.getBoundingClientRect()
+    const cx = e.clientX - rect.left
+    const cy = e.clientY - rect.top
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
+    const newZoom = clamp(editor.zoom * factor, MIN_ZOOM, MAX_ZOOM)
+    // 保持光标下设计坐标不变：cursor = pan + design*zoom
+    const dx = (cx - editor.pan.x) / editor.zoom
+    const dy = (cy - editor.pan.y) / editor.zoom
+    editor.setPan(cx - dx * newZoom, cy - dy * newZoom)
+    editor.setZoom(newZoom)
+    return
+  }
+  // 滚轮/触控板平移画布（Shift=水平）；视口自身无滚动条，接管无副作用
   e.preventDefault()
-  const rect = viewportEl.value!.getBoundingClientRect()
-  const cx = e.clientX - rect.left
-  const cy = e.clientY - rect.top
-  const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
-  const newZoom = clamp(editor.zoom * factor, MIN_ZOOM, MAX_ZOOM)
-  // 保持光标下设计坐标不变：cursor = pan + design*zoom
-  const dx = (cx - editor.pan.x) / editor.zoom
-  const dy = (cy - editor.pan.y) / editor.zoom
-  editor.setPan(cx - dx * newZoom, cy - dy * newZoom)
-  editor.setZoom(newZoom)
+  const dx = e.shiftKey ? e.deltaX * unit + e.deltaY * unit : e.deltaX * unit
+  const dy = e.shiftKey ? 0 : e.deltaY * unit
+  editor.setPan(editor.pan.x - dx, editor.pan.y - dy)
 }
 
 // ---------------- 交互状态机 ----------------
 
 type DragState =
   | { kind: 'pan'; startX: number; startY: number; panX: number; panY: number }
-  | { kind: 'move'; startDesign: { x: number; y: number }; origins: Map<string, { x: number; y: number; w: number; h: number }>; moved: boolean }
+  | { kind: 'move'; startDesign: { x: number; y: number }; origins: Map<string, { x: number; y: number; w: number; h: number }>; alt: boolean; moved: boolean }
   | { kind: 'resize'; dir: ResizeDir; id: string; startDesign: { x: number; y: number }; rect0: { x: number; y: number; w: number; h: number; rotate: number }; center0: { x: number; y: number }; handle0: { x: number; y: number }; shift: boolean; moved: boolean }
   | { kind: 'rotate'; id: string; center: { x: number; y: number }; a0: number; rotate0: number; moved: boolean }
   | { kind: 'marquee'; start: { x: number; y: number }; additive: boolean }
@@ -109,22 +120,73 @@ const drag = ref<DragState | null>(null)
 const guides = ref<{ linesX: number[]; linesY: number[] }>({ linesX: [], linesY: [] })
 const marquee = ref<{ x: number; y: number; w: number; h: number } | null>(null)
 
+/** 拖动实时读数：move = 选中集新位置；rotate = 角度（resize 的 W×H 由 SelectionLayer 徽标承担） */
+const readout = ref<{ x: number; y: number; text: string } | null>(null)
+
+/** 组编辑上下文的吸附线偏移：参考线画在 page 坐标系，组内命中值是相对组原点的 */
+const guideOffset = computed(() => {
+  const g = editor.editingGroup
+  return g ? { x: g.x, y: g.y } : { x: 0, y: 0 }
+})
+
 /**
  * 拖拽期间用 window 级监听（visual-drag-demo 模式），不用 setPointerCapture：
  * pointer capture 会把后续 pointerup/click/dblclick 的 target 重定向到捕获元素，
  * 导致节点上的 dblclick（行内编辑）永远收不到事件。
  */
+let lastEv: { clientX: number; clientY: number; shiftKey: boolean } | null = null
+
 function bindWindowDrag(): void {
-  const move = (ev: PointerEvent) => onPointerMove(ev)
+  const move = (ev: PointerEvent) => {
+    lastEv = ev
+    processDrag(ev)
+  }
   const up = (ev: PointerEvent) => {
     onPointerUp(ev)
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
     window.removeEventListener('pointercancel', up)
+    stopEdgePan()
   }
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', up)
   window.addEventListener('pointercancel', up)
+}
+
+// ---- 视口边缘自动平移：指针贴边时按深入程度平移画布，移动/框选跟随（rAF 驱动，指针静止也持续） ----
+
+let panRAF = 0
+
+function startEdgePan(): void {
+  if (panRAF) return
+  const tick = (): void => {
+    const st = drag.value
+    const vp = viewportEl.value
+    if (!st || !vp || !lastEv || (st.kind !== 'move' && st.kind !== 'marquee')) {
+      panRAF = 0
+      return
+    }
+    const rect = vp.getBoundingClientRect()
+    const EDGE = 30
+    const SPEED = 28
+    let vx = 0
+    let vy = 0
+    if (lastEv.clientX < rect.left + EDGE) vx = -((rect.left + EDGE - lastEv.clientX) / EDGE) * SPEED
+    else if (lastEv.clientX > rect.right - EDGE) vx = ((lastEv.clientX - (rect.right - EDGE)) / EDGE) * SPEED
+    if (lastEv.clientY < rect.top + EDGE) vy = -((rect.top + EDGE - lastEv.clientY) / EDGE) * SPEED
+    else if (lastEv.clientY > rect.bottom - EDGE) vy = ((lastEv.clientY - (rect.bottom - EDGE)) / EDGE) * SPEED
+    if (vx || vy) {
+      editor.setPan(editor.pan.x + vx, editor.pan.y + vy)
+      processDrag(lastEv) // pan 变化后按指针重算，组件跟手跟视口
+    }
+    panRAF = requestAnimationFrame(tick)
+  }
+  panRAF = requestAnimationFrame(tick)
+}
+
+function stopEdgePan(): void {
+  if (panRAF) cancelAnimationFrame(panRAF)
+  panRAF = 0
 }
 
 // ---- 节点按下：选中 + 开始移动 ----
@@ -147,14 +209,15 @@ function onNodeDown(e: PointerEvent, node: ComponentNode): void {
     editor.select([node.id])
   }
 
-  editor.beginChange() // 交互开始前快照（提交点=按下）
+  editor.beginChange() // 交互开始前快照（提交点=按下；Alt 复制时快照即复制前状态）
   const start = toDesign(e)
   const origins = new Map<string, { x: number; y: number; w: number; h: number }>()
   for (const n of editor.selectedNodes) {
     origins.set(n.id, { x: n.x, y: n.y, w: n.w, h: n.h })
   }
-  drag.value = { kind: 'move', startDesign: start, origins, moved: false }
+  drag.value = { kind: 'move', startDesign: start, origins, alt: e.altKey, moved: false }
   bindWindowDrag()
+  startEdgePan()
 }
 
 // ---- 缩放柄 / 旋转柄 ----
@@ -209,11 +272,12 @@ function onViewportDown(e: PointerEvent): void {
   drag.value = { kind: 'marquee', start, additive: e.ctrlKey || e.metaKey }
   marquee.value = { x: start.x, y: start.y, w: 0, h: 0 }
   bindWindowDrag()
+  startEdgePan()
 }
 
-// ---- 统一 move / up ----
+// ---- 统一 move / up（edge-pan 复用：ev 只需 clientX/clientY/shiftKey） ----
 
-function onPointerMove(e: PointerEvent): void {
+function processDrag(e: { clientX: number; clientY: number; shiftKey: boolean }): void {
   const st = drag.value
   if (!st) return
 
@@ -227,22 +291,44 @@ function onPointerMove(e: PointerEvent): void {
   if (st.kind === 'move') {
     const dx = p.x - st.startDesign.x
     const dy = p.y - st.startDesign.y
-    if (!st.moved && Math.abs(dx) + Math.abs(dy) > 2) st.moved = true
-    if (!st.moved) return
+    if (!st.moved) {
+      if (Math.abs(dx) + Math.abs(dy) <= 2) return
+      st.moved = true
+      // Alt+拖动 = 复制后拖副本（原组件留在原地）；克隆发生在确认移动时，纯点击零副作用
+      if (st.alt) {
+        const ids = editor.duplicateForDrag()
+        st.origins = new Map(
+          ids.map((id) => {
+            const n = editor.findNodeDeep(id)!
+            return [id, { x: n.x, y: n.y, w: n.w, h: n.h }] as const
+          }),
+        )
+      }
+    }
 
-    // 吸附：以选中集包围盒为移动体，与画布/其他组件比较（阈值 5 设计 px）
+    // 吸附：以选中集包围盒为移动体，与画布/其他组件比较（阈值 5 设计 px）；
+    // 组编辑上下文中改为与组内兄弟比较，吸附边界为组框
     const boxes = [...st.origins.values()].map((o) => ({ x: o.x + dx, y: o.y + dy, w: o.w, h: o.h }))
     const movingBox = nodesBBox(boxes)
-    const others = editor.topLevelNodes
+    const eg = editor.editingGroup
+    const others = (eg ? eg.children ?? [] : editor.topLevelNodes)
       .filter((n) => !st.origins.has(n.id))
       .map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }))
-    const cw = page.value?.screen.designWidth ?? 1920
-    const ch = page.value?.screen.designHeight ?? 1080
+    const cw = eg ? eg.w : (page.value?.screen.designWidth ?? 1920)
+    const ch = eg ? eg.h : (page.value?.screen.designHeight ?? 1080)
     const snap = computeSnap(movingBox, others, cw, ch)
     guides.value = { linesX: snap.linesX, linesY: snap.linesY }
 
     for (const [id, o] of st.origins) {
       editor.setNodeRect(id, { x: Math.round(o.x + dx + snap.dx), y: Math.round(o.y + dy + snap.dy) })
+    }
+    // 移动读数：吸附后包围盒位置（组内为相对坐标，读数统一换算成画布绝对坐标）
+    const placed = nodesBBox([...st.origins.values()].map((o) => ({ x: o.x + dx + snap.dx, y: o.y + dy + snap.dy, w: o.w, h: o.h })))
+    const off = guideOffset.value
+    readout.value = {
+      x: off.x + placed.x + placed.w / 2,
+      y: off.y + placed.y + placed.h,
+      text: `X ${Math.round(off.x + placed.x)}  Y ${Math.round(off.y + placed.y)}`,
     }
     return
   }
@@ -276,6 +362,7 @@ function onPointerMove(e: PointerEvent): void {
     // 归一化到 [0, 360)（契约 rotate ge=0 lt=360）
     deg = ((Math.round(deg) % 360) + 360) % 360
     editor.setNodeRect(st.id, { rotate: deg })
+    readout.value = { x: st.center.x, y: st.center.y - 26 / editor.zoom, text: `${deg}°` }
     return
   }
 
@@ -290,10 +377,11 @@ function onPointerUp(e: PointerEvent): void {
   const st = drag.value
   drag.value = null
   guides.value = { linesX: [], linesY: [] }
+  readout.value = null
   if (!st) return
 
   if (st.kind === 'move' || st.kind === 'resize' || st.kind === 'rotate') {
-    // 纯点击/无实际变化：回退快照，不留历史记录
+    // 纯点击/无实际变化：回退快照，不留历史记录（Alt 复制未发生，无副作用）
     if (!st.moved) editor.cancelChange()
     return
   }
@@ -302,40 +390,85 @@ function onPointerUp(e: PointerEvent): void {
     const rect = marquee.value
     marquee.value = null
     if (!rect || (rect.w < 3 && rect.h < 3)) {
-      // 视为空白处单击：清空选中（Ctrl 单击不清）
-      if (!st.additive) editor.clearSelection()
+      // 视为空白处单击：组编辑上下文优先退出（并选回该组），否则清空选中（Ctrl 单击不清）
+      if (editor.editingGroupId) {
+        const gid = editor.editingGroupId
+        editor.exitGroup()
+        editor.select([gid])
+      } else if (!st.additive) {
+        editor.clearSelection()
+      }
       return
     }
-    const hit = editor.topLevelNodes.filter((n) => !n.locked && bboxIntersect(rect, { x: n.x, y: n.y, w: n.w, h: n.h }))
+    // 框选命中：组编辑上下文 = 组内直接子节点（相对坐标，rect 换算回组坐标系）
+    const eg = editor.editingGroup
+    const pool = eg ? eg.children ?? [] : editor.topLevelNodes
+    const r = eg ? { x: rect.x - eg.x, y: rect.y - eg.y, w: rect.w, h: rect.h } : rect
+    const hit = pool.filter((n) => !n.locked && bboxIntersect(r, { x: n.x, y: n.y, w: n.w, h: n.h }))
     const ids = hit.map((n) => n.id)
     editor.select(st.additive ? [...new Set([...editor.selection, ...ids])] : ids)
   }
 }
 
-// ---------------- 右键菜单 / 双击行内编辑 ----------------
+// ---------------- 右键菜单 / 双击行内编辑与入组 ----------------
 
 function onContextMenu(e: MouseEvent): void {
   e.preventDefault()
   const rect = viewportEl.value!.getBoundingClientRect()
+  // 右键命中规则（业界惯例）：
+  // - 命中未选中的组件 → 单选它（保持多选若已在选中集），弹组件菜单
+  // - 空白 → 清空选中（编辑组上下文则退出并选回该组），弹画布菜单（粘贴到此处）
+  const p = toDesign(e)
+  const eg = editor.editingGroup
+  const pool = eg ? [...(eg.children ?? [])] : [...editor.topLevelNodes]
+  const hit = pool
+    .filter((n) => p.x >= n.x && p.x <= n.x + n.w && p.y >= n.y && p.y <= n.y + n.h)
+    .sort((a, b) => b.z - a.z)[0]
+  if (hit) {
+    if (!editor.selection.includes(hit.id)) editor.select([hit.id])
+  } else if (eg) {
+    const gid = eg.id
+    editor.exitGroup()
+    editor.select([gid])
+  } else {
+    editor.clearSelection()
+  }
   editor.openContextMenu(e.clientX - rect.left, e.clientY - rect.top)
 }
 
-/** 双击文本组件进入行内编辑（进入时先入历史快照，blur/Enter 提交） */
+/** 双击：文本 → 行内编辑（进入时先入历史快照，blur/Enter 提交）；组 → 进入组内编辑 */
 function onNodeDblClick(node: ComponentNode): void {
-  if (node.type !== 'text' || node.locked) return
+  if (node.locked) return
+  if (node.type === 'group') {
+    editor.enterGroup(node.id)
+    return
+  }
+  if (node.type !== 'text') return
   editor.beginChange(`edit:${node.id}`)
   editor.setEditing(node.id)
 }
 
 // ---------------- 拖入组件（palette → drop） ----------------
 
+const dragGhost = ref<{ x: number; y: number; w: number; h: number } | null>(null)
+
 function onDragOver(e: DragEvent): void {
   e.preventDefault()
   e.dataTransfer!.dropEffect = 'copy'
+  const hint = editor.dropHint
+  if (hint) {
+    const p = toDesign(e)
+    dragGhost.value = { x: p.x - hint.w / 2, y: p.y - hint.h / 2, w: hint.w, h: hint.h }
+  }
+}
+
+function onDragLeave(): void {
+  dragGhost.value = null
 }
 
 function onDrop(e: DragEvent): void {
   e.preventDefault()
+  dragGhost.value = null
   const raw = e.dataTransfer?.getData('application/x-widget') || e.dataTransfer?.getData('text/plain')
   if (!raw) return
   // 复合载荷：'symbol|<symbolId>'（图元库）/ 'mysym|<资产id>'（我的图元）；普通组件为纯 type
@@ -355,12 +488,36 @@ function onDrop(e: DragEvent): void {
   )
 }
 
+// ---------------- 缩放快捷键（keyboard.ts 派发 ws:zoom 事件） ----------------
+
+function onZoomCmd(ev: Event): void {
+  const detail = (ev as CustomEvent<string>).detail
+  if (detail === 'fit') {
+    fitToView()
+    return
+  }
+  const z = clamp(Number(detail) / 100, MIN_ZOOM, MAX_ZOOM)
+  if (!Number.isFinite(z) || z <= 0) return
+  const rect = viewportEl.value?.getBoundingClientRect()
+  if (!rect) return
+  // 以视口中心为锚点归位
+  const cx = rect.width / 2
+  const cy = rect.height / 2
+  const dx = (cx - editor.pan.x) / editor.zoom
+  const dy = (cy - editor.pan.y) / editor.zoom
+  editor.setPan(cx - dx * z, cy - dy * z)
+  editor.setZoom(z)
+}
+
 // ---------------- 空格平移（键盘状态来自 store，由 keyboard.ts 维护） ----------------
 
 const viewportClass = computed(() => ({ panning: editor.spaceHeld }))
 
 /** 缩放 <40% 时网格淡出（点已小于三分之一像素，留着只有噪点；fit-view 常态 50-60% 仍保留大格点） */
 const gridOpacity = computed(() => (editor.zoom < 0.4 ? 0 : 1))
+
+/** 空页面引导（中心淡字，不挡交互） */
+const showEmptyGuide = computed(() => (page.value?.components.length ?? 0) === 0)
 
 /** 适配视口：整页等比缩放居中（实现在 store.fitToView，工具栏"适应"按钮共用）。 */
 function fitToView(): void {
@@ -369,13 +526,14 @@ function fitToView(): void {
   editor.fitToView(vp.clientWidth, vp.clientHeight)
 }
 
-// 触控板双指滚轮（无 Ctrl）在缩放模式下视为缩放（开发便利）；普通滚轮留给系统滚动
 onMounted(() => {
   viewportEl.value?.addEventListener('wheel', onWheel, { passive: false })
+  window.addEventListener('ws:zoom', onZoomCmd)
   fitToView()
 })
 onBeforeUnmount(() => {
   viewportEl.value?.removeEventListener('wheel', onWheel)
+  window.removeEventListener('ws:zoom', onZoomCmd)
 })
 
 // 切页/换设计尺寸时重新适配
@@ -393,6 +551,7 @@ watch(
     @pointerdown="onViewportDown"
     @contextmenu="onContextMenu"
     @dragover="onDragOver"
+    @dragleave="onDragLeave"
     @drop="onDrop"
   >
     <div v-if="page" class="canvas-stage" :style="stageStyle">
@@ -410,6 +569,13 @@ watch(
           </defs>
           <rect width="100%" height="100%" fill="url(#wsGridDotsMajor)" />
         </svg>
+        <!-- 空页面引导：三步上手提示（不参与交互） -->
+        <div v-if="showEmptyGuide" class="empty-guide">
+          <div class="empty-title">空白画面</div>
+          <div class="empty-line">从左侧组件库 <b>拖入</b> 或 <b>点击</b> 放置组件</div>
+          <div class="empty-line">右侧属性面板绑定数据与外观</div>
+          <div class="empty-line">顶部「预览」查看运行效果 · 修改自动保存</div>
+        </div>
         <CanvasNode
           v-for="node in page.components"
           :key="node.id"
@@ -419,14 +585,31 @@ watch(
         />
         <SelectionLayer @resize-start="onResizeStart" @rotate-start="onRotateStart" />
         <MarqueeSelect v-if="marquee" :rect="marquee" />
+        <!-- 拖入放置 ghost：组件库拖拽经过时按默认尺寸预览落点 -->
+        <div
+          v-if="dragGhost"
+          class="drop-ghost"
+          :style="{ left: `${dragGhost.x}px`, top: `${dragGhost.y}px`, width: `${dragGhost.w}px`, height: `${dragGhost.h}px` }"
+        />
         <!-- 吸附参考线 -->
-        <div v-for="(lx, i) in guides.linesX" :key="`gx${i}`" class="guide-v" :style="{ left: `${lx}px` }" />
-        <div v-for="(ly, i) in guides.linesY" :key="`gy${i}`" class="guide-h" :style="{ top: `${ly}px` }" />
+        <div v-for="(lx, i) in guides.linesX" :key="`gx${i}`" class="guide-v" :style="{ left: `${lx + guideOffset.x}px` }" />
+        <div v-for="(ly, i) in guides.linesY" :key="`gy${i}`" class="guide-h" :style="{ top: `${ly + guideOffset.y}px` }" />
+        <!-- 拖动实时读数（位置/角度） -->
+        <div
+          v-if="readout"
+          class="drag-readout"
+          :style="{
+            left: `${readout.x}px`,
+            top: `${readout.y + 8 / editor.zoom}px`,
+            fontSize: `${11 / editor.zoom}px`,
+            padding: `${2 / editor.zoom}px ${6 / editor.zoom}px`,
+            borderRadius: `${2 / editor.zoom}px`,
+          }"
+        >{{ readout.text }}</div>
       </div>
     </div>
     <div v-else class="canvas-empty">无页面</div>
     <ContextMenu />
-    <div class="zoom-badge">{{ Math.round(editor.zoom * 100) }}%</div>
   </div>
 </template>
 
@@ -438,7 +621,10 @@ watch(
 .canvas-page.capturing :deep(.guide-v),
 .canvas-page.capturing :deep(.guide-h),
 .canvas-page.capturing :deep(.inline-edit),
-.canvas-page.capturing :deep(.lock-badge) {
+.canvas-page.capturing :deep(.lock-badge),
+.canvas-page.capturing :deep(.drag-readout),
+.canvas-page.capturing :deep(.drop-ghost),
+.canvas-page.capturing :deep(.group-edit-badge) {
   display: none !important;
 }
 
@@ -504,20 +690,73 @@ watch(
   pointer-events: none;
 }
 
-.zoom-badge {
+/* 拖动实时读数：与选中框徽标同风格（信号色底反白等宽字），字号 1/zoom 屏幕恒定 */
+.drag-readout {
   position: absolute;
-  z-index: 2;
-  right: 14px;
-  bottom: 14px;
-  padding: 2px 8px;
-  background: var(--ws-panel);
-  border: 1px solid var(--ws-steel-3);
-  border-radius: var(--ws-radius);
-  color: var(--ws-text-2);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--ws-select);
+  color: #fff;
   font-family: var(--ws-font-tech);
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  line-height: 1.3;
   pointer-events: none;
+  z-index: 5;
+}
+
+/* 拖入放置 ghost：信号色虚线框，中心十字标注落点 */
+.drop-ghost {
+  position: absolute;
+  border: 1.5px dashed var(--ws-select);
+  background: var(--ws-signal-soft);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.drop-ghost::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--ws-select);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+}
+
+/* 空页面引导：画布中央淡字组 */
+.empty-guide {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--ws-text-3);
+  pointer-events: none;
+  user-select: none;
+}
+
+.empty-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--ws-text-2);
+  opacity: 0.75;
+}
+
+.empty-line {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.empty-line b {
+  font-weight: 600;
+  color: var(--ws-text-2);
 }
 
 /* 点阵网格（minor/major 双档密度，着色随主题令牌；缩放淡出走行内 opacity） */

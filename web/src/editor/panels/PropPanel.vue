@@ -156,7 +156,7 @@ function addBinding(): void {
 
 function removeBinding(id: string): void {
   if (!node.value) return
-  editor.updateNode(node.value.id, { bindings: node.value.bindings.filter((b) => b.id !== id) }, 'bindings')
+  editor.updateNode(node.value.id, { bindings: (node.value.bindings ?? []).filter((b) => b.id !== id) }, 'bindings')
 }
 
 // ---- 动画（M4/M7）：blink / flow / rotate / move（轨迹） ----

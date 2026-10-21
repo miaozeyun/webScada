@@ -120,19 +120,30 @@ function removeMySymbol(id: string): void {
 
 // ---- 通用：拖拽 / 放置 ----
 
-function onDragStart(e: DragEvent, type: string): void {
+/** 拖入画布的落点预览尺寸：画布据此渲染放置 ghost（dragend/drop 清除） */
+function onDragStart(e: DragEvent, type: string, hint?: { w: number; h: number; label: string }): void {
   // 双类型写入：标准类型 + text/plain 兜底（Firefox dataTransfer 兼容）
   e.dataTransfer?.setData('application/x-widget', type)
   e.dataTransfer?.setData('text/plain', type)
   e.dataTransfer!.effectAllowed = 'copy'
+  editor.dropHint = hint ?? null
 }
 
-function onSymbolDragStart(e: DragEvent, id: string): void {
-  onDragStart(e, `symbol|${id}`)
+function onDragEnd(): void {
+  editor.dropHint = null
 }
 
-function onMySymbolDragStart(e: DragEvent, id: string): void {
-  onDragStart(e, `mysym|${id}`)
+function onSymbolDragStart(e: DragEvent, asset: SymbolAsset): void {
+  onDragStart(e, `symbol|${asset.id}`, { w: asset.w, h: asset.h, label: asset.label })
+}
+
+function onMySymbolDragStart(e: DragEvent, sym: { id: string; label: string; nodes: { x: number; y: number; w: number; h: number }[] }): void {
+  // 我的图元可能由多个组件构成：取成员包围盒作为整体 ghost
+  const minX = Math.min(...sym.nodes.map((n) => n.x))
+  const minY = Math.min(...sym.nodes.map((n) => n.y))
+  const maxX = Math.max(...sym.nodes.map((n) => n.x + n.w))
+  const maxY = Math.max(...sym.nodes.map((n) => n.y + n.h))
+  onDragStart(e, `mysym|${sym.id}`, { w: Math.round(maxX - minX), h: Math.round(maxY - minY), label: sym.label })
 }
 
 /** 点击放置：当前可视区中心（而非设计坐标中心——画布可能平移/缩放） */
@@ -201,7 +212,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
             class="list"
             draggable="true"
             :title="meta.name"
-            @dragstart="onDragStart($event, meta.type)"
+            @dragstart="onDragStart($event, meta.type, { w: meta.defaultSize.w, h: meta.defaultSize.h, label: meta.name })"
+            @dragend="onDragEnd"
             @click="onClick(meta.type)"
           >
             <span class="list-icon"><WidgetIcon :meta="meta" /></span>
@@ -236,7 +248,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
           class="symbol-item"
           draggable="true"
           :title="`${asset.label}（${asset.id}）`"
-          @dragstart="onSymbolDragStart($event, asset.id)"
+          @dragstart="onSymbolDragStart($event, asset)"
+          @dragend="onDragEnd"
           @click="onSymbolClick(asset)"
         >
           <span class="symbol-thumb" v-html="asset.svg" />
@@ -255,7 +268,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
           class="symbol-item"
           draggable="true"
           :title="meta.name"
-          @dragstart="onDragStart($event, meta.type)"
+          @dragstart="onDragStart($event, meta.type, { w: meta.defaultSize.w, h: meta.defaultSize.h, label: meta.name })"
+          @dragend="onDragEnd"
           @click="onClick(meta.type)"
         >
           <span class="symbol-thumb"><WidgetIcon :meta="meta" /></span>
@@ -267,7 +281,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
           class="symbol-item"
           draggable="true"
           :title="`${asset.label}（配合降低透明度使用）`"
-          @dragstart="onSymbolDragStart($event, asset.id)"
+          @dragstart="onSymbolDragStart($event, asset)"
+          @dragend="onDragEnd"
           @click="onSymbolClick(asset)"
         >
           <span class="symbol-thumb" v-html="asset.svg" />
@@ -302,7 +317,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
           class="symbol-item my-item"
           draggable="true"
           :title="`${sym.label}（${sym.nodes.length} 个组件）`"
-          @dragstart="onMySymbolDragStart($event, sym.id)"
+          @dragstart="onMySymbolDragStart($event, sym)"
+          @dragend="onDragEnd"
           @click="onMySymbolClick(sym.id)"
         >
           <MySymbolThumb :nodes="sym.nodes" />

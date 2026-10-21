@@ -23,6 +23,8 @@ const emit = defineEmits<{
 const isLocked = computed(() => props.node.locked === true)
 const isSelected = computed(() => editor.selection.includes(props.node.id))
 const isEditing = computed(() => editor.editingNodeId === props.node.id)
+/** 本组正被双击进入编辑：子组件事件不再上溯，直接作为选中目标 */
+const isGroupEditing = computed(() => props.node.type === 'group' && editor.editingGroupId === props.node.id)
 const anim = computed(() => animationOf(props.node.animations))
 
 const editEl = ref<HTMLDivElement>()
@@ -88,7 +90,7 @@ function onEditKeydown(e: KeyboardEvent): void {
 <template>
   <div
     class="canvas-node"
-    :class="[{ selected: isSelected, group: node.type === 'group', editing: isEditing }, anim.cls]"
+    :class="[{ selected: isSelected, group: node.type === 'group', 'group-editing': isGroupEditing, editing: isEditing }, anim.cls]"
     :style="boxStyle"
     @pointerdown.stop="onDown($event)"
     @dblclick.stop="onDblClick"
@@ -110,8 +112,27 @@ function onEditKeydown(e: KeyboardEvent): void {
     <!-- 锁定标识 -->
     <el-icon v-if="isLocked" class="lock-badge" :size="12" title="已锁定（可选中，不可拖动）"><Lock /></el-icon>
     <template v-if="node.type === 'group' && node.children">
-      <!-- 子组件的按下事件一律上报顶层祖先（M1 约定：选择/拖拽只作用于顶层节点，组为整体） -->
-      <CanvasNode v-for="child in node.children" :key="child.id" :node="child" @node-down="(ev, _child) => $emit('node-down', ev, node)" @node-dblclick="$emit('node-dblclick', node)" />
+      <!-- 编辑中的组：子组件事件指向自身（可单独选中/拖拽/行内编辑）；
+           未编辑组：子组件事件一律上报顶层祖先（M1 约定：组为整体） -->
+      <template v-if="isGroupEditing">
+        <span class="group-edit-badge">组内编辑 · Esc 退出</span>
+        <CanvasNode
+          v-for="child in node.children"
+          :key="child.id"
+          :node="child"
+          @node-down="(ev, child) => $emit('node-down', ev, child)"
+          @node-dblclick="(child) => $emit('node-dblclick', child)"
+        />
+      </template>
+      <template v-else>
+        <CanvasNode
+          v-for="child in node.children"
+          :key="child.id"
+          :node="child"
+          @node-down="(ev, _child) => $emit('node-down', ev, node)"
+          @node-dblclick="$emit('node-dblclick', node)"
+        />
+      </template>
     </template>
   </div>
 </template>
@@ -133,6 +154,27 @@ function onEditKeydown(e: KeyboardEvent): void {
 
 .canvas-node.group {
   border: 1px dashed var(--ws-signal-a45);
+}
+
+/* 组内编辑态：实线高亮 + 角标提示 */
+.canvas-node.group-editing {
+  border: 1px solid var(--ws-select);
+  box-shadow: 0 0 0 1px var(--ws-select-a30, rgba(255, 255, 255, 0.12));
+}
+
+.group-edit-badge {
+  position: absolute;
+  top: -22px;
+  left: 0;
+  padding: 1px 8px;
+  border-radius: 2px;
+  background: var(--ws-select);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .inline-edit {
