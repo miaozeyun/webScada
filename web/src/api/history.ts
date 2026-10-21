@@ -63,3 +63,26 @@ export function queryHistory(projectId: string, q: HistoryQuery): Promise<Histor
     : { params }
   return http.get<HistorySeries>(`/projects/${projectId}/history`, config)
 }
+
+/** CSV 导出请求（阶段二 Task 2）：单 key 原始行全量（服务端 keyset 分页流式，不受查询行数上限约束） */
+export interface HistoryExportQuery {
+  /** 单个变量 key（CSV 一文件一变量） */
+  key: string
+  /** 起止 epoch 毫秒（含）；跨度 ≤ 30 天（服务端校验） */
+  from: number
+  to: number
+}
+
+/**
+ * 历史 CSV 导出（阶段二 Task 2）：响应 text/csv Blob（列头 ts,value；ts ISO8601 UTC、value 原样）。
+ * 30 天全量行传输可能超过通用 15s 超时，单请求放宽；失败由调用方捕获（http 拦截器已统一提示）。
+ */
+export function exportHistory(projectId: string, q: HistoryExportQuery): Promise<Blob> {
+  const params: Record<string, string | number> = { key: q.key, from: q.from, to: q.to }
+  return http.get<Blob>(
+    `/projects/${projectId}/history/export`,
+    shareToken
+      ? { params, responseType: 'blob', timeout: 120_000, headers: { Authorization: `Bearer ${shareToken}` } }
+      : { params, responseType: 'blob', timeout: 120_000 },
+  )
+}

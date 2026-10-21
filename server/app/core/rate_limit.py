@@ -6,6 +6,8 @@
 - POST /api/v1/datasources/test      同 IP   ≤ REST_DATASOURCE_TEST_PER_MIN/min
 - GET  /api/v1/projects/{id}/history 同 IP   ≤ REST_HISTORY_PER_MIN/min（终审 #2：
   分享 token 免登录通道可全量拉历史，加 IP 维度限流兜底）
+- GET  /api/v1/projects/{id}/history/export 同 IP 同额（阶段二 Task 2：CSV 导出无行数上限，
+  与 /history 共用同一计数桶；后缀匹配只认整段路径，须单列规则否则不生效）
 
 口径声明（契约文档 §9）：
 - 单 worker 基线（00-总览 §1.5）；多实例部署时限流退化为单实例粒度，届时换 Redis 后端（P1 预留）
@@ -29,6 +31,8 @@ _RULES: tuple[tuple[str, str, str, str, str], ...] = (
     ("POST", "/api/v1/auth/login", "ip", "REST_LOGIN_PER_MIN", ""),
     ("GET", "/api/v1/shares/", "ip+token", "RATE_LIMIT_CONNECT_PER_MIN", ""),
     ("POST", "/api/v1/datasources/test", "ip", "REST_DATASOURCE_TEST_PER_MIN", ""),
+    # /history/export 在前：后缀 endswith 匹配下两规则互斥（/history/export 不以 /history 结尾）
+    ("GET", "/api/v1/projects/", "ip", "REST_HISTORY_PER_MIN", "/history/export"),
     ("GET", "/api/v1/projects/", "ip", "REST_HISTORY_PER_MIN", "/history"),
 )
 

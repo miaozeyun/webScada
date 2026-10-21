@@ -7,12 +7,16 @@
   自动提升 stepMs 强制聚合（防分享 token 免登录通道全窗加载 OOM DoS）
 - 分享 token：`Authorization: Bearer <shareToken>` 形态，服务端识别 token 类型
   （JWT 解析失败即落分享通道；revoked/expired 403、跨工程 403）
-- 限流：GET .../history 同 IP ≤ REST_HISTORY_PER_MIN/min（core/rate_limit 中间件消费）
+- CSV 导出（阶段二 Task 2）：GET .../history/export 单 key 原始行流式写出（keyset 分页迭代，
+  不整载、不设行数上限）；from/to 必填（epoch 毫秒）且跨度 ≤30 天；限流同 REST_HISTORY_PER_MIN
 """
+import re
 import uuid as uuidlib
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +33,11 @@ router = APIRouter(tags=["history"])
 _bearer = HTTPBearer(auto_error=False)
 
 MAX_KEYS = 20
+
+# CSV 导出（阶段二 Task 2）：keyset 分页页大小——每轮最多取 5000 原始行，循环至空/短页（防整载 OOM）
+_EXPORT_PAGE = 5000
+# 导出跨度上限（天）：与查询侧 HISTORY_RETENTION_DAYS 口径独立（导出无行数上限，靠跨度封顶单次成本）
+_EXPORT_MAX_SPAN_DAYS = 30
 
 
 def _aware(dt: datetime) -> datetime:
@@ -190,3 +199,72 @@ async def query_history(
             step_ms = forced_step
         series[key] = _build_series(rows, from_ms, step_ms, maxPoints, agg)
     return HistoryResponse(series=series)
+
+
+def _safe_filename(s: str) -> str:
+    """文件名安全化：非 [A-Za-z0-9._-] 一律下划线（Content-Disposition 头须 ASCII，变量 key 可能含中文/斜杠）。"""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", s)
+
+
+@router.get("/projects/{project_id}/history/export")
+async def export_history_csv(
+    project_id: str,
+    key: str = Query(...),
+    from_: int = Query(..., alias="from", description="起始 epoch 毫秒（含）"),
+    to: int = Query(..., description="截止 epoch 毫秒（含）"),
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """单变量原始行 CSV 流式导出（阶段二 Task 2）。
+
+    - 独立于查询端点：不复用行数上限（HISTORY_MAX_ROWS_PER_KEY）/聚合降采样，
+      keyset 分页（ts > last_ts ORDER BY ts ASC LIMIT _EXPORT_PAGE）循环迭代原始行逐块写出，
+      全程单批驻内存（30 天 5s 采样 ≈ 51.8 万行不整载）
+    - 列头 ts,value：ts ISO8601 UTC、升序；value 原样（存库工程值，不做任何换算/聚合）
+    - from/to 必填（epoch 毫秒）、跨度 ≤30 天；鉴权与查询端点同口径（JWT/分享 token 双通道）；
+      限流与 .../history 同额共用 REST_HISTORY_PER_MIN（core/rate_limit 后缀规则 /history/export）
+    """
+    project = await project_service.get_project(db, project_id)
+    await _resolve_viewer(db, creds, project.id)
+
+    if from_ >= to:
+        raise AppError("validation_error", "from 必须早于 to", 422)
+    if to - from_ > _EXPORT_MAX_SPAN_DAYS * 86_400_000:
+        raise AppError("validation_error", f"导出跨度不能超过 {_EXPORT_MAX_SPAN_DAYS} 天", 422)
+
+    from_dt = datetime.fromtimestamp(from_ / 1000, tz=timezone.utc)
+    to_dt = datetime.fromtimestamp(to / 1000, tz=timezone.utc)
+
+    async def _rows() -> AsyncIterator[str]:
+        yield "ts,value\n"
+        last_ts: datetime | None = None
+        while True:
+            # keyset 游标：首轮 ts >= from，后续 ts > last_ts（升序稳定翻页，杜绝 offset 深翻页）
+            where_ts = HistoryValue.ts > last_ts if last_ts is not None else HistoryValue.ts >= from_dt
+            batch = (
+                await db.execute(
+                    select(HistoryValue.ts, HistoryValue.value)
+                    .where(
+                        HistoryValue.project_id == project.id,
+                        HistoryValue.variable_key == key,
+                        where_ts,
+                        HistoryValue.ts <= to_dt,
+                    )
+                    .order_by(HistoryValue.ts.asc())
+                    .limit(_EXPORT_PAGE)
+                )
+            ).all()
+            if not batch:
+                break  # 空页即终页
+            for ts, v in batch:
+                yield f"{_aware(ts).isoformat()},{v!r}\n"
+            if len(batch) < _EXPORT_PAGE:
+                break  # 短页即末页（免一次空查询）
+            last_ts = batch[-1].ts
+
+    filename = f"history_{_safe_filename(key)}_{from_}_{to}.csv"
+    return StreamingResponse(
+        _rows(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

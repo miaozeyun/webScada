@@ -13,6 +13,7 @@ vi.mock('@/api/http', () => ({
 
 import { http } from '@/api/http'
 import {
+  exportHistory,
   getHistoryProjectId,
   queryHistory,
   setHistoryProjectId,
@@ -61,5 +62,29 @@ describe('agg 聚合参数透传（阶段二 Task 1）', () => {
   it('未设置 agg 不下发参数（旧调用零影响，服务端缺省 mean）', async () => {
     await queryHistory('p1', { keys: ['t1'], from: 0, to: 1 })
     expect(getSpy.mock.calls[0]?.[1]?.params).not.toHaveProperty('agg')
+  })
+})
+
+describe('exportHistory CSV 导出（阶段二 Task 2）', () => {
+  it('JWT 通道：key/from/to 序列化为查询参数，响应以 blob 接收', async () => {
+    await exportHistory('p1', { key: 'temp', from: 1000, to: 2000 })
+    expect(getSpy.mock.calls[0]?.[0]).toBe('/projects/p1/history/export')
+    const cfg = getSpy.mock.calls[0]?.[1]
+    expect(cfg?.params).toEqual({ key: 'temp', from: 1000, to: 2000 })
+    expect(cfg?.responseType).toBe('blob')
+  })
+
+  it('分享页通道：shareToken 注入 → Bearer 头（免登录导出同口径）', async () => {
+    setHistoryShareToken('st_token')
+    await exportHistory('p1', { key: 'temp', from: 0, to: 1 })
+    const cfg = getSpy.mock.calls[0]?.[1]
+    expect(cfg?.headers).toMatchObject({ Authorization: 'Bearer st_token' })
+    expect(cfg?.params).toEqual({ key: 'temp', from: 0, to: 1 })
+  })
+
+  it('超时放宽：超出通用 15s（30 天全量行导出可能超长）', async () => {
+    await exportHistory('p1', { key: 'temp', from: 0, to: 1 })
+    const cfg = getSpy.mock.calls[0]?.[1]
+    expect(typeof cfg?.timeout === 'number' && (cfg.timeout as number) > 15000).toBe(true)
   })
 })

@@ -41,6 +41,18 @@ def test_history_ip_rate_limited(monkeypatch):
     assert rate_limit.check(f"/api/v1/projects/{pid}", _scope())[0] is True
 
 
+def test_history_export_rate_limited(monkeypatch):
+    """GET /projects/{id}/history/export 同 IP 同额限流（阶段二 Task 2：CSV 导出与 /history 共用
+    REST_HISTORY_PER_MIN——后缀匹配只认 /history，不补规则导出端点将裸奔）。"""
+    monkeypatch.setattr(settings, "REST_HISTORY_PER_MIN", 2)
+    pid = "00000000-0000-0000-0000-000000000000"
+    path = f"/api/v1/projects/{pid}/history/export"
+    assert rate_limit.check(path, _scope())[0] is True
+    assert rate_limit.check(path, _scope())[0] is True
+    allowed, retry = rate_limit.check(path, _scope())
+    assert allowed is False and retry >= 1
+
+
 def test_empty_window_key_reclaimed(monkeypatch):
     """窗口整体过期后再次触达：空 key 即时回收（终审 #5：修复 _hits 清理永不执行）。"""
     monkeypatch.setattr(settings, "REST_LOGIN_PER_MIN", 10)

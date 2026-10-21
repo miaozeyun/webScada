@@ -10,7 +10,7 @@ import { query } from '@/runtime/history'
 import { useRuntimeStore } from '@/runtime/store'
 import { useRuntimeApi } from '@/runtime/actions'
 import { useEditorStore } from '@/stores/editor'
-import { getHistoryProjectId, queryHistory } from '@/api/history'
+import { exportHistory, getHistoryProjectId, queryHistory } from '@/api/history'
 
 const props = defineProps<{ nodeProps: Record<string, unknown> }>()
 const runtime = useRuntimeStore()
@@ -111,6 +111,31 @@ async function refresh(): Promise<void> {
   fallbackLocal()
 }
 
+/** CSV 导出（阶段二 Task 2）：当前 rangeMs 区间（now 为 to）单变量原始行全量，blob 触发浏览器下载 */
+const exporting = ref(false)
+const canExport = computed(() => !!projectId.value && !!variableKey.value)
+async function exportCsv(): Promise<void> {
+  const pid = projectId.value
+  const key = variableKey.value
+  if (!pid || !key || exporting.value) return
+  exporting.value = true
+  try {
+    const to = Date.now()
+    const from = to - rangeMs.value
+    const blob = await exportHistory(pid, { key, from, to })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `history_${key}_${from}_${to}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    // 失败提示由 http 拦截器统一弹出（此处只复位按钮态，不回落本地缓冲）
+  } finally {
+    exporting.value = false
+  }
+}
+
 onMounted(() => {
   const init = Number(props.nodeProps.rangeMs ?? 3600_000)
   rangeMs.value = RANGE_OPTIONS.some((o) => o.ms === init) ? init : 3600_000
@@ -167,6 +192,16 @@ const hasData = computed(() => (liveMode.value ? liveSeries.value.length > 0 : p
       >
         {{ o.label }}
       </button>
+      <!-- CSV 导出（阶段二 Task 2）：当前范围原始行全量；骨架走全局 .ws-ghost-btn，画布内局部压尺寸+深底对齐范围条 -->
+      <button
+        type="button"
+        class="ws-ghost-btn export-btn"
+        :disabled="!canExport || exporting"
+        title="导出当前区间的原始采样 CSV"
+        @click="exportCsv(); $event.stopPropagation()"
+      >
+        {{ exporting ? '导出中…' : '导出 CSV' }}
+      </button>
     </div>
     <!-- 服务端降级角标：当前曲线来自本地分钟桶（服务端不可达或区间无数据） -->
     <span v-if="runtime.running && serverDown && !compact" class="local-badge" title="服务端历史不可达，当前展示本地缓冲">本地缓存</span>
@@ -211,6 +246,27 @@ const hasData = computed(() => (liveMode.value ? liveSeries.value.length > 0 : p
   background: #0b7285;
   border-color: #0b7285;
   color: #fff;
+}
+
+/* 导出按钮：全局 .ws-ghost-btn 骨架（幽灵按钮既有类），画布不随界面主题——
+   局部仅压尺寸并衬深底保证浅色画布可读（沿 theme.css「局部仅覆盖尺寸」约定） */
+.export-btn {
+  height: 20px;
+  padding: 0 7px;
+  margin-left: 4px;
+  font-size: 11px;
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.export-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.export-btn:disabled:hover {
+  border-color: var(--ws-inv-line);
+  background: rgba(15, 23, 42, 0.65);
+  color: var(--ws-inv-75);
 }
 
 /* 服务端降级角标（M8）：左上角，避免与右上图内范围切换条重叠。

@@ -371,3 +371,129 @@ async def test_row_cap_forced_agg_respects_agg(api, env, monkeypatch):
     # 原始模式触顶 → 强制步长 ceil(5000/10)=500；仅留最新 6 行（4400~4900 → 44~49）
     # 桶 4000=[44]；桶 4500=[45,46,47,48,49] → max=49（mean=47，可区分）
     assert r.json()["series"]["temp"] == [[ms(4000), 44.0], [ms(4500), 49.0]]
+
+
+# ---------------- CSV 流式导出（阶段二 Task 2：keyset 分页 + 双通道鉴权） ----------------
+
+DAY_MS = 86_400_000
+
+
+def _iso(off: int) -> str:
+    """种子偏移毫秒 → 期望的 ISO8601 UTC 串（与导出口径同构）。"""
+    return datetime.fromtimestamp((T0_MS + off) / 1000, tz=UTCD).isoformat()
+
+
+async def test_export_csv_body_and_header(api, env):
+    """灌 120 行 → 导出体 121 行：ts,value 表头 + 120 数据行；ts ISO8601 UTC 升序、value 原样。"""
+    u = await make_user(env)
+    pid = (await make_project(env, u.id)).id
+    await seed(env, pid, "temp", [(i * 100, float(i)) for i in range(120)])
+    token = create_access_token(str(u.id))[0]
+    r = await api.client.get(
+        f"/api/v1/projects/{pid}/history/export",
+        params={"key": "temp", "from": T0_MS, "to": T0_MS + 20_000},
+        headers=auth(token),
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    lines = r.text.splitlines()
+    assert lines[0] == "ts,value"
+    assert len(lines) == 121  # 120 行数据 + 表头
+    assert lines[1] == f"{_iso(0)},0.0"
+    assert lines[-1] == f"{_iso(11900)},119.0"  # 升序且末行不丢
+
+
+async def test_export_content_disposition(api, env):
+    """Content-Disposition 携带 attachment 文件名 history_<key>_<from>_<to>.csv（key 安全化保 ASCII）。"""
+    u = await make_user(env)
+    pid = (await make_project(env, u.id)).id
+    await seed(env, pid, "temp", [(0, 1.5)])
+    token = create_access_token(str(u.id))[0]
+    r = await api.client.get(
+        f"/api/v1/projects/{pid}/history/export",
+        params={"key": "temp", "from": T0_MS, "to": T0_MS + 1000},
+        headers=auth(token),
+    )
+    assert r.status_code == 200
+    assert r.headers["content-disposition"] == (
+        f'attachment; filename="history_temp_{T0_MS}_{T0_MS + 1000}.csv"'
+    )
+
+
+async def test_export_missing_key_422(api, env):
+    """无 key → 422 统一错误体（必填 Query 经全局校验处理器，errors 含字段路径）。"""
+    u = await make_user(env)
+    pid = (await make_project(env, u.id)).id
+    token = create_access_token(str(u.id))[0]
+    r = await api.client.get(
+        f"/api/v1/projects/{pid}/history/export",
+        params={"from": T0_MS, "to": T0_MS + 1000},
+        headers=auth(token),
+    )
+    assert r.status_code == 422
+    body = r.json()
+    assert body["code"] == "validation_error"
+    assert body["errors"][0]["path"] == "query.key"
+
+
+async def test_export_span_over_30_days_422(api, env):
+    """跨度 31 天 → 422；恰 30 天放行；from ≥ to 同 422（导出上限 30 天，与查询保留期口径独立）。"""
+    u = await make_user(env)
+    pid = (await make_project(env, u.id)).id
+    token = create_access_token(str(u.id))[0]
+    q = {"key": "temp", "from": T0_MS}
+    r = await api.client.get(
+        f"/api/v1/projects/{pid}/history/export",
+        params={**q, "to": T0_MS + 31 * DAY_MS},
+        headers=auth(token),
+    )
+    assert r.status_code == 422 and r.json()["code"] == "validation_error"
+
+    r = await api.client.get(
+        f"/api/v1/projects/{pid}/history/export",
+        params={**q, "to": T0_MS + 30 * DAY_MS},
+        headers=auth(token),
+    )
+    assert r.status_code == 200 and r.text == "ts,value\n"  # 恰 30 天放行（区间无数据仅表头）
+
+    r = await api.client.get(
+        f"/api/v1/projects/{pid}/history/export",
+        params={"key": "temp", "from": T0_MS + 1000, "to": T0_MS},
+        headers=auth(token),
+    )
+    assert r.status_code == 422
+
+
+async def test_export_share_token_channel(api, env):
+    """分享 token 免登录通道可导出（_resolve_viewer 双通道复用，分享大屏与编辑器同口径）。"""
+    owner = await make_user(env, role="admin")
+    p = await make_project(env, owner.id)
+    await seed(env, p.id, "temp", [(0, 5.0), (100, 6.5)])
+    share = await make_share(env, p.id, "tok_csv_aaaaaaaaaaaaaaaaaaaaaa")
+    r = await api.client.get(
+        f"/api/v1/projects/{p.id}/history/export",
+        params={"key": "temp", "from": T0_MS, "to": T0_MS + 1000},
+        headers=auth(share.token),
+    )
+    assert r.status_code == 200
+    assert r.text.splitlines() == ["ts,value", f"{_iso(0)},5.0", f"{_iso(100)},6.5"]
+
+
+async def test_export_keyset_pagination_multi_batch(api, env, monkeypatch):
+    """keyset 分页迭代：页大小压到 50 → 120 行分 3 批全量导出（无丢行/无重复/无死循环，终止=短页即末页）。"""
+    from app.api.v1 import history as history_api
+
+    monkeypatch.setattr(history_api, "_EXPORT_PAGE", 50)
+    u = await make_user(env)
+    pid = (await make_project(env, u.id)).id
+    await seed(env, pid, "temp", [(i * 100, float(i)) for i in range(120)])
+    token = create_access_token(str(u.id))[0]
+    r = await api.client.get(
+        f"/api/v1/projects/{pid}/history/export",
+        params={"key": "temp", "from": T0_MS, "to": T0_MS + 20_000},
+        headers=auth(token),
+    )
+    assert r.status_code == 200
+    lines = r.text.splitlines()
+    assert len(lines) == 121
+    assert [ln.split(",")[1] for ln in lines[1:]] == [f"{float(i)}" for i in range(120)]  # 0..119 全量无丢失
