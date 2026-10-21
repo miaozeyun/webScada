@@ -215,3 +215,29 @@ async def test_refresh_expired_token_401_without_family_revocation(client, admin
     # 过期不牵连：此后新签的 refresh 正常可用
     rt_new = await _login_remember(client)
     assert (await client.post("/api/v1/auth/refresh", json={"refreshToken": rt_new})).status_code == 200
+
+
+async def test_change_password_revokes_all_refresh_tokens(client, admin_user, db_factory):
+    """改密自救（审查修复）：改密成功吊销该 user 全部 refresh；其他用户不受影响。"""
+    login = await client.post("/api/v1/auth/login", json={**LOGIN, "rememberMe": True})
+    rt_admin = login.json()["refresh_token"]
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    async with db_factory() as session:
+        session.add(User(username="operator1", password_hash=hash_password("op12345678")))
+        await session.commit()
+    rt_other = await _login_remember(client, username="operator1", password="op12345678")
+
+    # 改密成功 → 204（旧 access 至自然过期仍有效，既有口径不变）
+    resp = await client.put(
+        "/api/v1/auth/password",
+        headers=headers,
+        json={"oldPassword": "admin12345", "newPassword": "newPass12345"},
+    )
+    assert resp.status_code == 204
+    assert (await client.get("/api/v1/auth/me", headers=headers)).status_code == 200
+
+    # 改密者名下 refresh 全灭（含记住我终端），不可再轮换取新 access
+    assert (await client.post("/api/v1/auth/refresh", json={"refreshToken": rt_admin})).status_code == 401
+    # 其他用户不受影响
+    assert (await client.post("/api/v1/auth/refresh", json={"refreshToken": rt_other})).status_code == 200

@@ -5,7 +5,8 @@
   全部 refresh 吊销（防泄露重放）；access JWT 签发/负载不变
 - logout：当前 token 的 jti 进程内黑名单（重启清空，残留寿命 ≤2h，已声明）；
   请求体带 refreshToken 则一并吊销
-- password：返回 204；旧 token 至自然过期仍有效（P0 不做全局作废）
+- password：返回 204；旧 access 至自然过期仍有效（P0 不做全局作废），但吊销该 user
+  全部 refresh token（改密自救：防旧 refresh 经轮换链把泄露窗口延到 7 天）
 - me：M8 起返回 role 字段（契约 §4.3，UserOut 迁移至 schemas/user.py）
 """
 from fastapi import APIRouter, Depends, Request, Response
@@ -23,6 +24,7 @@ from app.core.security import (
     hash_password,
     issue_refresh_token,
     record_login_failure,
+    revoke_all_user_refresh_tokens,
     revoke_jti,
     revoke_refresh_token,
     rotate_refresh_token,
@@ -127,6 +129,9 @@ async def change_password(
         raise AppError("invalid_old_password", "旧密码错误", 422)
     user.password_hash = hash_password(body.newPassword)
     await db.commit()
+    # 改密自救（审查修复）：吊销该 user 全部 refresh。「改密不做全局作废」的既有口径
+    # 只覆盖旧 access（≤2h 自然失效）；refresh 轮换链会把泄露窗口延长到 7 天，须一并切断
+    await revoke_all_user_refresh_tokens(db, user.id)
     # 自助改密亦属账号安全事件，落 user_mgmt（七类 action 内唯一贴合口径）
     await audit_service.audit(
         request, user, "user_mgmt", target_type="user", target_id=str(user.id),

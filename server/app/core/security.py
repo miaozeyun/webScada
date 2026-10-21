@@ -178,6 +178,28 @@ async def revoke_refresh_token(db: AsyncSession, raw: str) -> bool:
     return result.rowcount == 1
 
 
+async def revoke_all_user_refresh_tokens(db: AsyncSession, user_id: uuid.UUID) -> int:
+    """吊销该 user 全部未过期未吊销的 refresh，返回命中条数。
+
+    两个调用方口径一致（只吊未过期，避免无谓写放大）：
+    - 复用检测的家族吊销（rotate_refresh_token）
+    - 改密自救（/auth/password）：「改密不做全局作废」既有口径只覆盖旧 access（≤2h
+      自然失效）；refresh 轮换链会把泄露窗口延长到 7 天，改密时必须一并切断
+    """
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.user_id == user_id,
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > now,
+        )
+        .values(revoked_at=now)
+    )
+    await db.commit()
+    return result.rowcount
+
+
 async def rotate_refresh_token(db: AsyncSession, raw: str) -> tuple[uuid.UUID, str] | None:
     """一次性轮换：合法（存在 / 未吊销 / 未过期）→ 旧记录置 revoked + 签发新对。
 
@@ -211,10 +233,5 @@ async def rotate_refresh_token(db: AsyncSession, raw: str) -> tuple[uuid.UUID, s
         # 不存在 / 未吊销但已过期（未吊销且未过期不可能走到这——条件 UPDATE 已赢）
         return None
     # 复用已吊销 token：吊销该 user 全部未过期 refresh（防已泄露令牌重放）
-    await db.execute(
-        update(RefreshToken)
-        .where(RefreshToken.user_id == record.user_id, RefreshToken.revoked_at.is_(None))
-        .values(revoked_at=now)
-    )
-    await db.commit()
+    await revoke_all_user_refresh_tokens(db, record.user_id)
     return None
