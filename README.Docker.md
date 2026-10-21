@@ -1,0 +1,101 @@
+# webScada Docker 部署手册
+
+> 面向部署/运维人员。开发与架构说明见 [README.md](README.md)，架构设计契约见
+> [docs/design/01-整体架构与目录结构.md](docs/design/01-整体架构与目录结构.md) §2.2 部署拓扑。
+
+## 1. 环境要求
+
+- Docker Engine ≥ 25（Windows 为 Docker Desktop ≥ 4.30）
+- Docker Compose v2（`docker compose` 子命令形式；v1 `docker-compose` 不保证兼容）
+- 2 GB 以上可用内存（EMQX + PostgreSQL + FastAPI + Nginx 全家桶）
+
+## 2. 镜像加速（国内环境）
+
+`.env` 中一条配置即可切换全部基础镜像（Dockerfile `FROM` 与 compose `image` 共用前缀）：
+
+```dotenv
+# 国内（二选一）
+REG_PREFIX=m.daocloud.io/docker.io/
+REG_PREFIX=dockerpull.com/
+
+# 海外 / 已配 Docker 镜像代理的机器：留空或不写该行（回落官方 docker.io/）
+```
+
+依赖安装层已内置国内源，无需额外配置：
+
+- pip：清华源（可用 `PIP_INDEX_URL` 覆盖，经 build-args 注入）
+- npm：npmmirror（Dockerfile 内写死，如需官方源改 `web/Dockerfile`）
+
+## 3. 快速启动
+
+```bash
+cp .env.example .env          # 然后编辑：至少填 JWT_SECRET / DATASOURCE_SECRET / ADMIN_PASSWORD
+docker compose up -d --build  # 首次构建约 3-5 分钟（含前端编译与 Python 依赖）
+docker compose ps             # 期望 postgres/emqx/server/nginx 全部 healthy
+```
+
+访问入口：
+
+| 入口 | 地址 | 说明 |
+|------|------|------|
+| Web 控制台 | `http://localhost/` 或 `https://localhost/`（自签证书） | 唯一对外入口（80/443） |
+| MQTT over WS | `127.0.0.1:8083` | 仅本机回环，浏览器 mqtt 数据源直连 |
+| EMQX 管理台 | `127.0.0.1:18083` | 仅本机回环 |
+
+内部服务（postgres 5432 / emqx 1883 / server 8000）不对宿主机发布端口，仅容器网络互通；
+临时调试用 `docker compose exec <service> sh` 进入，不要往 compose 加 `ports`。
+
+## 4. 常用命令
+
+```bash
+docker compose logs -f server        # 跟踪某服务日志（server/nginx/postgres/emqx）
+docker compose restart nginx         # 重启单个服务（改 deploy/nginx/nginx.conf 后即用此生效）
+docker compose up -d --build server  # 改后端代码后重建单个服务
+docker compose exec server sh        # 进入容器排查
+docker compose down                  # 停止全部容器（数据卷保留）
+docker compose exec emqx emqx ctl status   # EMQX 状态
+```
+
+两个一次性 init 服务说明：
+
+- `tls-init`：`deploy/certs/` 缺自签证书时自动生成，正常退出后不驻留（`docker compose ps` 不显示）
+- `emqx-authn-init`：向 EMQX 内置鉴权库写入 MQTT 客户端账号，日志出现 `OK` 即成功
+
+## 5. 数据管理
+
+持久化数据全部在 named volume（`pgdata` / `emqx_data` / `emqx_log`）：
+
+```bash
+docker volume ls | grep webscada
+docker volume inspect webscada_pgdata   # 查看宿主机实际路径
+```
+
+备份与恢复（已内置脚本，凭据从容器内环境取，无需本机持有数据库口令）：
+
+```bash
+./scripts/backup.sh                     # pg_dump 整库 + 工程 JSON 可读导出 → backups/
+./scripts/restore.sh backups/webscada-db-<时间戳>.dump   # 恢复
+```
+
+定时备份 crontab 示例（每日 02:30，默认保留 14 天）：
+
+```cron
+30 2 * * * cd /opt/webScada && ./scripts/backup.sh >> backups/backup.log 2>&1
+```
+
+操作手册与恢复演练要求见 [docs/operations/backup-restore.md](docs/operations/backup-restore.md)。
+
+`docker compose down -v` 会**删除全部数据卷**，仅在确认数据已备份或可丢弃时使用。
+
+## 6. 安全注意事项
+
+1. **改默认口令**：`.env` 中 `POSTGRES_PASSWORD` / `EMQX_DASHBOARD_PASSWORD` /
+   `EMQX_DEFAULT_PASSWORD` / `ADMIN_PASSWORD` 必须在部署前全部覆盖默认值。
+2. **密钥生成**：`JWT_SECRET`、`DATASOURCE_SECRET` 按各自注释的命令生成随机值。
+   `DATASOURCE_SECRET` 丢失等于已存数据源凭证不可解密，请离线妥善保管。
+3. **证书**：默认自签证书仅用于验证 TLS 链路；生产环境用企业 CA / Let's Encrypt 证书
+   同名替换 `deploy/certs/` 后 `docker compose restart nginx`。该目录含私钥，严禁提交 Git。
+4. **生产建议**：80 端口过渡期保留，证书受信后按 `deploy/nginx/nginx.conf` 80 块头注释
+   收缩为 301 跳转；对外只发布 80/443，管理面端口（8083/18083）保持回环绑定。
+5. 容器加固基线：全服务 `no-new-privileges`；server 以非 root（uid 1000）+ `cap_drop ALL`
+   运行；postgres/emqx 保留官方镜像所需能力集。

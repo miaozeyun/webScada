@@ -1,10 +1,39 @@
+# 版本控制 / 本地配置
 .git
-docs
+.gitattributes
+.env
+.env.local
+.env.*.local
+
+# 依赖与构建产物（防宿主机 node_modules/.venv 进上下文）
 node_modules
 **/node_modules
 web/dist
 server/.venv
 server/**/__pycache__
 **/.pytest_cache
+
+# 参考项目与历史产物（web 构建上下文为仓库根目录，一并排除）
+github
+backup
+backup;D
+backups
+artifacts
+
+# 私钥与证书（严禁随镜像分发；运行时经 compose 卷挂载注入）
+deploy/certs
+
+# AI 协作 / 文档 / 许可文本（镜像内不使用）
+.claude
+.agents
+skills-lock.json
+docs
 *.md
-.env
+LICENSE
+THIRD_PARTY_NOTICES.md
+
+# 系统/IDE
+.DS_Store
+Thumbs.db
+.idea
+.vscode

@@ -2,11 +2,13 @@
 #   + 两个一次性 init 服务（tls-init 证书补齐、emqx-authn-init MQTT 账号注入，均 exit 0 后不驻留）
 # 设计依据：docs/design/01-整体架构与目录结构.md §2.2 部署拓扑
 # 商用评审止血项：EMQX 禁匿名（blocker #4）、全站 TLS（blocker #4）、备份恢复脚本见 scripts/
+# 容器加固基线：全员 no-new-privileges；server 非 root（镜像内 appuser）+ cap_drop ALL；
+#   postgres/emqx 保留官方镜像所需的 gosu/能力集，仅加 no-new-privileges
 name: webscada
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${REG_PREFIX:-docker.io/}library/postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-webscada}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webscada123}
@@ -19,11 +21,15 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
-    restart: always
+    security_opt:
+      - no-new-privileges:true   # 官方镜像 root 起 + gosu 降权（降权方向不受该旗标影响）
+    restart: unless-stopped
+    networks:
+      - webscada-net
 
   emqx:
     # Docker tag 固定为当期稳定版本（不支持通配 tag）
-    image: emqx/emqx:5.8.6
+    image: ${REG_PREFIX:-docker.io/}emqx/emqx:5.8.6
     environment:
       # 禁止匿名 MQTT 连接（映射 mqtt.allow_anonymous；EMQX_ 前缀 + 双下划线层级）。
       # 写死 false（fail-closed）：EMQX 收口是商用评审 blocker #4，不提供环境变量旁路
@@ -51,12 +57,16 @@ services:
       interval: 15s
       timeout: 5s
       retries: 12
-    restart: always
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - webscada-net
 
   emqx-authn-init:
     # 一次性：向 EMQX 内置鉴权数据库写入默认 MQTT 账号（幂等，已存在即成功）。
     # EMQX 5.x 不支持用环境变量直接创建 MQTT 客户端凭证，只能经 Management API 落库
-    image: curlimages/curl:8.10.1
+    image: ${REG_PREFIX:-docker.io/}curlimages/curl:8.10.1
     depends_on:
       emqx:
         condition: service_healthy
@@ -100,13 +110,21 @@ services:
         done
         echo "[emqx-authn-init] FAILED：请核对 EMQX_DASHBOARD_USER/PASSWORD 与 EMQX_DEFAULT_USERNAME/PASSWORD" >&2
         exit 1
+    security_opt:
+      - no-new-privileges:true
     restart: "no"
+    networks:
+      - webscada-net
 
   tls-init:
     # 一次性：./deploy/certs 缺自签证书时自动生成（已存在则跳过），避免 nginx 因缺证书起不来。
     # 生产环境：用企业 CA / Let's Encrypt 证书同名替换后重启 nginx 即可
     build:
       context: ./server
+      args:
+        REG_PREFIX: ${REG_PREFIX:-docker.io/}
+    # 覆写为 root：镜像默认 appuser 无权写宿主机 bind mount 的证书目录（Linux 下目录归 root）
+    user: "0"
     entrypoint: ["python", "-c"]
     command:
       - |
@@ -147,10 +165,22 @@ services:
       # 证书目录与 nginx 共享；该目录含私钥，严禁提交 Git（.gitignore 建议补 deploy/certs/）
       - ./deploy/certs:/certs
     restart: "no"
+    networks:
+      - webscada-net
 
   server:
     build:
       context: ./server
+      args:
+        REG_PREFIX: ${REG_PREFIX:-docker.io/}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    # 镜像内已 USER appuser（uid 1000）；8000 非特权端口 + 无本地写盘，可叠加最小权限集
+    user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s   # WS 长连接排空：等待优雅关闭而非 10s 默认强杀
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-webscada}:${POSTGRES_PASSWORD:-webscada123}@postgres:5432/${POSTGRES_DB:-webscada}
       JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置 JWT_SECRET}
@@ -202,13 +232,17 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-    restart: always
+    restart: unless-stopped
+    networks:
+      - webscada-net
 
   nginx:
     # 前端多阶段构建（node 编译 → nginx 托管），同时作为唯一对外入口反代 /api/v1
     build:
       context: .
       dockerfile: web/Dockerfile
+      args:
+        REG_PREFIX: ${REG_PREFIX:-docker.io/}
     ports:
       # 80 保留（存量内网部署平滑期），升级指引见 deploy/nginx/nginx.conf 80 块头注释
       - "${HTTP_PORT:-80}:80"
@@ -218,12 +252,29 @@ services:
       # 配置以挂载方式覆盖镜像内置副本：改 conf 后 docker compose restart nginx 即生效，无需重建镜像
       - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./deploy/certs:/etc/nginx/certs:ro
+    healthcheck:
+      # nginx:alpine 自带 busybox wget；探 80（对外探活亦可走 http://宿主机/api/v1/health 反代路径）
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       server:
         condition: service_healthy
       tls-init:
         condition: service_completed_successfully
-    restart: always
+    # 官方 entrypoint 需保留 setuid/setgid 等能力将 worker 降权为 nginx 用户，故仅加 no-new-privileges
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - webscada-net
+
+networks:
+  # 显式自定义 bridge：同编排内服务名即 DNS（server:8000 / postgres:5432 / emqx:1883）
+  webscada-net:
+    driver: bridge
 
 volumes:
   pgdata:
