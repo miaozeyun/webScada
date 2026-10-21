@@ -359,6 +359,29 @@ class UpstreamWsSource(BaseSource):
 # ---------------- mqtt ----------------
 
 
+def mqtt_topic_matches(sub: str, topic: str) -> bool:
+    """MQTT 订阅规则匹配（变量 address 亦按此口径）：`+` 恰好匹配一层；`#` 仅允许作为
+    末段且匹配零或多层（如 factory/# 也匹配 factory 本身）；`#` 非末段属非法模式恒 False；
+    两侧先 strip；非通配模式走全等快速路径。"""
+    sub = sub.strip()
+    topic = topic.strip()
+    if "+" not in sub and "#" not in sub:
+        return sub == topic
+    sub_segs = sub.split("/")
+    topic_segs = topic.split("/")
+    last = len(sub_segs) - 1
+    for i, seg in enumerate(sub_segs):
+        if seg == "#":
+            return i == last  # 末段吃掉余下全部层（含零层）；非末段=非法模式恒 False
+        if i >= len(topic_segs):
+            return False  # topic 层数不足
+        if seg == "+":
+            continue  # 恰好一层，任意值
+        if seg != topic_segs[i]:
+            return False
+    return len(sub_segs) == len(topic_segs)
+
+
 class MqttSource(BaseSource):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -422,8 +445,8 @@ class MqttSource(BaseSource):
             data = None
         ts = _frame_ts(data, ts_path)
         for var in self.variables:
-            # 变量 address 即订阅 topic；同 topic 多变量各自经 jsonPath 取值（与前端一致）
-            if var.address and var.address != topic:
+            # 变量 address 即订阅 topic（支持 +/# 通配，订阅送达的具体 topic 由此匹配）；同 topic 多变量各自经 jsonPath 取值（与前端一致）
+            if var.address and not mqtt_topic_matches(var.address, topic):
                 continue
             if data is None:
                 self._ingest(var, None, ts)  # 解析失败=bad
