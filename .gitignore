@@ -15,13 +15,15 @@ __pycache__/
 .vscode/
 *.log
 
-# 第三方参考仓库（visual-drag-demo 等，不入库）
-github/
-
 # 测试/调试产物
 artifacts/
 scripts/debug*.py
 scripts/recon_login.py
+
+# E2E 工程
+node_modules/
+test-results/
+playwright-report/
 
 # 本地 agent/skill 工具文件
 .agents/
@@ -32,5 +34,3 @@ skills-lock.json
 backup/
 deploy/certs/
 backups/
-
-docs/
