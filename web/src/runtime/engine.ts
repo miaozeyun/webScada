@@ -109,6 +109,20 @@ interface PopupTrigger {
   depVarIds: string[]
 }
 
+/** M9 批次4：内置秒节拍变量（与服务端 hub.TICK_KEY 同名同构）。
+ *  虚拟变量 expr / 条件弹框表达式引用 _tick 即获得每秒重算（定时脚本等价物，无脚本引擎风险）；
+ *  server 模式值由服务端 tick_all 推送；本地（编辑器直连）模式由引擎定时器推进。 */
+const TICK_VAR: VariableDef = {
+  id: '_tick',
+  key: '_tick',
+  label: '秒节拍（内置）',
+  type: 'number',
+  unit: null,
+  defaultValue: null,
+  datasourceId: 'virtual',
+  writable: false,
+}
+
 export class RuntimeEngine {
   private runtime = useRuntimeStore()
   private handles: SourceHandle[] = []
@@ -138,6 +152,9 @@ export class RuntimeEngine {
   private handleByDs = new Map<string, SourceHandle>()
   private dsById = new Map<string, ProjectDoc['datasources'][number]>()
 
+  // ---- M9 批次4：内置 _tick 本地推进定时器（server 模式不用，值走 WS 帧） ----
+  private tickTimer: number | null = null
+
   start(doc: ProjectDoc, opts: EngineOptions = {}, seedValues?: Map<string, string | number | boolean>): void {
     this.stop()
     this.opts = opts
@@ -153,6 +170,9 @@ export class RuntimeEngine {
         this.runtime.values.set(v.id, seed)
       }
     }
+    // 内置 _tick（须先于 buildDependents 注册：expr 引用 _tick 的依赖图才能建立）
+    this.variables.set(TICK_VAR.id, TICK_VAR)
+    this.runtime.varByKey.set(TICK_VAR.key, TICK_VAR.id)
     this.buildDependents()
     this.rules = doc.alarmRules.filter((r) => r.enabled)
     for (const ds of doc.datasources) this.dsById.set(ds.id, ds)
@@ -196,6 +216,10 @@ export class RuntimeEngine {
       startPersist()
       return
     }
+    // 本地模式：_tick 引擎内推进（每秒 setValue → 虚拟变量级联/条件弹框重评）
+    const tick = (): void => this.setValue(TICK_VAR, Math.floor(Date.now() / 1000))
+    tick()
+    this.tickTimer = window.setInterval(tick, 1000)
     for (const ds of doc.datasources) {
       const handle = startSource(ds, doc.variables, (variable, raw) => this.onRaw(variable, raw))
       this.handles.push(handle)
@@ -210,6 +234,10 @@ export class RuntimeEngine {
   }
 
   stop(): void {
+    if (this.tickTimer !== null) {
+      clearInterval(this.tickTimer)
+      this.tickTimer = null
+    }
     stopPersist()
     this.serverChannel?.stop()
     this.serverChannel = null

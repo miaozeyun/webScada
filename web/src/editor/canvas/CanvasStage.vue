@@ -336,11 +336,23 @@ function onDragOver(e: DragEvent): void {
 
 function onDrop(e: DragEvent): void {
   e.preventDefault()
-  const type = e.dataTransfer?.getData('application/x-widget') || e.dataTransfer?.getData('text/plain')
-  if (!type || !registry.has(type as never)) return
-  const meta = registry.get(type as never)!
+  const raw = e.dataTransfer?.getData('application/x-widget') || e.dataTransfer?.getData('text/plain')
+  if (!raw) return
+  // 复合载荷：'symbol|<symbolId>'（图元库）/ 'mysym|<资产id>'（我的图元）；普通组件为纯 type
+  const [type, id] = raw.split('|')
   const p = toDesign(e)
-  editor.addComponent(type as never, p.x - meta.defaultSize.w / 2, p.y - meta.defaultSize.h / 2)
+  if (type === 'mysym' && id) {
+    editor.insertMySymbol(id, p.x, p.y)
+    return
+  }
+  if (!registry.has(type as never)) return
+  const meta = registry.get(type as never)!
+  editor.addComponent(
+    type as never,
+    p.x - meta.defaultSize.w / 2,
+    p.y - meta.defaultSize.h / 2,
+    id ? { symbolId: id } : undefined,
+  )
 }
 
 // ---------------- 空格平移（键盘状态来自 store，由 keyboard.ts 维护） ----------------

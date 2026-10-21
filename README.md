@@ -15,19 +15,19 @@ Web 原生、轻量、低代码拖拽组态的实时监控大屏（开源核心 
 | 能力 | 状态 |
 |---|---|
 | 拖拽组态编辑器（对齐吸附/50 步撤销/跨页粘贴/旋转缩放） | ✅ 已实现 |
-| 39 种注册组件、数据绑定（数值/颜色/显隐）与状态动画 | ✅ 已实现 |
+| 41 种注册组件 + 75 个自绘行业图元（图元库 9 大类 + 画面装饰 7 件）、我的图元资产库、画面模板、数据绑定（数值/颜色/显隐）与状态动画 | ✅ 已实现 |
 | 工程 CRUD + 乐观锁（409 冲突检测）+ 导入导出（凭证脱敏） | ✅ 已实现 |
 | 多画面 + 编辑/运行分离 + 分享快照发布 | ✅ 已实现 |
 | 反控写指令（开关/多档/输入框，变量显式 writable，分享页恒只读） | ✅ 已实现（M7） |
-| 数据源接入：MQTT / REST 轮询 / WebSocket / Mock（UTF-8 JSON 载荷） | ⚠ 已实现但**采集在浏览器端** |
-| 报警：阈值/回差/持续时间规则、记录入库、页面展示 | ⚠ 已实现但**判定与展示仅在打开的页签内**，无 ack 流转、无邮件/Webhook 外发 |
-| 历史趋势：浏览器 localStorage 分钟桶（单变量 3 天） | ⚠ 临时方案，**换设备即丢**，服务端 historian 改造中 |
-| 带鉴权数据源运行态连接 | ❌ 凭证注回通道未落地（服务端采集引擎改造中） |
-| 服务端 7x24 采集 / 报警判定 / 历史入库（MQTT→Modbus） | 🔧 服务端闭环改造中（阶段 1） |
-| RBAC 用户管理 / 操作审计 | ❌ 当前任意登录用户等价管理员 |
+| 数据源接入：服务端常驻采集 MQTT / REST 轮询 / WebSocket / Mock / **Modbus TCP**（UTF-8 JSON 载荷） | ✅ 已实现（M8，浏览器直连仅保留编辑器连接测试） |
+| 报警：阈值/回差/持续时间规则、**服务端 7x24 判定**、单行状态机 ack 流转、Webhook/邮件外发 | ✅ 已实现（M8） |
+| 历史趋势：服务端 historian（`history_values` 5s 采样 / 30 天保留 / 区间聚合查询）；浏览器 localStorage 桶降级为离线兜底 | ✅ 已实现（M8） |
+| 带鉴权数据源运行态连接（凭证 Fernet 加密 + 测试注回通道） | ✅ 已实现（M8） |
+| 服务端 7x24 采集 / 报警判定 / 历史入库 / WS 合帧推送 | ✅ 已交付（M8 服务端监控闭环，2026-10-20） |
+| RBAC 用户管理（admin/operator/viewer）/ 八类操作审计 | ✅ 已实现（M8） |
 | 全站 TLS / EMQX 强制鉴权 / 备份恢复 / CI | ✅ 止血包已落地（本轮） |
-| 迁移三件套（migrateDoc / schemaVersion N-1 窗口 / 自动备份） | ❌ 缺失，`CURRENT_SCHEMA_VERSION` 冻结为 1 |
-| RTSP 转码视频 / 主备冗余 / 白标 OEM / License 机制 | 🗺 企业版规划（见 [NOTICE.md](NOTICE.md)） |
+| 迁移三件套（migrateDoc / schemaVersion N-1 窗口 / 迁移前备份指引） | ✅ 机制已落地并有测试（`CURRENT_SCHEMA_VERSION` 冻结为 1，尚无实际 v2 迁移用例） |
+| RTSP 转码视频 / 主备冗余 / 白标 OEM / License 机制 | 🗺 企业版规划（License 骨架已就绪，见 [NOTICE.md](NOTICE.md)） |
 
 ## 架构
 
@@ -42,20 +42,20 @@ flowchart LR
     end
     subgraph sv["server 容器（FastAPI 单进程全异步）"]
         API["REST /api/v1 + WS /api/v1/ws/runtime<br/>契约校验/乐观锁/分享快照/报警入库"]
-        COL["服务端采集引擎（改造中）"]
+        COL["服务端采集引擎 collector<br/>MQTT/REST/WS/Mock/Modbus TCP"]
     end
-    PG[("postgres 容器<br/>users / projects(JSONB+revision)<br/>share_links / alarm_records")]
+    PG[("postgres 容器<br/>users / projects(JSONB+revision)<br/>share_links / alarm_records / history_values")]
     EMQ["EMQX 容器<br/>1883 内网 / 8083 仅本机 / 18083 仅本机"]
     DEV["设备 / 网关 / 上游 HTTP / 上游 WS"]
 
     browser -- HTTP(S) --> N1
     N1 --> API
     API --> PG
-    RT -. "现状：MQTT over WS 直连（8083，本机）" .-> EMQ
+    RT -. "编辑器数据源连接测试（浏览器直连）" .-> EMQ
     DEV -- MQTT --> EMQ
-    EMQ -. "改造中：aiomqtt 服务端订阅" .-> COL
-    COL -.-> PG
-    DEV -. "改造中：REST/WS 采集迁移服务端" .-> COL
+    EMQ -- "aiomqtt 订阅" --> COL
+    COL --> PG
+    DEV -- "REST / WS / Modbus TCP" --> COL
 ```
 
 技术栈：前端 Vue3 + TypeScript + Vite + Pinia + Element Plus + ECharts；
@@ -65,6 +65,7 @@ flowchart LR
 ## 快速开始（Docker）
 
 要求：Docker Desktop ≥ 4.30（Windows）或 Docker Engine ≥ 25 + Compose v2。
+完整部署手册（镜像加速 / 常用命令 / 备份恢复 / 安全基线）见 [README.Docker.md](README.Docker.md)。
 
 ```bash
 # 0.（可选）预生成自签证书；跳过则首次 up 时由 tls-init 自动生成
@@ -164,7 +165,9 @@ EMQX 已**禁用匿名连接**（`EMQX_MQTT__ALLOW_ANONYMOUS=false`，写死无�
 > RBAC 三级角色 + 用户管理 + 八类审计、schemaVersion 迁移通道（migrateDoc + N-1 窗口）、
 > AGPL-3.0 LICENSE 与 CI 门禁。以下为当前真实边界：
 
-1. **Modbus/OPC UA 采集未实现**（路线图阶段 1 后半）；数据源类型仍为 MQTT/WebSocket/REST/Mock。
+1. **OPC UA / PLC 直连未实现**（P2 预留 collector driver 接口位）；Modbus TCP 已于 M8 落地
+   （4 区位地址解析 + 读轮询/写线圈反控，`server/tests/test_modbus.py` 集成测试覆盖），
+   当前数据源类型为 MQTT / REST / WebSocket / Mock / Modbus TCP。
 2. **单实例架构**：限流计数、JWT 黑名单（jti）、WS 并发计数均在进程内存——多 worker/多副本
    部署时退化为单实例粒度；Redis 后端为 P1 预留。重启会使全部登录会话失效（≤2h 窗口）。
 3. **通知外发需配置**：`ALARM_WEBHOOK_URL` / `NOTIFY_SMTP_*` 未配置时报警仅站内（toast/横幅/列表）。
@@ -183,7 +186,7 @@ EMQX 已**禁用匿名连接**（`EMQX_MQTT__ALLOW_ANONYMOUS=false`，写死无�
 | 阶段 | 状态 | 内容 | 门槛 |
 |---|---|---|---|
 | 0 止血合法化 | ✅ 完成 | LICENSE/NOTICE、EMQX 收口（内置库鉴权）、TLS、备份恢复、CI 门禁、冻结 schemaVersion | 可开源发布 |
-| 1 服务端闭环 | ✅ MQTT 部分完成 | 服务端采集+凭证注回、报警+通知、historian、RBAC、审计、迁移通道；**Modbus 待做** | 无人值守试点 |
+| 1 服务端闭环 | ✅ 完成（2026-10-20） | 服务端采集+凭证注回（MQTT/REST/WS/Mock/Modbus）、报警+通知、historian、RBAC、审计、迁移通道 | 无人值守试点 |
 | 2 产品化护栏 | 部分完成 | 报警呈现、License key 骨架已就绪；压测报告、组件级打磨进行中 | commercial-beta（可试卖） |
 | 3 商用体系 | 未启动 | 定价激活、培训认证、i18n/白标 | commercial-ga |
 

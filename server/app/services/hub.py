@@ -26,6 +26,14 @@ ValueListener = Callable[[uuidlib.UUID, VariableDef, "float | bool | str | None"
 
 _EVAL_FAILED = object()  # 虚拟变量求值失败哨兵（区别于合法值 None）
 
+# M9 批次4：内置秒节拍变量（key 以下划线开头，与用户变量命名空间隔离；标识符文法允许 _ 开头）。
+# 虚拟变量 expr 引用 _tick 即获得每秒重算（对标 BY组态「定时器脚本」的低风险等价物），仅 expr 可引用，不入变量绑定下拉。
+TICK_KEY = "_tick"
+
+
+def _tick_var() -> VariableDef:
+    return VariableDef(id="builtin_tick", key=TICK_KEY, label="秒节拍（内置）", type="number", datasourceId="virtual")
+
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
@@ -80,6 +88,9 @@ class Hub:
         for var in model.variables:
             vars_by_key[var.key] = var
             stale_ms[var.key] = self._effective_stale_ms(var, ds_by_id.get(var.datasourceId))
+        # 内置 _tick：stale 永不触发（timeout=0 跳过扫描），池条目经裁剪幸存（在 live_keys 内）
+        vars_by_key[TICK_KEY] = _tick_var()
+        stale_ms[TICK_KEY] = 0
 
         # 依赖图：变量 key → 直接依赖它的虚拟变量 key
         dependents: dict[str, list[str]] = {}
@@ -119,6 +130,7 @@ class Hub:
         for key in list(pool.keys()):
             if key not in live_keys:
                 del pool[key]  # 变量已删除：池条目随 doc 裁剪
+        pool.setdefault(TICK_KEY, {"v": float(int(time.time())), "q": QUALITY_GOOD, "t": _now_ms()})
 
         self._vars[project_id] = vars_by_key
         self._stale_ms[project_id] = stale_ms
@@ -283,6 +295,18 @@ class Hub:
 
     def sweep_stale_all(self) -> int:
         return sum(self.sweep_stale(pid) for pid in list(self._pools.keys()))
+
+    # ---- 内置秒节拍（M9 批次4） ----
+
+    def tick_all(self) -> None:
+        """全池推进 _tick（runtime_boot 每秒驱动）：值变化 → 广播 + 依赖它的虚拟变量级联重算。"""
+        now = _now_ms()
+        sec = float(int(time.time()))
+        for pid in list(self._pools.keys()):
+            var = self._vars.get(pid, {}).get(TICK_KEY)
+            if var is None:
+                continue
+            self.apply_engineering(pid, var, sec, QUALITY_GOOD, now)
 
     # ---- 测试辅助 ----
 

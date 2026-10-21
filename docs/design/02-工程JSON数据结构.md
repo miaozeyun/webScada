@@ -170,6 +170,8 @@ export type WidgetType =
   | 'tank' | 'flow-bar' | 'image-switch' | 'web-frame' | 'video'
   | 'weather' | 'clock' | 'history-chart'
   | 'breaker' | 'isolator' | 'ground' | 'ct' | 'pt' | 'transformer'
+  // M9 批次1 增量（行业图元，详见 §8）
+  | 'symbol'
   // 结构
   | 'group';
 ```
@@ -949,3 +951,57 @@ interface EventActionDef {
 - 弹框遮罩 `z-index:-1`（父节点已建栈上下文）：正值会盖住弹框内容导致按钮不可点。
 - ECharts 数据数组必须传**副本**（`historyOf` 返回 `[...]`）：引擎内部数组原地 push，传引用时调用方 ref 赋值得不到响应式更新，图表会停在首次快照。
 - 编辑态画布与运行态 Overlay 的 DOM 同时存在，自动化测试/选择器需限定 `.runtime-stage` 作用域。
+
+## 8. M9 增量契约（行业图元库）
+
+> M9 批次1 对标 BY组态「图元图库」引入。**WidgetType 新增可选值 + 组件 props 可选字段，旧 doc 不含即不受影响，schemaVersion 不变（仍为 1）**。
+> 双端实现：`web/src/types/doc.ts` ↔ `server/app/schemas/doc.py`；资产层仅前端（服务端不加载 SVG）。
+
+### 8.1 symbol 组件（通用图元载体）
+
+- `type: 'symbol'`，props：`symbolId: str`（资产 id，格式 `<分类>/<名称>`，如 `valve/globe`；缺失时组件灰显「图元缺失」占位）。
+- 颜色走 `style.color` → `--dev-color`（与设备类 SVG 同一取色通道），color 绑定/报警态驱动变色，无需状态帧字段。
+- 资产层（前端唯一实现点）：`web/src/assets/symbols/`
+  - 目录即分类（9 大类）：valve / pump / tank / hvac / pipe-fitting / wtp / power / instrument / misc，首批 68 个**全自绘** SVG（版权红线：禁止第三方素材）。
+  - `import.meta.glob('./*/*.svg', eager)` 收集，新增 SVG 文件零代码注册；中文名登记于 index.ts 的 `NAME_MAP`。
+  - defaultSize 按 viewBox 宽高比推导（最长边 120px 等比）。
+- 拖放协议增量：dataTransfer `application/x-widget` 载荷支持复合值 `'symbol|<symbolId>'`（普通组件仍为纯 type）；`editor.addComponent(type, x, y, extraProps?)` 第四参覆盖默认 props（symbol 场景同时覆盖节点名/尺寸）。
+
+### 8.2 我的图元（批次2，ProjectDoc.assets）
+
+- `ProjectDoc.assets?: { mySymbols: MySymbolDef[] }`——**可选字段，旧 doc 缺省视为空库，schemaVersion 不变（1）**。
+  按既有惯例（§7 全量可选字段先例），不为纯增量字段制造 N-1 迁移窗口。
+- `MySymbolDef: { id, label, nodes: ComponentNode[], createdAt }`：保存时选中集**展平**（group 经 flattenGroup
+  还原绝对坐标）并归一化到包围盒原点；插入画布时整体经 `_cloneWithNewIds` 重映射 id（事件 targetId 引用语义同粘贴）。
+- 资产库非画布内容：不入页面撤销栈，仅标脏保存。跨工程共享为后手（需用户级资产表，本期不做）。
+
+### 8.3 画面装饰与模板（批次3）
+
+- `WidgetType` +`'title-bar'`（props: text/align；category 'decor'，registry 第四分组）。
+- decor 装饰件走 symbol 资产 `decor/` 分类（边框/容器框/分隔线/底纹等，7 个），无需新类型。
+- 画面模板（`web/src/utils/pageTemplates/`，前端唯一实现点）：面板「模板」Tab 一键新建整页，
+  `editor.applyPageTemplate(name, page)`；模板为静态占位布局（无绑定），4 个：大屏总览 / 单线图框架 /
+  双栏控制面板 / 移动端竖屏。
+
+### 8.4 表达式函数库扩容 + 内置 _tick（批次4）
+
+- BUILTINS 新增（前端 expr.ts ↔ 服务端 expr_eval.py 同构，JS 语义对齐点见 expr_eval 注释）：
+  `sin/cos/tan/asin/acos/atan/atan2/exp/log/clamp(x,lo=0,hi=1)/sign`。
+- 内置秒节拍变量 **`_tick`**（key 以下划线开头，与用户命名空间隔离）：
+  - 服务端：hub.set_doc 注册哨兵 VariableDef（stale 永不触发，timeout=0）；runtime_boot `_tick_loop` 每秒
+    `hub.tick_all()` 推进（值=unix 秒，变化广播 + 依赖级联重算）。
+  - 前端：引擎 start 注册同名变量；本地（编辑器直连）模式引擎定时器推进，server 模式收 WS 帧应用。
+  - 用途：虚拟变量 expr / 条件弹框表达式引用 `_tick` 即获得每秒重算（定时脚本等价物，无脚本引擎风险）。
+  - 不入变量绑定下拉（不在 doc.variables），仅表达式可引用。
+
+### 8.5 画面方向强制（批次5）
+
+- `ScreenCfg.orientation: 'auto' | 'landscape' | 'portrait'`（默认 auto，双端 schema 同步）。
+- 运行态 RuntimeStage：视口方向与设定不符时页面 `rotate(90deg)`，外层 wrap 按旋转后占位（宽高=设计尺寸
+  互换 × 缩放），自适应规则按旋转后视口计算；编辑态不旋转。分享页/全屏同样生效。
+
+### 8.6 拖放协议增量（批次1/2 合并口径）
+
+- dataTransfer `application/x-widget`（+ text/plain 兜底）载荷三形态：
+  纯 type（注册组件）/ `symbol|<symbolId>`（图元库）/ `mysym|<资产id>`（我的图元）。
+- `editor.addComponent(type, x, y, extraProps?)` 第四参覆盖默认 props（symbol 场景同时覆盖节点名/尺寸）。

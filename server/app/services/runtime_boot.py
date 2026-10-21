@@ -54,6 +54,7 @@ async def startup(app: FastAPI) -> None:
 
     await ws_manager_mod.manager.start()
     app.state.stale_task = asyncio.create_task(_stale_loop())
+    app.state.tick_task = asyncio.create_task(_tick_loop())
 
     try:
         count = await _sync_all_projects()
@@ -64,14 +65,15 @@ async def startup(app: FastAPI) -> None:
 
 async def shutdown(app: FastAPI) -> None:
     """签名冻结（契约 §6.1）。与 startup 逆序收口。"""
-    stale_task = getattr(app.state, "stale_task", None)
-    if stale_task is not None:
-        stale_task.cancel()
-        try:
-            await stale_task
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001
-            pass
-        app.state.stale_task = None
+    for attr in ("stale_task", "tick_task"):
+        task = getattr(app.state, attr, None)
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+            setattr(app.state, attr, None)
     await collector_mod.collector.remove_all()
     await ws_manager_mod.manager.stop()
 
@@ -83,3 +85,13 @@ async def _stale_loop() -> None:
             hub_mod.hub.sweep_stale_all()
         except Exception:  # noqa: BLE001
             logger.exception("stale 扫描异常")
+
+
+async def _tick_loop() -> None:
+    """内置秒节拍（M9 批次4）：全池 _tick 推进，驱动引用它的虚拟变量每秒重算（定时脚本等价物）。"""
+    while True:
+        await asyncio.sleep(1)
+        try:
+            hub_mod.hub.tick_all()
+        except Exception:  # noqa: BLE001
+            logger.exception("tick 推进异常")

@@ -90,10 +90,21 @@ provideRuntime(
 
 const embed = computed(() => props.embed === true)
 
+/** M9 批次5：画面方向强制——视口方向与设定不符时页面旋转 90°（横屏画面在竖屏手机上强制横看，反之亦然） */
+const rotated = computed(() => {
+  const o = page.value?.screen.orientation ?? 'auto'
+  if (o === 'auto') return false
+  const viewLandscape = bodySize.value.w >= bodySize.value.h
+  return viewLandscape !== (o === 'landscape')
+})
+
 const fit = computed(() => {
   const p = page.value
   if (!p) return { sx: 1, sy: 1 }
-  const { w: vw, h: vh } = bodySize.value
+  // 旋转态：视口宽高互换后再套用自适应规则（页面按"旋转后的可用视口"计算缩放）
+  const { w: vw0, h: vh0 } = bodySize.value
+  const vw = rotated.value ? vh0 : vw0
+  const vh = rotated.value ? vw0 : vh0
   const dw = p.screen.designWidth
   const dh = p.screen.designHeight
   switch (p.screen.mode) {
@@ -112,8 +123,23 @@ const pageStyle = computed(() => ({
   width: `${page.value?.screen.designWidth ?? 0}px`,
   height: `${page.value?.screen.designHeight ?? 0}px`,
   background: page.value?.background.color ?? '#0b1220',
-  transform: `scale(${fit.value.sx}, ${fit.value.sy})`,
+  transform: rotated.value
+    ? `translate(-50%, -50%) rotate(90deg) scale(${fit.value.sx}, ${fit.value.sy})`
+    : `scale(${fit.value.sx}, ${fit.value.sy})`,
+  position: rotated.value ? ('absolute' as const) : undefined,
+  left: rotated.value ? '50%' : undefined,
+  top: rotated.value ? '50%' : undefined,
 }))
+
+/** 旋转态外层占位（宽高 = 旋转后的页面尺寸 × 缩放），保持 flex 居中与滚动正确 */
+const wrapStyle = computed(() => {
+  const p = page.value
+  if (!rotated.value || !p) return undefined
+  return {
+    width: `${p.screen.designHeight * fit.value.sy}px`,
+    height: `${p.screen.designWidth * fit.value.sx}px`,
+  }
+})
 
 /** 服务端通道状态提示（仅中间态/异常，online 不占视觉） */
 const serverHint = computed<{ text: string; cls: string } | null>(() => {
@@ -257,10 +283,12 @@ onBeforeUnmount(() => {
       <el-button v-if="closable" size="small" :icon="Close" @click="emit('close')">退出</el-button>
     </header>
     <div ref="bodyEl" class="stage-body" :class="{ 'lock-pan': page?.screen.lockPan === true }">
-      <div v-if="page" class="stage-page" :style="pageStyle">
-        <!-- 全部节点都挂载：静态 visible:false 的组件可能被事件（toggleVisible）/绑定恢复显示，
-             显隐统一由 PreviewNode 内部按覆盖层优先级判定 -->
-        <PreviewNode v-for="node in page.components" :key="node.id" :node="node" />
+      <div v-if="page" class="stage-rot-wrap" :style="wrapStyle">
+        <div class="stage-page" :style="pageStyle">
+          <!-- 全部节点都挂载：静态 visible:false 的组件可能被事件（toggleVisible）/绑定恢复显示，
+               显隐统一由 PreviewNode 内部按覆盖层优先级判定 -->
+          <PreviewNode v-for="node in page.components" :key="node.id" :node="node" />
+        </div>
       </div>
     </div>
   </div>
@@ -379,6 +407,12 @@ onBeforeUnmount(() => {
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: none;
+}
+
+/* 旋转态外层占位（M9 批次5）：非旋转时 auto 尺寸包裹，与原布局一致 */
+.stage-rot-wrap {
+  position: relative;
+  flex-shrink: 0;
 }
 
 .stage-page {

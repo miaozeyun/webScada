@@ -4,12 +4,13 @@
  * 历史为页面级快照，切换页面即清空（快照不含页面切换语义）。
  */
 import { defineStore } from 'pinia'
-import type { ComponentNode, Page, ProjectDoc, WidgetType } from '@/types/doc'
+import type { ComponentNode, MySymbolDef, Page, ProjectDoc, WidgetType } from '@/types/doc'
 import { getProject, updateProject } from '@/api/projects'
 import { HistoryStack } from '@/editor/history'
 import { buildGroup, flattenGroup, normalizeZ } from '@/editor/canvas/group'
 import { nodesBBox } from '@/utils/coord'
 import { newComponentId, newPageId } from '@/utils/nanoid'
+import { getSymbol } from '@/assets/symbols'
 import { registry } from '@/widgets/registry'
 
 // 历史栈保持非响应式（模块级实例），版本计数驱动按钮状态
@@ -172,25 +173,27 @@ export const useEditorStore = defineStore('editor', {
 
     // ---------------- 组件变更（离散动作内部自带 beginChange） ----------------
 
-    addComponent(type: WidgetType, x: number, y: number): string {
+    addComponent(type: WidgetType, x: number, y: number, extraProps?: Record<string, unknown>): string {
       const page = this.currentPage
       const meta = registry.get(type)
       if (!page || !meta) return ''
+      // symbol：覆盖默认尺寸（按图元 viewBox 比例）与节点名（图元中文名）
+      const symbolAsset = type === 'symbol' ? getSymbol(String(extraProps?.symbolId ?? '')) : undefined
       this.beginChange()
       const node: ComponentNode = {
         id: newComponentId(),
-        name: meta.name,
+        name: symbolAsset?.label ?? meta.name,
         type,
         x: Math.round(x),
         y: Math.round(y),
-        w: meta.defaultSize.w,
-        h: meta.defaultSize.h,
+        w: symbolAsset?.w ?? meta.defaultSize.w,
+        h: symbolAsset?.h ?? meta.defaultSize.h,
         rotate: 0,
         z: (page.components.length ? Math.max(...page.components.map((c) => c.z)) + 1 : 0),
         visible: true,
         locked: false,
         opacity: 1,
-        props: meta.defaultProps(),
+        props: { ...meta.defaultProps(), ...(extraProps ?? {}) },
         bindings: [],
       }
       page.components.push(node)
@@ -390,6 +393,66 @@ export const useEditorStore = defineStore('editor', {
       this.pasteClipboard()
     },
 
+    // ---------------- 我的图元（M9 批次2）：doc.assets.mySymbols 资产库 ----------------
+
+    /** 选中组件/组存为我的图元：group 展平为绝对坐标，整体归一化到包围盒原点 */
+    saveMySymbol(label: string): string {
+      const sel = this.selectedNodes
+      const doc = this.doc
+      if (sel.length === 0 || !doc) return ''
+      const flat: ComponentNode[] = []
+      for (const n of sel) {
+        const c = JSON.parse(JSON.stringify(n)) as ComponentNode
+        if (c.type === 'group') flat.push(...flattenGroup(c))
+        else flat.push(c)
+      }
+      const minX = Math.min(...flat.map((n) => n.x))
+      const minY = Math.min(...flat.map((n) => n.y))
+      for (const n of flat) {
+        n.x -= minX
+        n.y -= minY
+      }
+      const sym: MySymbolDef = {
+        id: newComponentId(),
+        label: label.trim() || `我的图元 ${(doc.assets?.mySymbols.length ?? 0) + 1}`,
+        nodes: flat,
+        createdAt: new Date().toISOString(),
+      }
+      if (!doc.assets) doc.assets = { mySymbols: [] }
+      doc.assets.mySymbols.push(sym)
+      // 资产库非画布内容：不入页面撤销栈，仅标脏保存
+      this._markDirty()
+      return sym.id
+    },
+
+    /** 我的图元拖入/点击插入：克隆 + id 重映射，x/y 为放置原点（左上角） */
+    insertMySymbol(id: string, x: number, y: number): void {
+      const page = this.currentPage
+      const sym = this.doc?.assets?.mySymbols.find((s) => s.id === id)
+      if (!page || !sym || sym.nodes.length === 0) return
+      this.beginChange()
+      let maxZ = page.components.length ? Math.max(...page.components.map((c) => c.z)) : -1
+      const newIds: string[] = []
+      for (const raw of sym.nodes) {
+        const node = this._cloneWithNewIds(raw)
+        node.x = Math.round(x + node.x)
+        node.y = Math.round(y + node.y)
+        node.z = ++maxZ
+        page.components.push(node)
+        newIds.push(node.id)
+      }
+      this.selection = newIds
+      this._markDirty()
+    },
+
+    deleteMySymbol(id: string): void {
+      const assets = this.doc?.assets
+      if (!assets) return
+      const before = assets.mySymbols.length
+      assets.mySymbols = assets.mySymbols.filter((s) => s.id !== id)
+      if (assets.mySymbols.length !== before) this._markDirty()
+    },
+
     /** 行内编辑提交（快照在进入编辑时已入栈，此处直接变更） */
     setEditing(id: string): void {
       this.editingNodeId = id
@@ -493,6 +556,22 @@ export const useEditorStore = defineStore('editor', {
       }
       this.doc.pages.push(page)
       this.currentPageId = page.id
+      this.selection = []
+      history.clear()
+      this.historyVersion++
+      this._markDirty()
+    },
+
+    /** M9 批次3：从画面模板新建页面（模板产出完整 Page；id/order 归一，切换并清历史） */
+    applyPageTemplate(name: string, page: Page): void {
+      if (!this.doc) return
+      this.beginChange()
+      const p = JSON.parse(JSON.stringify(page)) as Page
+      p.id = newPageId()
+      p.name = name
+      p.order = this.doc.pages.length
+      this.doc.pages.push(p)
+      this.currentPageId = p.id
       this.selection = []
       history.clear()
       this.historyVersion++

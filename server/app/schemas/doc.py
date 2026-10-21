@@ -282,6 +282,10 @@ WidgetType = Literal[
     "var-display", "state-text", "switch", "multi-switch", "input-cmd",
     "tank", "flow-bar", "image-switch", "web-frame", "video", "weather", "clock", "history-chart",
     "breaker", "isolator", "ground", "ct", "pt", "transformer",
+    # M9 批次1 新增（行业图元，详见 docs/design/02 §8）
+    "symbol",
+    # M9 批次3 新增（画面装饰）
+    "title-bar",
     # 结构
     "group",
 ]
@@ -297,6 +301,8 @@ class ScreenCfg(DocModel):
     designHeight: int = Field(ge=200, le=4320)
     mode: AdaptiveMode
     lockPan: bool = False   # M7：运行态锁定画面（禁止滚动/拖拽）
+    # M9 批次5：画面方向强制（视口方向不符时运行态自动旋转 90°）
+    orientation: Literal["auto", "landscape", "portrait"] = "auto"
 
 
 class ComponentStyle(DocModel):
@@ -508,6 +514,19 @@ class AlarmRule(DocModel):
 
 # ================= 顶层 =================
 
+class MySymbolDef(DocModel):
+    """我的图元（M9 批次2）：选中组件/组存为可复用资产（group 已展平，插入时 id 重映射）。"""
+
+    id: str = _ID
+    label: str = _NAME128
+    nodes: list["ComponentNode"] = Field(default_factory=list)
+    createdAt: str = ""
+
+
+class DocAssets(DocModel):
+    mySymbols: list[MySymbolDef] = Field(default_factory=list)
+
+
 class ProjectDoc(DocModel):
     """工程 JSON 顶层结构（契约中心）。schemaVersion 校验在 doc_service（G8：迁移唯一实现点在前端）。"""
 
@@ -518,3 +537,5 @@ class ProjectDoc(DocModel):
     variables: list[VariableDef] = Field(default_factory=list)
     pages: list[Page] = Field(min_length=1)   # 至少一个页面
     alarmRules: list[AlarmRule] = Field(default_factory=list)
+    # M9 批次2：用户资产库（可选；旧 doc 缺省视为空，schemaVersion 不变）
+    assets: DocAssets | None = None

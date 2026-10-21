@@ -293,6 +293,17 @@ function removeEvent(evId: string, actIdx: number): void {
               <el-option v-for="o in ADAPTIVE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
           </el-form-item>
+          <el-form-item label="画面方向">
+            <el-select
+              :model-value="editor.currentPage.screen.orientation ?? 'auto'"
+              @update:model-value="editor.updatePage({ orientation: $event as 'auto' | 'landscape' | 'portrait' })"
+            >
+              <el-option label="跟随时口" value="auto" />
+              <el-option label="强制横屏" value="landscape" />
+              <el-option label="强制竖屏" value="portrait" />
+            </el-select>
+            <span class="form-hint">不符时运行态旋转 90°</span>
+          </el-form-item>
           <el-form-item label="背景色">
             <el-color-picker
               :model-value="editor.currentPage.background.color"

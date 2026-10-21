@@ -7,6 +7,78 @@ webScada 的所有显著变更记录在本文件。
 
 ## [Unreleased] — 运维与法务文档包 + 服务端闭环改造（进行中）
 
+### Docker 部署加固改造（2026-10-21）
+
+#### Added
+
+- **基础镜像加速开关**：`REG_PREFIX` 环境变量统一驱动 compose `image` 与两处 Dockerfile `FROM`
+  （默认官方 `docker.io/`；国内设 `m.daocloud.io/docker.io/` 或 `dockerpull.com/`），pip/npm 源保持内建。
+- **nginx 容器健康检查**：wget 探活 80 入口（此前仅 server/postgres/emqx 有 healthcheck）。
+- **README.Docker.md 部署手册**：镜像加速、常用命令、备份恢复（引用 scripts/backup.sh）、安全基线。
+
+#### Changed
+
+- **server 容器降权运行**：镜像内新建 `appuser`（uid 1000）并以 `USER appuser` 启动；
+  compose 叠加 `cap_drop: ALL` + `no-new-privileges`（应用无本地写盘、绑非特权端口 8000，已核验）；
+  tls-init 一次性服务覆写 `user: "0"`（需写宿主机证书 bind mount）。
+- **容器加固基线**：全员 `security_opt: no-new-privileges:true`；postgres/emqx 保留官方镜像
+  所需能力集不动。
+- **自定义 bridge 网络** `webscada-net` 显式声明（此前隐式 default 网络），服务名 DNS 语义不变。
+- **restart 策略** `always` → `unless-stopped`（宿主机重启不再拉起运维手动停下的服务）。
+- server 增加 `stop_grace_period: 30s`（WS 长连接优雅排空）。
+- `web/Dockerfile` 锁文件 `package-lock.json*` 可选匹配改为强制存在（npm ci 本就硬依赖锁文件）。
+
+#### Security
+
+- **根 .dockerignore 收紧**：排除 `deploy/certs`（私钥严禁进镜像/上下文）、参考仓库 `github/`、
+  `backup*`/`backups`/`artifacts` 历史产物、`.claude`/`.agents`、`LICENSE` 等。
+
+
+### M9 批次2-5：资产库 / 模板 / 表达式 / 移动端（对标 BY组态，2026-10-21）
+
+#### Added
+
+- **我的图元**：画布选中（可多选/成组）→ 右键「存为我的图元」或面板按钮 → `doc.assets.mySymbols`
+  （展平 + 坐标归一化），「我的」Tab 缩略渲染（静态平铺，无引擎依赖），拖入/点击克隆插入（id 重映射）。
+- **画面装饰**：`title-bar` 标题栏组件（text/align，颜色走 style.color）+ symbol 资产 decor 分类 7 件
+  （科技边框/四角边框/容器框/状态底栏/分隔线/点阵底纹/弧光角饰）。
+- **画面模板**：面板「模板」Tab 一键新建整页，4 个静态占位模板（大屏总览/单线图框架/双栏控制面板/
+  移动端竖屏），复用 demos 工厂（`utils/pageTemplates/`）。
+- **组件面板五 Tab 化**：组件 / 图元库 / 装饰 / 模板 / 我的（对标 BY 左侧面板形态）。
+- **表达式函数库扩容**（双端同构）：sin/cos/tan/asin/acos/atan/atan2/exp/log/clamp/sign，
+  Python 侧逐条对齐 JS 语义（log(0)=-inf、asin(2)=NaN、exp 溢出=inf…），同构测试 5 组新增。
+- **内置秒节拍 `_tick`**：虚拟变量 expr / 条件弹框表达式引用即每秒重算（定时脚本等价物）；
+  服务端 hub 注册哨兵变量 + runtime_boot 每秒推进（广播 + 级联），本地模式引擎定时器推进。
+- **画面方向强制**：`ScreenCfg.orientation`（auto/landscape/portrait），运行态视口方向不符时页面
+  rotate(90°)（外层占位互换，自适应按旋转后视口计算）；PropPanel 页面设置新增下拉。
+- **渲染密度基准**：`docs/assessment/render-bench.md`（复用 M7 stressDoc 1100 组件工程，
+  Playwright 测量方法与通过线，回应 BY「1100 组件加载测试」卖点）。
+
+#### Changed
+
+- 拖放协议三形态：纯 type / `symbol|<symbolId>` / `mysym|<资产id>`；`addComponent` 增第四参 extraProps。
+- 契约 02 §8 扩充（8.2-8.6）；`assets`/`orientation` 均为可选字段，**schemaVersion 保持 1**
+  （遵循 §7 全量可选字段先例，不为纯增量制造迁移窗口）。
+
+### M9 批次1：行业图元库（对标 BY组态「图元图库」，2026-10-21）
+
+#### Added
+
+- **symbol 通用图元组件**：一个 WidgetType 承载全部行业图元 SVG，颜色走 `style.color`
+  → `--dev-color`（与设备类同通道，color 绑定/报警态驱动变色）。
+- **自绘 SVG 资产库** `web/src/assets/symbols/`：9 大类（阀门/泵类/罐体/暖通风/管件/
+  水处理/电力/仪表/其他）首批 **68 个全自绘**简笔工业风图元（版权红线：不引入第三方素材）；
+  `import.meta.glob` eager 收集，新增 SVG 文件零代码注册，中文名登记 `NAME_MAP`。
+- **组件面板 Tab 化**：「组件 / 图元库」双 Tab；图元库支持关键词搜索 + 分类过滤，
+  SVG 缩略预览，拖拽/点击放置（拖放协议支持复合载荷 `symbol|<symbolId>`）。
+- 契约：`WidgetType` +`'symbol'`（docs/design/02 §8，双端同步，schemaVersion 不变）。
+
+#### Changed
+
+- README 功能矩阵修正 4 处 M8 已交付但仍标「缺失/改造中」的滞后口径
+  （Modbus TCP、迁移三件套、报警 ack+通知、服务端采集/historian/RBAC）。
+
+
 ### 评审基线
 
 - 依据 `docs/assessment/commercial-readiness-2026-10-20.md`：阶段裁定 `internal-pilot`，

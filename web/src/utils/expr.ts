@@ -57,7 +57,8 @@ function tokenize(src: string): Token[] {
   return tokens
 }
 
-/** 内置函数（数学 + 常用聚合；标识符命中函数名且后随 '(' 时按调用求值） */
+/** 内置函数（数学 + 三角 + 常用聚合；标识符命中函数名且后随 '(' 时按调用求值）
+ *  M9 批次4 扩容：sin/cos/tan/asin/acos/atan/atan2/exp/log/clamp/sign（与服务端 expr_eval.py 同构）。 */
 const BUILTINS: Record<string, (...args: number[]) => unknown> = {
   abs: Math.abs,
   min: Math.min,
@@ -67,6 +68,17 @@ const BUILTINS: Record<string, (...args: number[]) => unknown> = {
   round: (x: number, n = 0) => Number(Math.round(Number(`${x}e${n}`)) + `e-${n}`),
   pow: Math.pow,
   sqrt: Math.sqrt,
+  sin: Math.sin,
+  cos: Math.cos,
+  tan: Math.tan,
+  asin: Math.asin,
+  acos: Math.acos,
+  atan: Math.atan,
+  atan2: Math.atan2,
+  exp: Math.exp,
+  log: Math.log,
+  clamp: (x: number, lo = 0, hi = 1) => (x < lo ? lo : x > hi ? hi : x),
+  sign: Math.sign,
 }
 
 function toNum(v: unknown): number {

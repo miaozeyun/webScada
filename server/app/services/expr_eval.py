@@ -219,6 +219,110 @@ def _builtin_sqrt(*args: float) -> float:
     return math.sqrt(args[0])
 
 
+def _nan_if_not_finite(x: float) -> float:
+    """JS Math.sin/cos/tan/asin/acos/atan 对非有限入参一律 NaN（含 ±Infinity）。"""
+    return x if math.isfinite(x) else math.nan
+
+
+def _builtin_sin(*args: float) -> float:
+    return _nan_if_not_finite(math.sin(args[0])) if args else math.nan
+
+
+def _builtin_cos(*args: float) -> float:
+    return _nan_if_not_finite(math.cos(args[0])) if args else math.nan
+
+
+def _builtin_tan(*args: float) -> float:
+    return _nan_if_not_finite(math.tan(args[0])) if args else math.nan
+
+
+def _builtin_asin(*args: float) -> float:
+    if not args:
+        return math.nan
+    x = args[0]
+    if not math.isfinite(x):
+        return math.nan
+    try:
+        return _nan_if_not_finite(math.asin(x))  # 域外 |x|>1：JS NaN，Python ValueError
+    except ValueError:
+        return math.nan
+
+
+def _builtin_acos(*args: float) -> float:
+    if not args:
+        return math.nan
+    x = args[0]
+    if not math.isfinite(x):
+        return math.nan
+    try:
+        return _nan_if_not_finite(math.acos(x))
+    except ValueError:
+        return math.nan
+
+
+def _builtin_atan(*args: float) -> float:
+    return _nan_if_not_finite(math.atan(args[0])) if args else math.nan
+
+
+def _builtin_atan2(*args: float) -> float:
+    if len(args) < 2 or math.isnan(args[0]) or math.isnan(args[1]):
+        return math.nan  # JS atan2(NaN,*) = NaN；±Inf 组合双端一致（均为数学定义值）
+    return math.atan2(args[0], args[1])
+
+
+def _builtin_exp(*args: float) -> float:
+    if not args:
+        return math.nan
+    x = args[0]
+    if math.isnan(x):
+        return math.nan
+    try:
+        return math.exp(x)  # exp(+Inf)=Inf / exp(-Inf)=0 双端一致
+    except OverflowError:
+        return math.inf  # JS Math.exp(1000) = Infinity
+
+
+def _builtin_log(*args: float) -> float:
+    if not args:
+        return math.nan
+    x = args[0]
+    if math.isnan(x):
+        return math.nan
+    if x == 0:
+        return -math.inf  # JS Math.log(0) = -Infinity
+    if x < 0:
+        return math.nan  # JS Math.log(-1) = NaN
+    return math.log(x)
+
+
+def _builtin_clamp(*args: float) -> float:
+    """镜像 TS clamp(x, lo=0, hi=1)：NaN 经比较链原样返回（比较恒 False → 返回 x）。"""
+    if not args:
+        return math.nan
+    x = args[0]
+    lo = args[1] if len(args) > 1 else 0.0
+    hi = args[2] if len(args) > 2 else 1.0
+    if x < lo:
+        return lo
+    if x > hi:
+        return hi
+    return x
+
+
+def _builtin_sign(*args: float) -> float:
+    """JS Math.sign：NaN→NaN；正→1；负→-1；±0→0/±0（统一 0.0，弱类型场景无差）。"""
+    if not args:
+        return math.nan
+    x = args[0]
+    if math.isnan(x):
+        return math.nan
+    if x > 0:
+        return 1.0
+    if x < 0:
+        return -1.0
+    return 0.0
+
+
 # 内置函数（标识符命中函数名且后随 '(' 时按调用求值；与前端 BUILTINS 表一一对应）
 BUILTINS: dict[str, Callable[..., float]] = {
     "abs": _builtin_abs,
@@ -229,6 +333,17 @@ BUILTINS: dict[str, Callable[..., float]] = {
     "round": _builtin_round,
     "pow": _builtin_pow,
     "sqrt": _builtin_sqrt,
+    "sin": _builtin_sin,
+    "cos": _builtin_cos,
+    "tan": _builtin_tan,
+    "asin": _builtin_asin,
+    "acos": _builtin_acos,
+    "atan": _builtin_atan,
+    "atan2": _builtin_atan2,
+    "exp": _builtin_exp,
+    "log": _builtin_log,
+    "clamp": _builtin_clamp,
+    "sign": _builtin_sign,
 }
 
 _CONSTANTS = {"true", "false", "null"}

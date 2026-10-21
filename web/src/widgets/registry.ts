@@ -7,6 +7,7 @@ import { markRaw, type Component } from 'vue'
 import {
   Clock,
   Cloudy,
+  Collection,
   CollectionTag,
   Compass,
   DataAnalysis,
@@ -42,7 +43,9 @@ import MultiSwitchWidget from './basic/MultiSwitchWidget.vue'
 import ProgressWidget from './basic/ProgressWidget.vue'
 import RectWidget from './basic/RectWidget.vue'
 import StateTextWidget from './basic/StateTextWidget.vue'
+import SymbolWidget from './basic/SymbolWidget.vue'
 import SwitchWidget from './basic/SwitchWidget.vue'
+import TitleBarWidget from './basic/TitleBarWidget.vue'
 import TableWidget from './basic/TableWidget.vue'
 import TextWidget from './basic/TextWidget.vue'
 import VarDisplayWidget from './basic/VarDisplayWidget.vue'
@@ -91,7 +94,7 @@ export interface WidgetMeta {
   name: string
   /** Element Plus 图标组件（注册时 markRaw）；缺省时面板/图层渲染组件本体缩略图 */
   epIcon?: Component
-  category: 'basic' | 'chart' | 'device'
+  category: 'basic' | 'chart' | 'device' | 'decor'
   /** 新建默认尺寸（设计 px） */
   defaultSize: { w: number; h: number }
   /** 默认 props（函数返回，避免共享引用） */
@@ -499,6 +502,46 @@ register({
   defaultProps: () => ({}),
   propsSchema: [],
   renderer: TransformerWidget,
+})
+
+// ---- 行业图元（M9 批次1，对标 BY组态「图元图库」）：一个通用组件承载资产库全部 SVG ----
+
+register({
+  type: 'symbol',
+  name: '行业图元',
+  epIcon: markRaw(Collection),
+  category: 'device',
+  defaultSize: { w: 120, h: 120 },
+  defaultProps: () => ({ symbolId: 'valve/globe' }),
+  propsSchema: [
+    { key: 'symbolId', label: '图元 ID（从左侧「图元库」拖入自动填充）', type: 'text', defaultValue: 'valve/globe' },
+  ],
+  renderer: SymbolWidget,
+})
+
+// ---- 画面装饰（M9 批次3，对标 BY组态「画面装饰」）：纯装饰组件不绑数据 ----
+
+register({
+  type: 'title-bar',
+  name: '标题栏',
+  category: 'decor',
+  defaultSize: { w: 800, h: 72 },
+  defaultProps: () => ({ text: '监控大屏', align: 'center' }),
+  propsSchema: [
+    { key: 'text', label: '标题文字', type: 'text', defaultValue: '监控大屏' },
+    {
+      key: 'align',
+      label: '对齐',
+      type: 'select',
+      options: [
+        { label: '居中', value: 'center' },
+        { label: '居左', value: 'left' },
+        { label: '居右', value: 'right' },
+      ],
+      defaultValue: 'center',
+    },
+  ],
+  renderer: TitleBarWidget,
 })
 
 // ---- 图表类（M2b：echarts 按需渲染，P0 静态模拟序列，M3 起绑定驱动） ----

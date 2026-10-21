@@ -4,6 +4,7 @@
  * 组件上：复制/粘贴/剪切/删除/锁定|解锁/置顶/置底/上移/下移/组合|拆分；空白处：粘贴。
  */
 import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useEditorStore } from '@/stores/editor'
 
 const editor = useEditorStore()
@@ -15,6 +16,22 @@ const hasGroup = computed(() => editor.selectedNodes.some((n) => n.type === 'gro
 function run(fn: () => void): void {
   editor.closeContextMenu()
   fn()
+}
+
+/** M9 批次2：选中组件存为可复用图元（资产面板「我的」Tab） */
+async function saveAsMySymbol(): Promise<void> {
+  const first = editor.selectedNodes[0]
+  if (!first) return
+  try {
+    const { value } = await ElMessageBox.prompt('图元名称', '存为我的图元', {
+      inputValue: first.name,
+      inputValidator: (v: string) => v.trim().length > 0 || '名称不能为空',
+    })
+    editor.saveMySymbol(value)
+    ElMessage.success('已存入「我的」图元库')
+  } catch {
+    /* 取消 */
+  }
 }
 
 // 点击任意处/滚轮 关闭菜单
@@ -51,6 +68,8 @@ onBeforeUnmount(() => window.removeEventListener('pointerdown', onGlobalDown, tr
         <li v-if="!allLocked && editor.selection.length >= 2" class="sep" />
         <li v-if="!allLocked && editor.selection.length >= 2" @click="run(() => editor.groupSelection())">组合 <kbd>Ctrl+G</kbd></li>
         <li v-if="!allLocked && hasGroup" @click="run(() => editor.ungroupSelection())">拆分 <kbd>Ctrl+Shift+G</kbd></li>
+        <li v-if="!allLocked" class="sep" />
+        <li v-if="!allLocked" @click="run(() => saveAsMySymbol())">存为我的图元</li>
       </template>
       <template v-else>
         <li :class="{ disabled: editor.clipboard.length === 0 }" @click="editor.clipboard.length && run(() => editor.pasteClipboard())">粘贴</li>

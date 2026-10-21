@@ -194,3 +194,46 @@ def test_compile_cache():
     assert eval_expr("a + 1", scope) == 2
     scope["a"] = 41
     assert eval_expr("a + 1", scope) == 42
+
+
+# ---------------- M9 批次4 扩容：三角 / 指数对数 / clamp / sign ----------------
+
+
+def test_trig_functions():
+    assert ev("sin(0)") == 0
+    assert ev("cos(0)") == 1
+    assert abs(ev("tan(1)") - math.tan(1)) < 1e-12
+    assert ev("sin(1/0)") == 0  # 1/0=0（零除语义）→ sin(0)=0
+
+
+def test_inverse_trig_domain():
+    assert abs(ev("asin(1)") - math.pi / 2) < 1e-12
+    assert abs(ev("acos(1)") - 0) < 1e-12
+    assert math.isnan(ev("asin(2)"))  # 域外 NaN（JS 语义，Python 原生抛 ValueError）
+    assert math.isnan(ev("acos(-1.5)"))
+    assert abs(ev("atan2(1, 1)") - math.pi / 4) < 1e-12
+
+
+def test_exp_log_js_semantics():
+    assert ev("exp(0)") == 1
+    assert ev("log(1)") == 0
+    assert ev("log(0)") == -math.inf  # JS Math.log(0) = -Infinity
+    assert math.isnan(ev("log(-1)"))  # JS Math.log(-1) = NaN
+    assert ev("exp(1000)") == math.inf  # Python OverflowError → JS Infinity
+
+
+def test_clamp_and_sign():
+    assert ev("clamp(5, 0, 1)") == 1
+    assert ev("clamp(-3, 0, 1)") == 0
+    assert ev("clamp(0.4)") == 0.4  # 缺省 lo=0 hi=1
+    assert ev("clamp(2, 0, 1)") == 1
+    assert ev("sign(-3)") == -1
+    assert ev("sign(2.5)") == 1
+    assert ev("sign(0)") == 0
+    assert ev("sign(0/0)") == 0  # 0/0=0（零除语义）→ sign(0)=0
+
+
+def test_new_functions_in_virtual_expr():
+    """扩容函数在典型虚拟变量表达式中的可用性。"""
+    assert ev("clamp(a * 1.4, 0, 100)", {"a": 90.0}) == 100.0
+    assert ev("abs(sin(b)) < 0.5", {"b": 0.1}) is True

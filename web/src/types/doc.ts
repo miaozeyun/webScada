@@ -180,6 +180,10 @@ export type WidgetType =
   | 'var-display' | 'state-text' | 'switch' | 'multi-switch' | 'input-cmd'
   | 'tank' | 'flow-bar' | 'image-switch' | 'web-frame' | 'video' | 'weather' | 'clock' | 'history-chart'
   | 'breaker' | 'isolator' | 'ground' | 'ct' | 'pt' | 'transformer'
+  // ---- M9 批次1 新增（对标 BY组态「图元图库」）----
+  | 'symbol'
+  // ---- M9 批次3 新增（画面装饰）----
+  | 'title-bar'
   | 'group'
 
 export interface PageBackground { color: string; image?: string | null }
@@ -190,6 +194,8 @@ export interface ScreenCfg {
   mode: AdaptiveMode
   /** 运行态锁定画面：禁止滚动/拖拽（BY组态「不让实时画面移动」） */
   lockPan?: boolean
+  /** M9 批次5：画面方向强制（auto=跟随时口；landscape/portrait 在视口方向不符时运行态自动旋转 90°） */
+  orientation?: 'auto' | 'landscape' | 'portrait'
 }
 
 export interface ComponentStyle {
@@ -326,6 +332,20 @@ export interface AlarmRule {
 
 // ============ 顶层 ============
 
+// ---- 我的图元（M9 批次2）：选中组件/组存为可复用资产，坐标归一化到包围盒原点 ----
+
+export interface MySymbolDef {
+  id: string
+  label: string
+  /** 展平后的节点集（group 已拆平为绝对坐标；插入时整体 id 重映射） */
+  nodes: ComponentNode[]
+  createdAt: string
+}
+
+export interface DocAssets {
+  mySymbols: MySymbolDef[]
+}
+
 export interface ProjectDoc {
   schemaVersion: number
   project: ProjectMeta
@@ -334,6 +354,8 @@ export interface ProjectDoc {
   variables: VariableDef[]
   pages: Page[]
   alarmRules: AlarmRule[]
+  /** M9 批次2：用户资产库（可选字段，旧 doc 缺省视为空；schemaVersion 不变） */
+  assets?: DocAssets | null
 }
 
 // ============ M8 服务端运行态：WS 帧类型（增量追加，契约 docs/design/03 §3.4 + 实施契约 §5） ============
