@@ -42,3 +42,11 @@ def test_invalid_inputs_raise():
     with pytest.raises(ValueError): decode_modbus_registers([0x1234], "float32", "ABCD")
     with pytest.raises(ValueError): decode_modbus_registers([0x0001], "int9", "ABCD")
     with pytest.raises(ValueError): encode_modbus_registers(-1, "uint16", "ABCD")
+
+
+def test_encode_float32_overflow_converted_to_value_error():
+    import pytest
+    # 1e300 超出 float32 表示域：struct.pack 抛 OverflowError，必须转译为 ValueError——
+    # 回归钉死（防后续重构删掉转译逻辑后编码器直接漏 OverflowError 而测试仍绿）
+    with pytest.raises(ValueError):
+        encode_modbus_registers(1e300, "float32", "ABCD")

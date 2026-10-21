@@ -1,10 +1,12 @@
 """ModbusSource 批量读分组 + 32 位解码 + 变量级 unitId 测试（工厂可用阶段一 Task 4）。
 
-两层验证：
+三层验证：
 - plan_modbus_reads 纯函数：连续/小间隙合并、单组 120 字上限、不跨 unit/区合并、非法地址跳过；
 - run 循环（FakeClient 桩替 pymodbus 客户端，monkeypatch pymodbus.client.AsyncModbusTcpClient）：
   按组一次读、组内按 offset 切片解码、变量级 unitId 覆盖源级、非法地址每轮标 bad。
   run 测试模式：intervalMs=60s → asyncio.wait_for(0.5s) 超时内恰跑一轮（首轮立即执行、随后长睡被取消）。
+- write（Task 5）：float32 按 dataType 编码走 write_registers 双字、int16 仍 write_register 单值、
+  coil 写 bool 不变；unitId 解析与读路径一致（变量级优先回落源级）。
 """
 import asyncio
 import sys
@@ -83,6 +85,20 @@ class FakeClient:
     async def read_discrete_inputs(self, offset: int, count: int = 1, device_id: int = 1) -> _ReadResult:
         self.calls.append(("read_discrete_inputs", offset, count, device_id))
         return _ReadResult(bits=[self.bits.get(offset + i, False) for i in range(count)])
+
+    # -- 写桩（Task 5）：记录 (method, offset, value/values, device_id)，isError 恒 False --
+
+    async def write_coil(self, offset: int, value: bool, device_id: int = 1) -> _ReadResult:
+        self.calls.append(("write_coil", offset, bool(value), device_id))
+        return _ReadResult(bits=[bool(value)])
+
+    async def write_register(self, offset: int, value: int, device_id: int = 1) -> _ReadResult:
+        self.calls.append(("write_register", offset, value, device_id))
+        return _ReadResult(registers=[value])
+
+    async def write_registers(self, offset: int, values: list[int], device_id: int = 1) -> _ReadResult:
+        self.calls.append(("write_registers", offset, list(values), device_id))
+        return _ReadResult(registers=list(values))
 
 
 def _reset_fake(registers: dict[int, int] | None = None, bits: dict[int, bool] | None = None) -> None:
@@ -182,3 +198,46 @@ async def test_run_marks_bad_for_invalid_address(monkeypatch):
     source = ModbusSource(uuid.uuid4(), _ds(), [_var("bad", "abc"), _var("ok", "40001")])
     ingested = await _run_one_round(monkeypatch, source)
     assert ingested == {"bad": None, "ok": 5}  # 非法地址每轮标 bad，合法变量正常入池
+
+
+# ---------------- write（多寄存器编码，Task 5） ----------------
+
+
+def _patch_ingest(monkeypatch: pytest.MonkeyPatch, source: ModbusSource) -> list[tuple[str, Any]]:
+    """monkeypatch 实例 _ingest 收集 (key, raw)——write 不经 run，须替掉 _hub 依赖。"""
+    ingested: list[tuple[str, Any]] = []
+    monkeypatch.setattr(source, "_ingest", lambda var, raw, ts=None: ingested.append((var.key, raw)))
+    return ingested
+
+
+async def test_write_float32_encodes_two_registers(monkeypatch):
+    # float32 100.0 @40101（offset 100）→ write_registers(100, [0x42C8, 0x0000], device_id=1)
+    _reset_fake()
+    monkeypatch.setattr("pymodbus.client.AsyncModbusTcpClient", FakeClient)
+    source = ModbusSource(uuid.uuid4(), _ds(), [_var("f32", "40101", modbusDataType="float32")])
+    ingested = _patch_ingest(monkeypatch, source)
+    await source.write(source.variables[0], 100.0)
+    assert FakeClient.calls == [("write_registers", 100, [0x42C8, 0x0000], 1)]
+    assert ingested == [("f32", 100.0)]  # 写后本地回环 _ingest 写入值
+
+
+async def test_write_int16_single_register_with_var_unit_id(monkeypatch):
+    # int16（缺省 dataType）仍走 write_register 单值；变量级 unitId=2 覆盖源级 1
+    _reset_fake()
+    monkeypatch.setattr("pymodbus.client.AsyncModbusTcpClient", FakeClient)
+    source = ModbusSource(uuid.uuid4(), _ds(unitId=1), [_var("i16", "40005", unitId=2)])
+    ingested = _patch_ingest(monkeypatch, source)
+    await source.write(source.variables[0], 123)
+    assert FakeClient.calls == [("write_register", 4, 123, 2)]
+    assert ingested == [("i16", 123)]
+
+
+async def test_write_coil_bool_unchanged(monkeypatch):
+    # coil 区写 bool 走 write_coil，语义不变（unitId 回落源级 1）
+    _reset_fake()
+    monkeypatch.setattr("pymodbus.client.AsyncModbusTcpClient", FakeClient)
+    source = ModbusSource(uuid.uuid4(), _ds(), [_var("c1", "00003", vtype="boolean")])
+    ingested = _patch_ingest(monkeypatch, source)
+    await source.write(source.variables[0], True)
+    assert FakeClient.calls == [("write_coil", 2, True, 1)]
+    assert ingested == [("c1", True)]

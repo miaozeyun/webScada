@@ -31,7 +31,7 @@ from app.core.config import settings
 from app.schemas.doc import DataSource, VariableDef
 from app.services import convert
 from app.services.convert import MISSING
-from app.services.modbus_codec import decode_modbus_registers, modbus_word_count
+from app.services.modbus_codec import decode_modbus_registers, encode_modbus_registers, modbus_word_count
 
 _NANOID_ALPHABET = string.ascii_letters + string.digits
 
@@ -667,17 +667,32 @@ class ModbusSource(BaseSource):
         if area not in ("coil", "holding"):
             raise RuntimeError("仅线圈(0xxxx)与保持寄存器(4xxxx)支持写入")
         cfg = self.ds.config
+        # unitId 解析与读路径一致：变量级优先回落源级
+        unit = variable.unitId if variable.unitId is not None else cfg.unitId
         client = AsyncModbusTcpClient(cfg.host, port=cfg.port, timeout=cfg.timeoutMs / 1000)
         try:
             await client.connect()
             if area == "coil":
-                rr = await client.write_coil(offset, bool(value), device_id=cfg.unitId)
+                rr = await client.write_coil(offset, bool(value), device_id=unit)
+                written: Any = bool(value)
             else:
-                rr = await client.write_register(offset, int(round(float(value))), device_id=cfg.unitId)
+                # holding 区按变量 dataType 编码（缺省 int16；byteOrder 缺省 ABCD）
+                data_type = variable.modbusDataType or "int16"
+                try:
+                    # 整型区沿用旧语义：浮点写值四舍五入取整（float32 直接收浮点）
+                    written = float(value) if data_type == "float32" else int(round(float(value)))
+                    words = encode_modbus_registers(written, data_type, variable.modbusByteOrder or "ABCD")
+                except (ValueError, TypeError, OverflowError) as exc:
+                    # 编码失败（值非法/越界）→ RuntimeError：ws 层统一转 writeAck WRITE_FAILED，链路不变
+                    raise RuntimeError(f"变量 {variable.key} 写入值编码失败（{data_type}）：{exc}") from exc
+                if len(words) == 1:
+                    rr = await client.write_register(offset, words[0], device_id=unit)
+                else:
+                    rr = await client.write_registers(offset, words, device_id=unit)
             if rr.isError():
                 raise RuntimeError(f"Modbus 写入失败（{variable.address}）")
-            # 写后回读同址（写确认语义；失败不阻断——下一轮轮询自然刷新）
-            self._ingest(variable, bool(value) if area == "coil" else int(round(float(value))))
+            # 写后本地回环（写确认语义；失败不阻断——下一轮轮询自然刷新）
+            self._ingest(variable, written)
         finally:
             client.close()
 
