@@ -6,9 +6,11 @@
  */
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Upload } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { newId } from '@/utils/nanoid'
+import { parsePointCsv, POINT_CSV_COLUMNS } from '@/utils/pointCsv'
+import type { PointCsvError, PointCsvRow } from '@/utils/pointCsv'
 import { VIRTUAL_DATASOURCE_ID } from '@/types/doc'
 import { testDatasource } from '@/api/datasources'
 import type {
@@ -299,6 +301,92 @@ async function removeVar(v: VariableDef): Promise<void> {
   markDirty()
 }
 
+// ================= CSV 批量导入（工厂可用阶段一 Task 6） =================
+
+const csvFileInput = ref<HTMLInputElement>()
+const csvVisible = ref(false)
+const csvFileName = ref('')
+const csvRows = ref<PointCsvRow[]>([])
+const csvErrors = ref<PointCsvError[]>([])
+/** 导入目标数据源：CSV 不含数据源/凭证列（K11），凭证只在数据源表单配置 */
+const csvDsId = ref('')
+
+function openCsvPicker(): void {
+  csvFileInput.value?.click()
+}
+
+function onCsvFileChange(e: Event): void {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = '' // 复位以允许再次选择同一文件
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    const r = parsePointCsv(String(reader.result ?? ''))
+    csvFileName.value = file.name
+    csvRows.value = r.rows
+    csvErrors.value = r.rows.length || r.errors.length ? r.errors : [{ line: 1, message: '文件中没有可导入的数据行' }]
+    csvDsId.value = datasources.value[0]?.id ?? ''
+    csvVisible.value = true
+  }
+  reader.onerror = () => ElMessage.error('文件读取失败')
+  reader.readAsText(file)
+}
+
+/** 与工程已有 key 重复的行（key 唯一且不可改 → 跳过并计数，不报错） */
+const csvDupKeys = computed(() => {
+  const existing = new Set(variables.value.map((v) => v.key))
+  return new Set(csvRows.value.filter((r) => existing.has(r.key)).map((r) => r.key))
+})
+
+/** 行内携带 Modbus 字段而目标数据源非 modbus：服务端跨检会整体 422，导入前置拦截 */
+const csvModbusConflict = computed(() => {
+  if (datasources.value.find((d) => d.id === csvDsId.value)?.type === 'modbus') return 0
+  return csvRows.value.filter((r) => r.modbusDataType != null || r.modbusByteOrder != null || r.unitId != null).length
+})
+
+const csvImportable = computed(() => csvRows.value.filter((r) => !csvDupKeys.value.has(r.key)))
+
+const csvCanImport = computed(
+  () => !!csvDsId.value && csvErrors.value.length === 0 && csvImportable.value.length > 0 && csvModbusConflict.value === 0,
+)
+
+/** 逐行构造 VariableDef（字段映射与 saveVar 同构）后追加，doc 级数据变更不入 undo 栈 */
+function confirmCsvImport(): void {
+  const doc = editor.doc!
+  const isMock = datasources.value.find((d) => d.id === csvDsId.value)?.type === 'mock'
+  for (const r of csvImportable.value) {
+    doc.variables.push({
+      id: newId('var'),
+      key: r.key,
+      label: r.label,
+      type: r.type,
+      unit: r.unit || null,
+      defaultValue: null,
+      datasourceId: csvDsId.value,
+      address: r.address,
+      jsonPath: r.jsonPath || null,
+      expr: null,
+      writable: r.writable === true,
+      writeAddress: r.writeAddress || null,
+      // 换算缺省语义与 saveVar 同构：scale=1/offset=0 归一为 null；precision 缺省 2（bitIndex 互斥时为 null）
+      scale: r.scale != null && r.scale !== 1 ? r.scale : null,
+      offset: r.offset != null && r.offset !== 0 ? r.offset : null,
+      precision: r.type === 'number' && r.bitIndex == null ? (r.precision ?? 2) : null,
+      bitIndex: r.bitIndex ?? null,
+      mock: isMock ? { kind: 'sine', min: 0, max: 100, periodMs: 30000 } : null,
+      range: r.range ?? null,
+      modbusDataType: r.modbusDataType ?? null,
+      modbusByteOrder: r.modbusByteOrder ?? null,
+      unitId: r.unitId ?? null,
+    })
+  }
+  const skipped = csvRows.value.length - csvImportable.value.length
+  csvVisible.value = false
+  ElMessage.success(skipped ? `已导入 ${csvImportable.value.length} 个变量，跳过已有 key ${skipped} 个` : `已导入 ${csvImportable.value.length} 个变量`)
+  markDirty()
+}
+
 // ================= 报警规则 =================
 
 const almVisible = ref(false)
@@ -405,9 +493,14 @@ async function removeAlm(r: AlarmRule): Promise<void> {
       <!-- 变量 -->
       <el-tab-pane :label="`变量（${variables.length}）`" name="variables">
         <div class="pane">
-          <el-button size="small" type="primary" plain :icon="Plus" :disabled="!datasources.length" @click="openVar()">
-            新增变量
-          </el-button>
+          <div class="toolbar">
+            <el-button size="small" type="primary" plain :icon="Plus" :disabled="!datasources.length" @click="openVar()">
+              新增变量
+            </el-button>
+            <el-button size="small" plain :icon="Upload" :disabled="!datasources.length" @click="openCsvPicker">
+              导入 CSV
+            </el-button>
+          </div>
           <el-table :data="variables" size="small" empty-text="暂无变量">
             <el-table-column prop="key" label="key" min-width="100" />
             <el-table-column prop="label" label="名称" min-width="90" />
@@ -645,6 +738,73 @@ async function removeAlm(r: AlarmRule): Promise<void> {
       </template>
     </el-dialog>
 
+    <!-- CSV 批量导入预览（工厂可用阶段一 Task 6） -->
+    <el-dialog v-model="csvVisible" title="导入点位 CSV" width="760px" append-to-body>
+      <div class="csv-summary">
+        <span>{{ csvFileName }}</span>
+        <span>解析成功 {{ csvRows.length }} 行</span>
+        <span v-if="csvDupKeys.size">将跳过已有 key {{ csvDupKeys.size }} 个</span>
+        <span v-if="csvErrors.length" class="csv-err">错误 {{ csvErrors.length }} 条</span>
+      </div>
+      <div class="form-hint csv-header-hint">
+        表头固定英文列名（前四列必填）：{{ POINT_CSV_COLUMNS.join(',') }}
+      </div>
+      <el-form label-width="92px" size="small">
+        <el-form-item label="目标数据源" required>
+          <el-select v-model="csvDsId">
+            <el-option v-for="d in datasources" :key="d.id" :label="`${d.name}（${TYPE_LABEL[d.type]}）`" :value="d.id" />
+          </el-select>
+          <span class="form-hint">CSV 不设凭证列，凭证在数据源表单配置</span>
+        </el-form-item>
+      </el-form>
+      <el-alert
+        v-if="csvModbusConflict"
+        type="error" :closable="false" show-icon
+        :title="`${csvModbusConflict} 行携带 Modbus 字段（modbusDataType/modbusByteOrder/unitId），目标数据源须选择 Modbus TCP 类型`"
+      />
+      <el-table v-if="csvRows.length" :data="csvRows.slice(0, 20)" size="small" max-height="300">
+        <el-table-column prop="key" label="key" min-width="110" />
+        <el-table-column prop="label" label="名称" min-width="110" />
+        <el-table-column label="类型" width="100">
+          <template #default="{ row }">
+            {{ row.type }}<el-tag v-if="row.writable" type="success" size="small" style="margin-left: 2px">可写</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="address" label="地址" min-width="90" />
+        <el-table-column label="换算" min-width="110">
+          <template #default="{ row }">
+            <span v-if="row.bitIndex != null">bit{{ row.bitIndex }}</span>
+            <span v-else-if="row.scale != null || row.offset != null || row.precision != null">
+              ×{{ row.scale ?? 1 }} +{{ row.offset ?? 0 }} p{{ row.precision ?? '-' }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="量程" width="90">
+          <template #default="{ row }">{{ row.range ? `${row.range.min} ~ ${row.range.max}` : '' }}</template>
+        </el-table-column>
+        <el-table-column label="Modbus" min-width="130">
+          <template #default="{ row }">
+            {{ [row.modbusDataType ?? '', row.modbusByteOrder ?? '', row.unitId != null ? `u${row.unitId}` : ''].filter(Boolean).join('/') }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="70">
+          <template #default="{ row }">
+            <el-tag v-if="csvDupKeys.has(row.key)" type="info" size="small">跳过</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-if="csvRows.length > 20" class="form-hint">仅预览前 20 行，共 {{ csvRows.length }} 行</div>
+      <div v-if="csvErrors.length" class="csv-errors">
+        <div v-for="(e, i) in csvErrors" :key="i">第 {{ e.line }} 行：{{ e.message }}</div>
+      </div>
+      <template #footer>
+        <el-button @click="csvVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!csvCanImport" @click="confirmCsvImport">
+          导入{{ csvImportable.length ? `（${csvImportable.length} 个）` : '' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 报警规则表单 -->
     <el-dialog v-model="almVisible" :title="almForm.id ? '编辑规则' : '新增规则'" width="500px" append-to-body>
       <el-form label-width="92px" size="small">
@@ -687,6 +847,9 @@ async function removeAlm(r: AlarmRule): Promise<void> {
         <el-button type="primary" @click="saveAlm">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- CSV 文件选择（隐藏，避免原生控件样式） -->
+    <input ref="csvFileInput" class="hidden-file" type="file" accept=".csv,text/csv" @change="onCsvFileChange" />
   </el-drawer>
 </template>
 
@@ -700,6 +863,43 @@ async function removeAlm(r: AlarmRule): Promise<void> {
 /* 新增按钮不随 flex 容器拉伸的全宽横条，保持左对齐的小尺寸主操作 */
 .pane > .el-button {
   align-self: flex-start;
+}
+
+/* 工具条（变量 tab：新增 / 导入 CSV） */
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-self: flex-start;
+}
+
+.hidden-file {
+  display: none;
+}
+
+.csv-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--ws-text-2);
+}
+
+.csv-summary .csv-err {
+  color: var(--ws-alert);
+}
+
+.csv-header-hint {
+  display: block;
+  margin: 4px 0 10px;
+}
+
+.csv-errors {
+  margin-top: 8px;
+  max-height: 150px;
+  overflow: auto;
+  color: var(--ws-alert);
+  font-size: 12px;
+  line-height: 1.9;
 }
 
 .form-row2 {
