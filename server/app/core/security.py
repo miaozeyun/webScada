@@ -1,20 +1,27 @@
-"""鉴权与安全：bcrypt 密码、PyJWT 签发校验、jti 黑名单（登出）、登录失败锁定。
+"""鉴权与安全：bcrypt 密码、PyJWT 签发校验、jti 黑名单（登出）、登录失败锁定、refresh token。
 
 口径（docs/design/03-接口清单 §1.2/§2.2）：
 - JWT HS256，有效期默认 2h；登出 = 当前 token 的 jti 进入进程内黑名单（单 worker；重启黑名单清空，
   残留 token 寿命 ≤2h，可接受并已声明）
 - 改密不做全局 token 作废：旧 token 有效至自然过期
 - 登录同用户名连续失败 5 次锁 60s（内存计数，429）
+- refresh token（阶段二 Task 3）：明文 = secrets.token_urlsafe(48)，库内只存 sha256，有效期 7 天；
+  轮换一次性消费、复用已吊销 token 即判定泄露重放并吊销该 user 全部 refresh；状态全落库
 """
+import hashlib
+import secrets
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import AppError
+from app.db.models import RefreshToken
 
 # ---------------- 密码 ----------------
 
@@ -131,3 +138,83 @@ _DUMMY_HASH = hash_password("timing-equalizer-dummy")
 def dummy_verify(plain: str) -> None:
     """与 verify_password 同代价但结果丢弃，用于对齐"用户不存在"分支的响应耗时。"""
     bcrypt.checkpw(plain.encode("utf-8"), _DUMMY_HASH.encode("utf-8"))
+
+
+# ---------------- refresh token（阶段二 Task 3：操作员免重登）----------------
+# access JWT 语义零改动；refresh 只在 rememberMe=true 时签发，access 过期后由前端
+# 401 单飞刷新（POST /auth/refresh）轮换取新对。状态全落库（无进程内 dict，
+# conftest 的安全态重置口径不受影响）。
+
+REFRESH_TOKEN_DAYS = 7
+
+
+def hash_refresh_token(raw: str) -> str:
+    """库内存储口径：sha256 十六进制（64 字符）。明文不落库、不进日志。"""
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+async def issue_refresh_token(db: AsyncSession, user_id: uuid.UUID) -> str:
+    """签发一枚 refresh token（hash 落库，返回明文——仅在响应体出现一次）。"""
+    raw = secrets.token_urlsafe(48)
+    db.add(
+        RefreshToken(
+            user_id=user_id,
+            token_hash=hash_refresh_token(raw),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_DAYS),
+        )
+    )
+    await db.commit()
+    return raw
+
+
+async def revoke_refresh_token(db: AsyncSession, raw: str) -> bool:
+    """吊销一枚 refresh（登出携带 refreshToken 时调用）。返回是否命中未吊销记录。"""
+    result = await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.token_hash == hash_refresh_token(raw), RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+    await db.commit()
+    return result.rowcount == 1
+
+
+async def rotate_refresh_token(db: AsyncSession, raw: str) -> tuple[uuid.UUID, str] | None:
+    """一次性轮换：合法（存在 / 未吊销 / 未过期）→ 旧记录置 revoked + 签发新对。
+
+    返回 (user_id, 新明文)；None = 拒绝。失败三态：
+    - hash 不存在：普通 401（无 user 可吊销）
+    - 未吊销但已过期：普通 401（过期 ≠ 复用，不作家族吊销）
+    - 已吊销仍复用：疑似泄露重放 → 先吊销该 user 全部未过期 refresh 再 401
+
+    并发双花防护：条件 UPDATE（revoked_at NULL → now）保证同一 token 只有一个赢家
+    （rowcount==1）；输家随后读到已置位的 revoked_at，落入复用分支被全吊销——
+    这正是「检测到复用即视为泄露」的既定安全语义，前端单飞刷新把正常流量挡在前置。
+    """
+    token_hash = hash_refresh_token(raw)
+    now = datetime.now(timezone.utc)
+    won = await db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.token_hash == token_hash,
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > now,
+        )
+        .values(revoked_at=now)
+    )
+    if won.rowcount == 1:
+        record = await db.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
+        new_raw = await issue_refresh_token(db, record.user_id)
+        return record.user_id, new_raw
+
+    record = await db.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
+    if record is None or record.revoked_at is None:
+        # 不存在 / 未吊销但已过期（未吊销且未过期不可能走到这——条件 UPDATE 已赢）
+        return None
+    # 复用已吊销 token：吊销该 user 全部未过期 refresh（防已泄露令牌重放）
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == record.user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    await db.commit()
+    return None

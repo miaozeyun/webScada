@@ -1,6 +1,10 @@
 """认证接口（03-接口清单 §2.2）：
-- login：统一错误文案防枚举；同用户名连续失败 5 次锁 60s（429）；成功/失败落审计 login（M8）
-- logout：当前 token 的 jti 进程内黑名单（重启清空，残留寿命 ≤2h，已声明）
+- login：统一错误文案防枚举；同用户名连续失败 5 次锁 60s（429）；成功/失败落审计 login（M8）；
+  rememberMe=True 额外签发 refresh token（阶段二 Task 3，7 天免重登）
+- refresh：refresh token 一次性轮换（旧吊销 + 新对）；复用已吊销 token → 401 且该 user
+  全部 refresh 吊销（防泄露重放）；access JWT 签发/负载不变
+- logout：当前 token 的 jti 进程内黑名单（重启清空，残留寿命 ≤2h，已声明）；
+  请求体带 refreshToken 则一并吊销
 - password：返回 204；旧 token 至自然过期仍有效（P0 不做全局作废）
 - me：M8 起返回 role 字段（契约 §4.3，UserOut 迁移至 schemas/user.py）
 """
@@ -17,13 +21,23 @@ from app.core.security import (
     decode_access_token,
     dummy_verify,
     hash_password,
+    issue_refresh_token,
     record_login_failure,
     revoke_jti,
+    revoke_refresh_token,
+    rotate_refresh_token,
     verify_password,
 )
 from app.db.base import get_db
 from app.db.models import User
-from app.schemas.auth import ChangePasswordRequest, LoginRequest, LoginResponse
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    LoginResponse,
+    LogoutRequest,
+    RefreshRequest,
+    RefreshResponse,
+)
 from app.schemas.user import UserOut
 from app.services import audit_service
 
@@ -54,16 +68,45 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
 
     clear_login_failure(body.username)
     token, expires_in = create_access_token(str(user.id))
+    # 记住我终端：签发 refresh（sha256 落库、7 天），明文仅本次响应返回
+    refresh_token = await issue_refresh_token(db, user.id) if body.rememberMe else None
     await audit_service.audit(request, user, "login", detail={"success": True, "ip": ip})
-    return LoginResponse(access_token=token, expires_in=expires_in)
+    return LoginResponse(access_token=token, expires_in=expires_in, refresh_token=refresh_token)
+
+
+@router.post("/refresh", response_model=RefreshResponse)
+async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)) -> RefreshResponse:
+    """refresh token 轮换（操作员免重登）。
+
+    失败一律 401（token 不存在 / 已过期 / 复用已吊销；复用同时已由安全层吊销该 user
+    全部 refresh）。新 access 的签发走 create_access_token 唯一入口，语义与登录完全一致。
+    """
+    rotated = await rotate_refresh_token(db, body.refreshToken)
+    if rotated is None:
+        raise AppError("TOKEN_EXPIRED", "登录凭证已失效，请重新登录", 401)
+    user_id, new_refresh = rotated
+    user = await db.get(User, user_id)
+    if user is None:
+        # 签发后用户被删：refresh 随之外键级联清除，此分支仅防御竞态残值
+        raise AppError("TOKEN_EXPIRED", "用户不存在", 401)
+    token, expires_in = create_access_token(str(user.id))
+    return RefreshResponse(access_token=token, expires_in=expires_in, refresh_token=new_refresh)
 
 
 @router.post("/logout", status_code=204)
-async def logout(request: Request, _user: User = Depends(get_current_user)) -> Response:
+async def logout(
+    request: Request,
+    body: LogoutRequest | None = None,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
     auth = request.headers.get("authorization", "")
     token = auth.removeprefix("Bearer ").strip()
     payload = decode_access_token(token)
     revoke_jti(payload.get("jti", ""), payload.get("exp"))
+    # 记住我终端登出：携带 refreshToken 则一并吊销（不带则保持旧行为，仅 access 失效）
+    if body is not None and body.refreshToken:
+        await revoke_refresh_token(db, body.refreshToken)
     return Response(status_code=204)
 
 

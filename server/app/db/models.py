@@ -1,4 +1,4 @@
-"""ORM 模型：与 alembic 0001/0002 迁移一致（G10 权威表结构）。
+"""ORM 模型：与 alembic 0001/0002/0003 迁移一致（G10 权威表结构）。
 
 可移植性说明：doc/doc_snapshot/detail 用 JSON 变体（PostgreSQL 上为 JSONB，测试 SQLite 上为 JSON）；
 UUID 主键由 Python 侧生成（服务端生成，G9），不依赖 PG 的 gen_random_uuid()；
@@ -14,7 +14,22 @@ M8 服务端闭环新增（docs/implementation/server-closed-loop-plan.md 为实
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, Text, Uuid, func, text
+from sqlalchemy import (
+    CHAR,
+    JSON,
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -163,3 +178,29 @@ class HistoryValue(Base):
     variable_key: Mapped[str] = mapped_column(Text, nullable=False)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     value: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class RefreshToken(Base):
+    """refresh token（阶段二 Task 3：操作员免重登）。
+
+    - 库内只存 sha256(token) 十六进制（CHAR(64) 唯一）；明文仅在 login/refresh 响应返回一次
+    - 轮换语义：/auth/refresh 成功 = 旧记录 revoked_at 置位 + 签发新对（一次性消费，
+      条件 UPDATE 防并发双花）
+    - 复用检测：已吊销 token 再次出现 = 疑似泄露重放 → 吊销该 user 全部未过期 refresh
+    - 状态全部落库，无进程内状态（与 jti 黑名单的内存语义刻意不同：重启不丢、可审计）
+    """
+
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_refresh_token_hash"),
+        Index("idx_refresh_user", "user_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)      # 7 天
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # 非 NULL=已吊销/已轮换
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

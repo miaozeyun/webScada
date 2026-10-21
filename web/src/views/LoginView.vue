@@ -13,6 +13,8 @@ const formRef = ref<FormInstance>()
 const loading = ref(false)
 // 不预填用户名：避免向访客暴露有效账号名（admin 为默认管理员）
 const form = reactive({ username: '', password: '' })
+// 记住我（缺省勾选）：签发 7 天 refresh token，access 过期自动续期免重复登录
+const remember = ref(true)
 /** 构建期注入的版本号（vite define __APP_VERSION__，取 package.json） */
 const version = __APP_VERSION__
 
@@ -59,7 +61,7 @@ async function onSubmit(): Promise<void> {
   await formRef.value?.validate()
   loading.value = true
   try {
-    await auth.login(form.username, form.password)
+    await auth.login(form.username, form.password, remember.value)
     router.push((route.query.redirect as string) || '/projects')
   } catch {
     /* 拦截器已提示（统一文案防枚举） */
@@ -168,6 +170,9 @@ async function onSubmit(): Promise<void> {
               autocomplete="current-password"
             />
           </el-form-item>
+          <div class="remember-row">
+            <el-checkbox v-model="remember">记住我 7 天</el-checkbox>
+          </div>
           <el-button type="primary" class="login-btn" :loading="loading" @click="onSubmit">进入控制台</el-button>
         </el-form>
 
@@ -478,6 +483,17 @@ async function onSubmit(): Promise<void> {
   padding-bottom: 5px;
   font-size: 12px;
   font-weight: 500;
+  color: var(--ws-text-2);
+}
+
+.remember-row {
+  display: flex;
+  align-items: center;
+  margin: -4px 0 14px;
+}
+
+.remember-row :deep(.el-checkbox__label) {
+  font-size: 12px;
   color: var(--ws-text-2);
 }
 
