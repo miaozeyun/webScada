@@ -276,6 +276,61 @@ services:
     networks:
       - webscada-net
 
+  # ---- 仿真验证台（profiles: ["sim"]，默认 `docker compose up -d` 不启动，不影响四容器基线）----
+  # 复用 server 镜像（层缓存零重建：pymodbus/aiomqtt 已在依赖内），只读挂载脚本，不新建镜像。
+  # 用途与启动方式见 README.Docker.md「仿真验证台」；寄存器/主题表固化在两脚本 docstring，
+  # scripts/seed_demo.py 演示工程与其一一对照。
+
+  sim-modbus:
+    # Modbus TCP 仿真从站，容器内 :502（不对宿主机发布端口，server 经 webscada-net
+    # 以 sim-modbus:502 访问）。绑定 <1024 特权端口依赖 Docker 默认能力集
+    # NET_BIND_SERVICE（appuser 非 root 亦可绑），勿对本服务叠加 cap_drop
+    profiles: ["sim"]
+    build:
+      context: ./server
+      args:
+        REG_PREFIX: ${REG_PREFIX:-docker.io/}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    # 覆盖镜像 uvicorn 入口：仿真脚本不需要 DB 等待/alembic/create_admin 启动序
+    entrypoint: []
+    command: ["python", "/app/sim/modbus_slave.py"]
+    volumes:
+      - ./scripts/sim:/app/sim:ro
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - webscada-net
+
+  sim-mqtt-gateway:
+    # 3 台设备（line1/line2/line3）周期 1s 向 EMQX 发布；账号沿用 EMQX 默认 MQTT
+    # 客户端凭证（emqx-authn-init 写入），.env 改 EMQX_DEFAULT_* 即全链路生效
+    profiles: ["sim"]
+    build:
+      context: ./server
+      args:
+        REG_PREFIX: ${REG_PREFIX:-docker.io/}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    entrypoint: []
+    command: ["python", "/app/sim/mqtt_gateway.py"]
+    environment:
+      MQTT_URL: emqx:1883
+      MQTT_USERNAME: ${EMQX_DEFAULT_USERNAME:-webscada_mqtt}
+      MQTT_PASSWORD: ${EMQX_DEFAULT_PASSWORD:-webscada_mqtt123}
+    volumes:
+      - ./scripts/sim:/app/sim:ro
+    depends_on:
+      emqx:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - webscada-net
+
+  # sim-opcua（阶段二启用：asyncua 模拟 OPC UA 服务，规格同上——复用 server 镜像、
+  #   profiles: ["sim"]、挂载 scripts/sim、加入 webscada-net；本任务不建）
+
 networks:
   # 显式自定义 bridge：同编排内服务名即 DNS（server:8000 / postgres:5432 / emqx:1883）
   webscada-net:

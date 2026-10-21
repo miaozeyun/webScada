@@ -99,3 +99,32 @@ docker volume inspect webscada_pgdata   # 查看宿主机实际路径
    收缩为 301 跳转；对外只发布 80/443，管理面端口（8083/18083）保持回环绑定。
 5. 容器加固基线：全服务 `no-new-privileges`；server 以非 root（uid 1000）+ `cap_drop ALL`
    运行；postgres/emqx 保留官方镜像所需能力集。
+
+## 7. 仿真验证台（sim profile，可选）
+
+演示 / 联调用的虚拟数据源，不接触真实 PLC 与产线设备。两容器均复用 server 镜像
+（`pymodbus`/`aiomqtt` 已在其依赖内，不新增镜像），挂载 `scripts/sim/` 只读运行：
+
+| 服务 | 模拟对象 | 说明 |
+|------|----------|------|
+| `sim-modbus` | Modbus TCP 从站 `:502` | 寄存器表固化在 `scripts/sim/modbus_slave.py` docstring（正弦计数 / float32 双字节序 23.5、88.0 / int32 -123456 / 线圈），HR 40001~40010 每秒刷新 |
+| `sim-mqtt-gateway` | 3 台产线设备 MQTT 网关 | `line1/line2/line3` 每秒发布 `factory/{dev}/temp`、`factory/{dev}/run` 与 `factory/line1/press`，payload `{"v":…,"ts":…}`；主题表见 `scripts/sim/mqtt_gateway.py` docstring |
+
+启动 / 停止（`profiles: ["sim"]` 隔离，默认 `docker compose up -d` 不会启动它们）：
+
+```bash
+docker compose --profile sim up -d sim-modbus sim-mqtt-gateway   # 或 --profile sim up -d 连基线一起起
+docker compose --profile sim stop sim-modbus sim-mqtt-gateway
+docker compose logs sim-mqtt-gateway --tail 20                   # 可见 factory/line1/temp v=… 发布行
+```
+
+与 [scripts/seed_demo.py](scripts/seed_demo.py) 的配套关系：先起仿真台，再在宿主机执行
+`python scripts/seed_demo.py`（幂等）创建「仿真演示工程」——其 modbus 数据源指向
+`sim-modbus:502`、mqtt 数据源订阅 `factory/#`，变量地址与寄存器表 / 主题表一一对照，
+登录后打开该工程运行态即可看到读数、报警与历史曲线，全程无需真实设备。
+
+报警演示：网关 `line1` 温度为 20~85 ℃ 正弦（周期 60s），首轮 60 秒内必然扫过 80
+（约 8~22s 区间），seed 工程预设 `line1_temp > 75`（warn）报警规则，启动后约 10 秒内
+报警列表即出现记录，每个正弦周期重复触发/恢复一次。
+
+
