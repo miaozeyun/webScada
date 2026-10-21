@@ -97,6 +97,7 @@ def validate_references(model: ProjectDoc) -> None:
     var_ids = {v.id for v in model.variables}
     var_type_by_id = {v.id: v.type for v in model.variables}
     ds_ids = {d.id for d in model.datasources}
+    ds_type_by_id = {d.id: d.type for d in model.datasources}  # 供 Modbus 字段跨检取源类型
 
     # ---- 规则 1：唯一性 ----
     uniq("variables[].id", [(v.id, f"variables[{i}].id") for i, v in enumerate(model.variables)])
@@ -176,6 +177,14 @@ def validate_references(model: ProjectDoc) -> None:
             continue
         if v.datasourceId not in ds_ids:
             errors.append({"path": f"variables[{i}].datasourceId", "message": f"数据源 {v.datasourceId} 不存在"})
+        elif ds_type_by_id[v.datasourceId] != "modbus":
+            # 工厂可用阶段一：Modbus 增量字段跨检——非 modbus 数据源变量禁配三字段
+            for fld in ("modbusDataType", "modbusByteOrder", "unitId"):
+                if getattr(v, fld) is not None:
+                    errors.append({
+                        "path": f"variables[{i}].{fld}",
+                        "message": f"{fld} 仅允许 modbus 数据源变量配置（当前数据源 type={ds_type_by_id[v.datasourceId]}）",
+                    })
 
     # ---- 规则 2/5：报警规则引用与变量类型约束（02 §2.11）----
     for i, rule in enumerate(model.alarmRules):

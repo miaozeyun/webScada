@@ -236,3 +236,35 @@ async def test_mock_hold_and_anim_move_on_accepted(client, auth_headers):
     comp["animations"] = {"move": {"enabled": False, "path": "M 0 0 L 300 0", "periodMs": 8000, "mode": "loop"}}
     resp = await put_doc(client, auth_headers, pid, doc)
     assert resp.status_code == 200
+
+
+# ================= 工厂可用阶段一 Task 3：Modbus 增量字段 + 跨检 =================
+
+
+async def test_modbus_variable_with_modbus_fields_accepted(client, auth_headers):
+    """modbus 数据源变量携带 modbusDataType/modbusByteOrder/unitId → 合法通过"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["datasources"] = [{
+        "id": "ds_modbus_01", "name": "车间 PLC", "type": "modbus", "enabled": True,
+        "config": {"host": "192.168.1.10", "port": 502, "unitId": 1, "intervalMs": 1000},
+    }]
+    doc["variables"][0].update({
+        "datasourceId": "ds_modbus_01", "address": "40101", "jsonPath": None,
+        "modbusDataType": "float32", "modbusByteOrder": "CDAB", "unitId": 2,
+    })
+    doc["variables"][1].update({"datasourceId": "ds_modbus_01", "address": "00001"})
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200
+
+
+async def test_modbus_fields_rejected_on_non_modbus_source(client, auth_headers):
+    """mqtt 变量携带 modbusDataType → 422 reference_error，errors 指向具体字段路径"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["variables"][0]["modbusDataType"] = "float32"  # 所属 ds_mqtt_01 非 modbus → 422
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["code"] == "reference_error"
+    assert any(e["path"] == "variables[0].modbusDataType" for e in body["errors"])

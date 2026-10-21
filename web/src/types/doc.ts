@@ -168,6 +168,13 @@ export interface VariableDef {
   bitIndex?: number | null
   mock?: MockSpec | null
   description?: string | null
+  // ---- Modbus 深化（工厂可用阶段一）：仅 modbus 数据源变量可配，服务端跨检拦截 ----
+  /** Modbus 寄存器数据类型（缺省按区位推导 int16；bit 区运行态忽略本字段） */
+  modbusDataType?: 'int16' | 'uint16' | 'int32' | 'uint32' | 'float32' | null
+  /** 32 位字节序（与 modbus_codec 四字节序表一致）；缺省 ABCD */
+  modbusByteOrder?: 'ABCD' | 'CDAB' | 'BADC' | 'DCBA' | null
+  /** 变量级从站号 0~255；缺省回落数据源 config.unitId */
+  unitId?: number | null
 }
 
 // ============ 页面与组件 ============

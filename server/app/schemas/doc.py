@@ -249,6 +249,13 @@ class VariableDef(DocModel):
     bitIndex: int | None = Field(default=None, ge=0, le=63)
     mock: MockSpec | None = None                                  # 仅所属数据源 type='mock' 时生效
     description: str | None = Field(default=None, max_length=512)
+    # ---- Modbus 深化（工厂可用阶段一）：仅 modbus 数据源变量可配，跨检见 doc_service ----
+    # Modbus 寄存器数据类型（缺省按区位推导 int16；bit 区运行态忽略本字段）
+    modbusDataType: Literal["int16", "uint16", "int32", "uint32", "float32"] | None = None
+    # 32 位字节序（与 modbus_codec 四字节序表一致）；缺省 ABCD
+    modbusByteOrder: Literal["ABCD", "CDAB", "BADC", "DCBA"] | None = None
+    # 变量级从站号（0~255）；缺省回落数据源 config.unitId
+    unitId: int | None = Field(default=None, ge=0, le=255)
 
     @model_validator(mode="after")
     def _check_transform_rules(self) -> "VariableDef":
