@@ -327,6 +327,11 @@ export function applyTheme(id: ThemeId): void {
     '--ws-warn-line': alpha(v['--ws-warn-bright'], 0.4),
     '--ws-ink-edge': mix(v['--ws-ink'], '#000000', 0.4),
     '--ws-inverse-press': mix(v['--ws-text-inverse'], v['--ws-ink'], 0.12),
+    // 编辑器舞台：视口底比工作区深一档（画布像被照亮的 HMI 屏），点阵网格与暗角随主题同源
+    '--ws-stage': mix(v['--ws-canvas'], v['--ws-ink'], 0.3),
+    '--ws-stage-grid': alpha(v['--ws-text-3'], 0.4),
+    '--ws-stage-grid-major': alpha(v['--ws-ink'], 0.4),
+    '--ws-stage-vignette': alpha(v['--ws-ink'], 0.22),
   }
   for (const [key, value] of Object.entries(derived)) {
     root.style.setProperty(key, value)

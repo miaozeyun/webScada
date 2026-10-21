@@ -112,7 +112,7 @@ async function doCreate(): Promise<void> {
   refresh()
 }
 
-// ---- 演示案例生成（M7：对齐 BY组态 演示站，6 个开箱即用案例） ----
+// ---- 演示案例生成（M7：对齐业界主流组态 演示站，6 个开箱即用案例） ----
 const demoVisible = ref(false)
 const demoLoading = ref('')
 
@@ -318,9 +318,21 @@ function fmtTime(iso: string): string {
       <section class="ledger">
         <!-- 表格视图 -->
         <el-table v-if="viewMode === 'table'" v-loading="loading" :data="items" stripe>
-          <el-table-column prop="name" label="工程名称" :min-width="isNarrow ? 150 : 190">
+          <el-table-column prop="name" label="工程名称" :min-width="isNarrow ? 150 : 210">
             <template #default="{ row }">
-              <span class="project-name" :title="row.name">{{ row.name }}</span>
+              <span class="name-cell">
+                <span class="project-name" :title="row.name">{{ row.name }}</span>
+                <!-- 悬停缩略图预览：画面缩略图（无图显示线稿占位），不占行高 -->
+                <span class="hover-preview">
+                  <img v-if="row.thumbnail" :src="row.thumbnail" alt="" />
+                  <svg v-else class="preview-placeholder" viewBox="0 0 48 48" aria-hidden="true">
+                    <rect x="5.5" y="9.5" width="37" height="29" />
+                    <path d="M5.5 17.5 H42.5 M11.5 13.5 H13 M15.5 13.5 H17" />
+                    <path d="M12 30 L18 30 L21 22 L26 35 L30 27 L36 27" />
+                  </svg>
+                  <span class="preview-caption">{{ row.name }}</span>
+                </span>
+              </span>
             </template>
           </el-table-column>
           <el-table-column v-if="!isNarrow" prop="description" label="描述" min-width="240" show-overflow-tooltip />
@@ -334,11 +346,20 @@ function fmtTime(iso: string): string {
               <span class="time ws-readout">{{ fmtTime(row.updatedAt) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" :width="isNarrow ? 152 : 180" align="right">
+          <el-table-column label="操作" :width="isNarrow ? 120 : 104" align="right">
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="router.push(`/editor/${row.id}`)">编辑</el-button>
-              <el-button link size="small" @click="doExport(row)">导出</el-button>
-              <el-button link type="danger" size="small" @click="doDelete(row)">删除</el-button>
+              <el-dropdown trigger="click" @command="(cmd: string) => onCardMore(cmd, row)">
+                <el-button link size="small" class="more-btn" @click.stop>
+                  ⋯<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="export" :icon="Download">导出 JSON</el-dropdown-item>
+                    <el-dropdown-item command="delete" :icon="Delete" divided>删除</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </template>
           </el-table-column>
 
@@ -663,6 +684,76 @@ function fmtTime(iso: string): string {
   white-space: nowrap;
   font-weight: 600;
   color: var(--ws-text);
+}
+
+/* 行悬停缩略图预览：浮在行上方，不占布局（纯 CSS，触屏无 hover 不出现） */
+.name-cell {
+  position: relative;
+  display: block;
+}
+
+.hover-preview {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  width: 224px;
+  padding: 0;
+  border: 1px solid var(--ws-steel-3);
+  border-radius: 3px;
+  background: var(--ws-panel);
+  box-shadow: 0 10px 32px rgba(20, 33, 46, 0.22);
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 0.14s ease-out, transform 0.14s ease-out;
+}
+
+.name-cell:hover .hover-preview {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.hover-preview img,
+.preview-placeholder {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 2px 2px 0 0;
+  background: var(--ws-steel-1);
+}
+
+.preview-placeholder {
+  width: 56px;
+  aspect-ratio: auto;
+  height: 56px;
+  margin: 18px auto;
+  fill: none;
+  stroke: var(--ws-steel-3);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.hover-preview:has(.preview-placeholder) {
+  padding-bottom: 4px;
+}
+
+.preview-caption {
+  display: block;
+  padding: 6px 10px;
+  border-top: 1px solid var(--ws-steel-2);
+  font-size: 11px;
+  color: var(--ws-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 操作列「更多」：与主链接同基线 */
+.more-btn {
+  margin-left: 2px;
 }
 
 .revision {

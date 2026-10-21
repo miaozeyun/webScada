@@ -1,8 +1,10 @@
 <script setup lang="ts">
 /** 图片轮播：urls 每行一个外链，intervalSec 切换间隔。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRuntimeStore } from '@/runtime/store'
 
 const props = defineProps<{ nodeProps: Record<string, unknown> }>()
+const runtime = useRuntimeStore()
 
 const urls = computed(() =>
   String(props.nodeProps.urls ?? '')
@@ -28,7 +30,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="carousel-widget">
     <img v-if="urls.length" :src="urls[idx % urls.length]" alt="" draggable="false" />
-    <div v-else class="carousel-empty">轮播（在右侧填入图片 URL，每行一个）</div>
+    <div v-else class="ws-canvas-empty">{{ runtime.running ? '轮播图片未配置' : '在右侧属性填入图片 URL（每行一个）' }}</div>
     <span v-if="urls.length > 1" class="dots">
       <i v-for="n in urls.length" :key="n" :class="{ on: (idx % urls.length) === n - 1 }" />
     </span>
@@ -50,18 +52,6 @@ onBeforeUnmount(() => {
   height: 100%;
   object-fit: cover;
   display: block;
-}
-
-.carousel-empty {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed #c0c4cc;
-  color: #909399;
-  font-size: 13px;
-  box-sizing: border-box;
 }
 
 .dots {

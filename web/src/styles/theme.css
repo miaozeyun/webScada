@@ -72,6 +72,13 @@
   --ws-shadow-panel: 0 1px 2px rgba(20, 33, 46, 0.06);
   --ws-topbar-h: 44px;
   --ws-statusbar-h: 26px;
+
+  /* 编辑器舞台（theme.ts applyTheme 按主题重算；此处为 electric 静态默认）：
+     视口底色比工作区深一档，画布像被照亮的人机界面；点阵网格与四周暗角 */
+  --ws-stage: #dde5eb;
+  --ws-stage-grid: rgba(86, 105, 122, 0.42);
+  --ws-stage-grid-major: rgba(20, 33, 46, 0.38);
+  --ws-stage-vignette: rgba(20, 33, 46, 0.22);
 }
 
 /* ---- Element Plus 令牌映射：主色改为电气青，圆角收紧 ---- */
@@ -216,6 +223,25 @@ body {
   border-color: var(--ws-signal-bright);
   background: var(--ws-signal-a12);
   color: #fff;
+}
+
+/* 组件空态（配置前/无数据共用）：画布内容不随界面主题，用固定中性色保证深浅画布均可读 */
+.ws-canvas-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed rgba(127, 140, 153, 0.55);
+  border-radius: 2px;
+  background: rgba(127, 140, 153, 0.1);
+  color: rgba(158, 170, 182, 0.95);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
 }
 
 /* 加载指示：信号色读数环（编辑器载入 / 分享页加载共用；reduced-motion 下放慢而非停止） */
@@ -618,7 +644,12 @@ input[type='radio']:focus-visible {
   .page-tab,
   .left,
   .right,
-  .center {
+  .center,
+  .list,
+  .symbol-item,
+  .tpl-item,
+  .cat,
+  .tab {
     transition-duration: 0.01ms !important;
   }
 }

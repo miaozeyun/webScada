@@ -73,6 +73,16 @@ function handlePos(dir: ResizeDir) {
         :style="handlePos(dir)"
         @pointerdown.stop="emit('resize-start', dir, $event)"
       />
+      <!-- 尺寸徽标：右下角 W×H 读数（字号按 1/zoom 补偿保持屏幕恒定） -->
+      <span
+        class="size-badge"
+        :style="{
+          top: `${primary.h + 6 / editor.zoom}px`,
+          fontSize: `${11 / editor.zoom}px`,
+          padding: `${2 / editor.zoom}px ${6 / editor.zoom}px`,
+          borderRadius: `${2 / editor.zoom}px`,
+        }"
+      >{{ Math.round(primary.w) }} × {{ Math.round(primary.h) }}</span>
     </div>
     <!-- 多选整体包围框 -->
     <div v-if="multiBox" class="multi-box" :style="{ left: `${multiBox.x}px`, top: `${multiBox.y}px`, width: `${multiBox.w}px`, height: `${multiBox.h}px` }" />
@@ -91,6 +101,20 @@ function handlePos(dir: ResizeDir) {
 .multi-box {
   position: absolute;
   border: 1px dashed var(--ws-select);
+  pointer-events: none;
+}
+
+/* 尺寸徽标：选中框下方居中的等宽读数，信号色底反白 */
+.size-badge {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--ws-select);
+  color: #fff;
+  font-family: var(--ws-font-tech);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
   pointer-events: none;
 }
 

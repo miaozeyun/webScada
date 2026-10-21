@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 组件面板（M9 批次1/2/3 五 Tab 化，对标 BY组态左侧面板）：
+ * 组件面板（M9 批次1/2/3 五 Tab 化，对标业界主流组态左侧面板）：
  * - 「组件」：注册组件按 category 分组；拖拽（HTML5 DnD）到画布，或点击放置到可视区中心。
  * - 「图元库」：assets/symbols 自绘行业图元，搜索 + 分类过滤。
  * - 「装饰」：decor 注册组件（标题栏等）+ decor 分类图元（边框/底纹）。
@@ -23,7 +23,7 @@ const tab = ref<'widgets' | 'symbols' | 'decor' | 'templates' | 'mine'>('widgets
 
 const TABS = [
   { key: 'widgets', label: '组件', title: '注册组件' },
-  { key: 'symbols', label: '图元库', title: '行业图元库' },
+  { key: 'symbols', label: '图元', title: '行业图元库' },
   { key: 'decor', label: '装饰', title: '画面装饰' },
   { key: 'templates', label: '模板', title: '画面模板' },
   { key: 'mine', label: '我的', title: '我的图元' },
@@ -34,6 +34,22 @@ const GROUPS = [
   { label: '图表', category: 'chart' as const },
   { label: '设备', category: 'device' as const },
 ]
+
+// ---- 注册组件：名称/类型关键字过滤（与图元库搜索同交互） ----
+
+const widgetKeyword = ref('')
+
+const filteredGroups = computed(() =>
+  GROUPS.map((g) => ({ ...g, items: paletteByCategory(g.category) })).map((g) => ({
+    ...g,
+    items: g.items.filter(
+      (m) =>
+        !widgetKeyword.value.trim() ||
+        m.name.toLowerCase().includes(widgetKeyword.value.trim().toLowerCase()) ||
+        m.type.toLowerCase().includes(widgetKeyword.value.trim().toLowerCase()),
+    ),
+  })).filter((g) => g.items.length > 0),
+)
 
 // ---- 图元库 ----
 
@@ -67,6 +83,22 @@ const decorWidgets = computed(() => paletteByCategory('decor'))
 // ---- 我的图元 ----
 
 const mySymbols = computed(() => editor.doc?.assets?.mySymbols ?? [])
+
+// 面板头右侧读数：当前 Tab 条目计数（tab 内放不下 badge，移到标题栏读数位）
+const headCount = computed(() => {
+  switch (tab.value) {
+    case 'widgets':
+      return GROUPS.reduce((sum, g) => sum + paletteByCategory(g.category).length, 0)
+    case 'symbols':
+      return filteredSymbols.value.length
+    case 'decor':
+      return decorWidgets.value.length + decorSymbols.value.length
+    case 'templates':
+      return PAGE_TEMPLATES.length
+    case 'mine':
+      return mySymbols.value.length
+  }
+})
 
 async function saveFromSelection(): Promise<void> {
   if (editor.selection.length === 0) return
@@ -138,7 +170,10 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 
 <template>
   <div class="component-panel">
-    <div class="panel-head">组件库</div>
+    <div class="panel-head">
+      <span>{{ TABS.find((t) => t.key === tab)?.title }}</span>
+      <span class="head-count ws-readout" :title="`${headCount} 项`">{{ headCount }}</span>
+    </div>
     <div class="palette-tabs">
       <button
         v-for="t in TABS"
@@ -149,28 +184,32 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
         @click="tab = t.key"
       >
         {{ t.label }}
-        <span v-if="t.key === 'symbols'" class="badge">{{ filteredSymbols.length }}</span>
-        <span v-if="t.key === 'mine'" class="badge">{{ mySymbols.length }}</span>
       </button>
     </div>
 
-    <!-- Tab 1：注册组件 -->
-    <div v-show="tab === 'widgets'" class="component-list">
-      <template v-for="g in GROUPS" :key="g.category">
-        <div class="group-title">{{ g.label }}</div>
-        <div
-          v-for="meta in paletteByCategory(g.category)"
-          :key="meta.type"
-          class="list"
-          draggable="true"
-          :title="meta.name"
-          @dragstart="onDragStart($event, meta.type)"
-          @click="onClick(meta.type)"
-        >
-          <WidgetIcon :meta="meta" />
-          <span class="label">{{ meta.name }}</span>
-        </div>
-      </template>
+    <!-- Tab 1：注册组件（缩略图卡片，竖排图标 + 名称） -->
+    <div v-show="tab === 'widgets'" class="symbol-panel">
+      <div class="symbol-toolbar">
+        <input v-model="widgetKeyword" class="symbol-search" type="text" placeholder="搜索组件…" />
+      </div>
+      <div class="component-list">
+        <template v-for="g in filteredGroups" :key="g.category">
+          <div class="group-title">{{ g.label }}<span class="group-count ws-readout">{{ g.items.length }}</span></div>
+          <div
+            v-for="meta in g.items"
+            :key="meta.type"
+            class="list"
+            draggable="true"
+            :title="meta.name"
+            @dragstart="onDragStart($event, meta.type)"
+            @click="onClick(meta.type)"
+          >
+            <span class="list-icon"><WidgetIcon :meta="meta" /></span>
+            <span class="label">{{ meta.name }}</span>
+          </div>
+        </template>
+        <div v-if="filteredGroups.length === 0" class="symbol-empty">无匹配组件</div>
+      </div>
     </div>
 
     <!-- Tab 2：行业图元库 -->
@@ -219,7 +258,7 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
           @dragstart="onDragStart($event, meta.type)"
           @click="onClick(meta.type)"
         >
-          <WidgetIcon :meta="meta" />
+          <span class="symbol-thumb"><WidgetIcon :meta="meta" /></span>
           <span class="symbol-name">{{ meta.name }}</span>
         </div>
         <div
@@ -288,12 +327,13 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   border-bottom: 1px solid var(--ws-steel-3);
 }
 
-/* 面板标题：工程分区短标题 */
+/* 面板标题：工程分区短标题 + 右侧条目读数 */
 .panel-head {
   height: 34px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 10px;
   background: var(--ws-steel-0);
   border-bottom: 1px solid var(--ws-steel-2);
@@ -303,7 +343,16 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   color: var(--ws-text-2);
 }
 
-/* Tab 条（组件 / 图元库 / 装饰 / 模板 / 我的） */
+.head-count {
+  min-width: 18px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ws-signal);
+}
+
+/* Tab 条（组件 / 图元 / 装饰 / 模板 / 我的） */
 .palette-tabs {
   height: 32px;
   flex-shrink: 0;
@@ -312,6 +361,7 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 }
 
 .tab {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -324,35 +374,42 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   color: var(--ws-text-3);
   cursor: pointer;
   white-space: nowrap;
+  transition: color 0.12s ease-out;
+}
+
+/* 激活指示：底部 2px 青条（scaleX 过渡，合成层友好） */
+.tab::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 0;
+  height: 2px;
+  background: var(--ws-signal);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.15s ease-out;
+}
+
+.tab:hover {
+  color: var(--ws-text);
 }
 
 .tab.active {
   color: var(--ws-signal);
-  box-shadow: inset 0 -2px 0 var(--ws-signal);
 }
 
-.badge {
-  min-width: 14px;
-  padding: 0 3px;
-  border-radius: 7px;
-  background: var(--ws-steel-3);
-  font-size: 9px;
-  line-height: 13px;
-  color: var(--ws-text-2);
-}
-
-.tab.active .badge {
-  background: var(--ws-signal-soft);
-  color: var(--ws-signal);
+.tab.active::after {
+  transform: scaleX(1);
 }
 
 .component-list {
   flex: 1;
   min-height: 0;
-  padding: 8px;
+  padding: 0 8px 8px;
   display: grid;
   grid-gap: 8px;
-  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
   align-content: start;
   overflow-y: auto;
 }
@@ -368,6 +425,13 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   color: var(--ws-text-3);
 }
 
+.group-count {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--ws-text-3);
+  opacity: 0.85;
+}
+
 .group-title::after {
   content: '';
   flex: 1;
@@ -379,13 +443,15 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   margin-top: 4px;
 }
 
+/* 竖排缩略卡片：图标居上、名称居下，与图元库卡片同一骨架 */
 .list {
-  height: 38px;
-  padding: 2px 4px;
+  min-height: 56px;
+  padding: 8px 4px 6px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
   border: 1px solid var(--ws-steel-3);
   border-radius: var(--ws-radius);
   background: var(--ws-panel);
@@ -393,6 +459,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   cursor: grab;
   user-select: none;
   text-align: center;
+  transition: border-color 0.12s ease-out, background-color 0.12s ease-out,
+    color 0.12s ease-out, transform 0.12s ease-out;
 }
 
 .list:active {
@@ -403,10 +471,27 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   border-color: var(--ws-signal);
   background: var(--ws-signal-soft);
   color: var(--ws-signal);
+  transform: translateY(-1px);
+}
+
+/* 图标台：统一 26px 见方刻度底，线宽与图元库缩略图一致 */
+.list-icon {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ws-text-2);
+}
+
+.list:hover .list-icon {
+  color: var(--ws-signal);
 }
 
 .label {
+  max-width: 100%;
   font-size: 11px;
+  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -433,7 +518,7 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   border: 1px solid var(--ws-steel-3);
   border-radius: var(--ws-radius);
   background: var(--ws-panel);
-  color: var(--ws-text-1);
+  color: var(--ws-text);
   font-size: 12px;
   outline: none;
 }
@@ -478,11 +563,12 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 .cat {
   padding: 2px 8px;
   border: 1px solid var(--ws-steel-3);
-  border-radius: 10px;
+  border-radius: var(--ws-radius);
   background: var(--ws-panel);
   font-size: 11px;
   color: var(--ws-text-2);
   cursor: pointer;
+  transition: border-color 0.12s ease-out, background-color 0.12s ease-out, color 0.12s ease-out;
 }
 
 .cat.active {
@@ -519,6 +605,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   background: var(--ws-panel);
   cursor: grab;
   user-select: none;
+  transition: border-color 0.12s ease-out, background-color 0.12s ease-out,
+    transform 0.12s ease-out;
 }
 
 .symbol-item:active {
@@ -528,11 +616,20 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 .symbol-item:hover {
   border-color: var(--ws-signal);
   background: var(--ws-signal-soft);
+  transform: translateY(-1px);
 }
 
+/* 缩略图衬底：浅钢灰刻度台，灰线图元在白面板上清晰可辨 */
 .symbol-thumb {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ws-steel-2);
+  border-radius: var(--ws-radius);
+  background: var(--ws-steel-0);
   color: var(--ws-text-2);
 }
 
@@ -571,7 +668,7 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   right: 2px;
   display: none;
   padding: 3px;
-  border-radius: 4px;
+  border-radius: var(--ws-radius);
   color: var(--ws-text-3);
   cursor: pointer;
 }
@@ -615,17 +712,20 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   background: var(--ws-panel);
   cursor: pointer;
   text-align: left;
+  transition: border-color 0.12s ease-out, background-color 0.12s ease-out,
+    transform 0.12s ease-out;
 }
 
 .tpl-item:hover {
   border-color: var(--ws-signal);
   background: var(--ws-signal-soft);
+  transform: translateY(-1px);
 }
 
 .tpl-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--ws-text-1);
+  color: var(--ws-text);
 }
 
 .tpl-item:hover .tpl-name {
@@ -640,7 +740,7 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 /* 触屏 / 窄面板：减少网格列宽浪费 */
 @media (max-width: 1200px) {
   .component-list {
-    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
   }
 }
 </style>

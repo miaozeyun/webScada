@@ -29,7 +29,7 @@ const text = computed(() => String(props.nodeProps.text ?? '标题'))
   padding: 0 28px;
   position: relative;
   background: linear-gradient(180deg, color-mix(in srgb, currentColor 10%, transparent), transparent 85%);
-  color: var(--dev-color, var(--ws-text-1));
+  color: var(--dev-color, #909399);
   border-bottom: 2px solid currentColor;
   box-sizing: border-box;
 }

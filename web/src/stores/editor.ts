@@ -29,6 +29,8 @@ export const useEditorStore = defineStore('editor', {
     dirtySeq: 0,
     saving: false,
     saveError: '' as '' | 'network' | 'conflict',
+    /** 最近一次保存成功的时刻（状态栏读数；空 = 本次会话未保存过） */
+    lastSavedAt: null as string | null,
     historyVersion: 0,
     spaceHeld: false, // 空格平移模式（CanvasStage 消费）
     zoom: 1,
@@ -93,6 +95,7 @@ export const useEditorStore = defineStore('editor', {
         this.revision = resp.revision
         this.dirty = false
         this.saveError = ''
+        this.lastSavedAt = new Date().toTimeString().slice(0, 8)
         return true
       } catch (err) {
         const status = (err as { response?: { status?: number } })?.response?.status
@@ -562,7 +565,9 @@ export const useEditorStore = defineStore('editor', {
       this._markDirty()
     },
 
-    /** M9 批次3：从画面模板新建页面（模板产出完整 Page；id/order 归一，切换并清历史） */
+    /** M9 批次3：从画面模板新建页面（模板产出完整 Page；id/order 归一，切换并清历史）。
+     *  组件 id 必须整体重生成：模板组件 id 是固定串，二次应用会与首次页面撞 id，
+     *  服务端 validate_references「组件 id 重复」422 且脏态持续报错。 */
     applyPageTemplate(name: string, page: Page): void {
       if (!this.doc) return
       this.beginChange()
@@ -570,6 +575,7 @@ export const useEditorStore = defineStore('editor', {
       p.id = newPageId()
       p.name = name
       p.order = this.doc.pages.length
+      p.components = p.components.map((c) => this._cloneWithNewIds(c))
       this.doc.pages.push(p)
       this.currentPageId = p.id
       this.selection = []

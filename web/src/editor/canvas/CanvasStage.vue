@@ -359,6 +359,9 @@ function onDrop(e: DragEvent): void {
 
 const viewportClass = computed(() => ({ panning: editor.spaceHeld }))
 
+/** 缩放 <40% 时网格淡出（点已小于三分之一像素，留着只有噪点；fit-view 常态 50-60% 仍保留大格点） */
+const gridOpacity = computed(() => (editor.zoom < 0.4 ? 0 : 1))
+
 /** 适配视口：整页等比缩放居中（实现在 store.fitToView，工具栏"适应"按钮共用）。 */
 function fitToView(): void {
   const vp = viewportEl.value
@@ -394,18 +397,18 @@ watch(
   >
     <div v-if="page" class="canvas-stage" :style="stageStyle">
       <div ref="pageEl" class="canvas-page" :style="pageStyle">
-        <!-- 网格线（结构/参数参照 visual-drag-demo Grid.vue：7.24 小格 / 36.18 大格） -->
-        <svg class="grid" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+        <!-- 点阵网格（7.24 小格 / 36.18 大格，着色随主题令牌；缩放 <60% 整层淡出降噪） -->
+        <svg class="grid" :style="{ opacity: gridOpacity }" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
           <defs>
-            <pattern id="wsSmallGrid" width="7.236328125" height="7.236328125" patternUnits="userSpaceOnUse">
-              <path d="M 7.236328125 0 L 0 0 0 7.236328125" fill="none" stroke="rgba(127, 127, 127, 0.25)" stroke-width="1" />
+            <pattern id="wsGridDots" width="7.236328125" height="7.236328125" patternUnits="userSpaceOnUse">
+              <circle class="dot-minor" cx="0.5" cy="0.5" r="0.7" />
             </pattern>
-            <pattern id="wsGrid" width="36.181640625" height="36.181640625" patternUnits="userSpaceOnUse">
-              <rect width="36.181640625" height="36.181640625" fill="url(#wsSmallGrid)" />
-              <path d="M 36.181640625 0 L 0 0 0 36.181640625" fill="none" stroke="rgba(127, 127, 127, 0.5)" stroke-width="1" />
+            <pattern id="wsGridDotsMajor" width="36.181640625" height="36.181640625" patternUnits="userSpaceOnUse">
+              <rect width="36.181640625" height="36.181640625" fill="url(#wsGridDots)" />
+              <circle class="dot-major" cx="0.5" cy="0.5" r="1.15" />
             </pattern>
           </defs>
-          <rect width="100%" height="100%" fill="url(#wsGrid)" />
+          <rect width="100%" height="100%" fill="url(#wsGridDotsMajor)" />
         </svg>
         <CanvasNode
           v-for="node in page.components"
@@ -443,9 +446,23 @@ watch(
   position: relative;
   flex: 1;
   overflow: hidden;
-  background: var(--ws-canvas);
+  /* 舞台底：比工作区深一档，画布像被照亮的 HMI 屏；四周暗角由 ::after 承担 */
+  background: var(--ws-stage);
   /* pointer 交互接管：禁浏览器手势（拖拽/触摸滚动），全由应用处理 */
   touch-action: none;
+}
+
+/* 舞台暗角：向内压暗四周，视觉聚焦画布（分层绘制，不参与交互） */
+.canvas-viewport::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    115% 85% at 50% 42%,
+    transparent 46%,
+    var(--ws-stage-vignette) 100%
+  );
 }
 
 .canvas-viewport.panning {
@@ -460,7 +477,7 @@ watch(
 
 .canvas-page {
   position: relative;
-  box-shadow: 0 0 0 1px var(--ws-steel-3), 0 10px 30px rgba(20, 33, 46, 0.12);
+  box-shadow: 0 0 0 1px var(--ws-steel-3), 0 18px 48px var(--ws-stage-vignette);
   transform-origin: 0 0;
 }
 
@@ -489,6 +506,7 @@ watch(
 
 .zoom-badge {
   position: absolute;
+  z-index: 2;
   right: 14px;
   bottom: 14px;
   padding: 2px 8px;
@@ -502,12 +520,21 @@ watch(
   pointer-events: none;
 }
 
-/* 网格线（结构参照 Grid.vue） */
+/* 点阵网格（minor/major 双档密度，着色随主题令牌；缩放淡出走行内 opacity） */
 .grid {
   position: absolute;
   top: 0;
   left: 0;
   z-index: 0;
   pointer-events: none;
+  transition: opacity 0.2s ease-out;
+}
+
+.grid :deep(.dot-minor) {
+  fill: var(--ws-stage-grid);
+}
+
+.grid :deep(.dot-major) {
+  fill: var(--ws-stage-grid-major);
 }
 </style>

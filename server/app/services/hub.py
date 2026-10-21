@@ -27,7 +27,7 @@ ValueListener = Callable[[uuidlib.UUID, VariableDef, "float | bool | str | None"
 _EVAL_FAILED = object()  # 虚拟变量求值失败哨兵（区别于合法值 None）
 
 # M9 批次4：内置秒节拍变量（key 以下划线开头，与用户变量命名空间隔离；标识符文法允许 _ 开头）。
-# 虚拟变量 expr 引用 _tick 即获得每秒重算（对标 BY组态「定时器脚本」的低风险等价物），仅 expr 可引用，不入变量绑定下拉。
+# 虚拟变量 expr 引用 _tick 即获得每秒重算（对标业界主流组态「定时器脚本」的低风险等价物），仅 expr 可引用，不入变量绑定下拉。
 TICK_KEY = "_tick"
 
 

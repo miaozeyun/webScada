@@ -25,7 +25,7 @@ const sandbox = computed(() =>
       allow="fullscreen"
       referrerpolicy="no-referrer"
     />
-    <div v-else class="empty">配置网页 URL（https://…）</div>
+    <div v-else class="ws-canvas-empty">{{ runtime.running ? '网页未配置' : '在右侧属性填入网页 URL' }}</div>
   </div>
 </template>
 
@@ -42,16 +42,5 @@ iframe {
   height: 100%;
   border: 0;
   display: block;
-}
-
-.empty {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #909399;
-  font-size: 12px;
-  background: repeating-linear-gradient(45deg, transparent 0 10px, rgba(148, 163, 184, 0.08) 10px 20px);
 }
 </style>

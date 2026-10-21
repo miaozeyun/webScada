@@ -48,6 +48,10 @@ const items = computed(() =>
   position: relative;
   display: inline-block;
   overflow: hidden;
+  padding: 4px;
+  border: 1px solid var(--ws-steel-2);
+  border-radius: var(--ws-radius);
+  background: var(--ws-steel-0);
   color: var(--ws-text-2);
   flex-shrink: 0;
 }

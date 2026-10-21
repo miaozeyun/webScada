@@ -161,8 +161,8 @@ const hasData = computed(() => (liveMode.value ? liveSeries.value.length > 0 : p
     </div>
     <!-- 服务端降级角标：当前曲线来自本地分钟桶（服务端不可达或区间无数据） -->
     <span v-if="runtime.running && serverDown && !compact" class="local-badge" title="服务端历史不可达，当前展示本地缓冲">本地缓存</span>
-    <div v-if="!variableId" class="empty">配置变量（组件属性 variableId）</div>
-    <div v-else-if="!hasData && !runtime.running" class="empty">运行后开始采集历史</div>
+    <div v-if="!variableId" class="empty ws-canvas-empty">{{ runtime.running ? '暂无绑定变量' : '未绑定变量——在右侧属性选择' }}</div>
+    <div v-else-if="!hasData && !runtime.running" class="empty ws-canvas-empty">运行后开始采集历史</div>
   </div>
 </template>
 
@@ -221,14 +221,10 @@ const hasData = computed(() => (liveMode.value ? liveSeries.value.length > 0 : p
   pointer-events: none;
 }
 
+/* 空态：定位走这里，视觉骨架走全局 .ws-canvas-empty */
 .empty {
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #909399;
-  font-size: 12px;
   pointer-events: none;
 }
 </style>

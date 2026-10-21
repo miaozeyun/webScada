@@ -2,6 +2,7 @@
 /** 图片切换（M7，对齐 BY「图片切换」）：变量值 → 图片枚举切换。
  * images JSON [{value, url}]；绑 props.value 匹配，无命中显示缺省图（首张）。 */
 import { computed } from 'vue'
+import { useRuntimeStore } from '@/runtime/store'
 
 interface ImageItem {
   value: string | number | boolean
@@ -9,6 +10,7 @@ interface ImageItem {
 }
 
 const props = defineProps<{ nodeProps: Record<string, unknown> }>()
+const runtime = useRuntimeStore()
 
 const images = computed<ImageItem[]>(() => {
   try {
@@ -32,7 +34,7 @@ const currentUrl = computed(() => {
 <template>
   <div class="image-switch">
     <img v-if="currentUrl" :src="currentUrl" :alt="String(nodeProps.alt ?? '')" draggable="false" />
-    <div v-else class="empty">配置图片列表<br />（images JSON）</div>
+    <div v-else class="ws-canvas-empty">{{ runtime.running ? '图片列表未配置' : '在右侧属性填入图片列表' }}</div>
   </div>
 </template>
 
@@ -48,17 +50,5 @@ img {
   height: 100%;
   object-fit: contain;
   display: block;
-}
-
-.empty {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #909399;
-  font-size: 12px;
-  text-align: center;
-  background: repeating-linear-gradient(45deg, transparent 0 10px, rgba(148, 163, 184, 0.08) 10px 20px);
 }
 </style>

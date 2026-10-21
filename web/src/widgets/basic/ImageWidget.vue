@@ -1,8 +1,10 @@
 <script setup lang="ts">
 /** 图片组件：仅外链 URL（P0 不做上传，设计边界 D7）。 */
 import { computed } from 'vue'
+import { useRuntimeStore } from '@/runtime/store'
 
 const props = defineProps<{ nodeProps: Record<string, unknown> }>()
+const runtime = useRuntimeStore()
 
 const src = computed(() => String(props.nodeProps.src ?? ''))
 const fit = computed(() => String(props.nodeProps.fit ?? 'contain') as 'contain' | 'cover' | 'fill')
@@ -11,7 +13,7 @@ const fit = computed(() => String(props.nodeProps.fit ?? 'contain') as 'contain'
 <template>
   <div class="image-widget">
     <img v-if="src" :src="src" :style="{ objectFit: fit }" alt="" draggable="false" />
-    <div v-else class="image-placeholder">图片（在右侧填入 URL）</div>
+    <div v-else class="ws-canvas-empty">{{ runtime.running ? '图片未配置' : '在右侧属性填入图片 URL' }}</div>
   </div>
 </template>
 
@@ -26,17 +28,5 @@ const fit = computed(() => String(props.nodeProps.fit ?? 'contain') as 'contain'
   width: 100%;
   height: 100%;
   display: block;
-}
-
-.image-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed #c0c4cc;
-  color: #909399;
-  font-size: 13px;
-  background: #f5f7fa;
 }
 </style>

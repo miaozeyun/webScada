@@ -223,8 +223,56 @@ def collect_warnings(model: ProjectDoc) -> list[str]:
 
 
 def blank_doc(project_id: str, name: str, author: str | None = None) -> dict:
-    """新建工程默认模板：蓝色主题 + 1 个 1920x1080 页面（03-接口清单 §2.3 POST 行为）。"""
+    """新建工程默认模板：蓝色主题 + 1 个 1920x1080 页面（03-接口清单 §2.3 POST 行为）。
+    页面预置一套克制的欢迎画面（标题栏带工程名 + 引导文案 + 信号色装饰线），
+    让新工程打开即有画面可看；组件均可选中删除，不构成使用负担。"""
     now = _now_iso()
+    welcome_components = [
+        {
+            "id": "node_welcome_title",
+            "name": "标题栏",
+            "type": "title-bar",
+            "x": 560.0, "y": 24.0, "w": 800.0, "h": 64.0,
+            "z": 0,
+            "props": {"text": name, "align": "center"},
+        },
+        {
+            "id": "node_welcome_lead",
+            "name": "欢迎语",
+            "type": "text",
+            "x": 710.0, "y": 396.0, "w": 500.0, "h": 56.0,
+            "z": 1,
+            "props": {"text": "工程已创建", "ellipsis": True},
+            "style": {"fontSize": 32, "fontWeight": 600, "color": "#e2e8f0", "textAlign": "center"},
+        },
+        {
+            "id": "node_welcome_guide1",
+            "name": "引导一",
+            "type": "text",
+            "x": 560.0, "y": 472.0, "w": 800.0, "h": 36.0,
+            "z": 2,
+            "props": {"text": "从左侧组件面板拖入第一个组件，或点击「模板」一键生成整页", "ellipsis": True},
+            "style": {"fontSize": 16, "color": "#8fa3b8", "textAlign": "center"},
+        },
+        {
+            "id": "node_welcome_guide2",
+            "name": "引导二",
+            "type": "text",
+            "x": 560.0, "y": 512.0, "w": 800.0, "h": 32.0,
+            "z": 3,
+            "props": {"text": "数据源与变量在顶部「数据」入口配置；编辑过程自动保存", "ellipsis": True},
+            "style": {"fontSize": 14, "color": "#64748b", "textAlign": "center"},
+        },
+        {
+            "id": "node_welcome_rule",
+            "name": "装饰线",
+            "type": "rect",
+            "x": 860.0, "y": 572.0, "w": 200.0, "h": 3.0,
+            "z": 4,
+            "props": {},
+            "style": {"fill": "#1ba7b8"},
+        },
+    ]
     return {
         "schemaVersion": settings.CURRENT_SCHEMA_VERSION,
         "project": {
@@ -255,7 +303,7 @@ def blank_doc(project_id: str, name: str, author: str | None = None) -> dict:
                 "order": 0,
                 "background": {"color": "#0b1220"},
                 "screen": {"designWidth": 1920, "designHeight": 1080, "mode": "fit-contain"},
-                "components": [],
+                "components": welcome_components,
             }
         ],
         "alarmRules": [],

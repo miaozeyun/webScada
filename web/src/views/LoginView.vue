@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
@@ -21,6 +21,40 @@ const rules: FormRules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
 
+// ---- 遥测读数带：登录页的"活仪表"（纯装饰模拟值；reduced-motion 下静止） ----
+
+interface TelemetryItem {
+  tag: string
+  value: number
+  unit: string
+  min: number
+  max: number
+  step: number
+  digits: number
+}
+
+const telemetry = reactive<TelemetryItem[]>([
+  { tag: 'FLOW-101', value: 412.6, unit: 'm³/h', min: 380, max: 445, step: 3.2, digits: 1 },
+  { tag: 'TEMP-201', value: 63.4, unit: '℃', min: 58, max: 68, step: 0.4, digits: 1 },
+  { tag: 'PRESS-301', value: 0.38, unit: 'MPa', min: 0.32, max: 0.44, step: 0.008, digits: 2 },
+  { tag: 'LEVEL-401', value: 72.5, unit: '%', min: 65, max: 80, step: 0.9, digits: 1 },
+])
+
+let telemetryTimer: number | undefined
+
+onMounted(() => {
+  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    telemetryTimer = window.setInterval(() => {
+      for (const t of telemetry) {
+        const drift = (Math.random() - 0.5) * 2 * t.step
+        t.value = Math.min(t.max, Math.max(t.min, t.value + drift))
+      }
+    }, 2200)
+  }
+})
+
+onBeforeUnmount(() => window.clearInterval(telemetryTimer))
+
 async function onSubmit(): Promise<void> {
   await formRef.value?.validate()
   loading.value = true
@@ -39,32 +73,52 @@ async function onSubmit(): Promise<void> {
   <div class="login-page">
     <div class="blueprint" aria-hidden="true"></div>
 
-    <!-- 工程单线图：母线 → 断路器 → 变压器 → 馈线，作为背景的结构语言 -->
-    <svg class="single-line" viewBox="0 0 720 340" aria-hidden="true">
-      <line class="bus" x1="0" y1="54" x2="720" y2="54" />
-      <g class="feeder">
-        <line x1="150" y1="54" x2="150" y2="112" />
-        <rect x="138" y="112" width="24" height="24" />
-        <line x1="150" y1="136" x2="150" y2="196" />
-        <circle cx="150" cy="210" r="14" />
-        <circle cx="150" cy="226" r="14" />
-        <line x1="150" y1="240" x2="150" y2="308" />
-        <line x1="132" y1="308" x2="168" y2="308" />
-        <path d="M150 308 L150 330" />
+    <!-- 背景工艺线稿（P&ID 语汇）：原料罐 → 泵 → 换热器 → 成品罐 + 趋势框，
+         主管道带缓慢流动动画；整体只占右侧低区，为表单留出安静区 -->
+    <svg class="process-sketch" viewBox="0 0 960 520" aria-hidden="true">
+      <!-- 原料罐（左）：圆头容器 + 液位线 + 侧壁刻度 -->
+      <g class="p-line major">
+        <path d="M120 130 v210 a46 46 0 0 0 46 46 h96 a46 46 0 0 0 46 -46 v-210 a46 46 0 0 0 -46 -46 h-96 a46 46 0 0 0 -46 46 z" />
+        <path d="M132 210 h164" class="p-fill-line" />
+        <path d="M132 250 h164" class="p-fill-line faint" />
+        <path d="M316 170 v8 M316 192 v8 M316 214 v8 M316 236 v8" class="p-tick" />
       </g>
-      <g class="feeder">
-        <line x1="360" y1="54" x2="360" y2="96" />
-        <rect x="348" y="96" width="24" height="24" />
-        <line x1="360" y1="120" x2="360" y2="330" />
-        <line x1="342" y1="286" x2="378" y2="286" />
+      <!-- 成品罐（右，小一号） -->
+      <g class="p-line">
+        <path d="M700 190 v160 a38 38 0 0 0 38 38 h76 a38 38 0 0 0 38 -38 v-160 a38 38 0 0 0 -38 -38 h-76 a38 38 0 0 0 -38 38 z" />
+        <path d="M710 258 h132" class="p-fill-line" />
       </g>
-      <g class="feeder faint">
-        <line x1="560" y1="54" x2="560" y2="140" />
-        <rect x="548" y="140" width="24" height="24" />
-        <line x1="560" y1="164" x2="560" y2="330" />
-        <circle cx="560" cy="252" r="12" />
+      <!-- 泵：圆 + 出口三角 -->
+      <g class="p-line major">
+        <circle cx="440" cy="400" r="26" />
+        <path d="M440 374 v52 M414 400 h52" class="p-inner" />
       </g>
-      <line class="bus faint" x1="0" y1="330" x2="720" y2="330" />
+      <!-- 换热器：圆 + 内折管 -->
+      <g class="p-line">
+        <circle cx="580" cy="250" r="34" />
+        <path d="M558 250 h8 l6 -14 8 28 8 -28 8 28 6 -14 h8" class="p-inner" />
+      </g>
+      <!-- 阀门（蝶阀符号）×2 -->
+      <g class="p-line major">
+        <path d="M366 400 l-14 -12 v24 z M394 400 l14 -12 v24 z" />
+      </g>
+      <g class="p-line">
+        <path d="M636 250 l-12 -10 v20 z M660 250 l12 -10 v20 z" />
+      </g>
+      <!-- 管道：罐 → 阀 → 泵 → 换热器 → 成品罐（横平竖直，工艺图惯例） -->
+      <path class="p-pipe flow" d="M308 386 h44 v14 h0 M352 400 h14 M394 400 h20 M466 400 h60 v-116" />
+      <path class="p-pipe" d="M580 284 v56 h180 M672 250 h28 M546 250 h-88 v-90 h120" />
+      <path class="p-pipe flow" d="M314 386 h-6 v-146 h120" />
+      <!-- 趋势框（右上）：小折线图线稿 -->
+      <g class="p-line">
+        <rect x="700" y="70" width="150" height="64" rx="2" />
+        <path d="M710 116 l18 -12 14 18 16 -26 14 14 18 -8 12 10 14 -16 16 20 18 -12" class="p-inner" />
+      </g>
+      <!-- 标注线（工程图纸感） -->
+      <g class="p-dim">
+        <path d="M120 430 h614" />
+        <path d="M120 424 v12 M734 424 v12" />
+      </g>
     </svg>
 
     <main class="console">
@@ -121,6 +175,16 @@ async function onSubmit(): Promise<void> {
       </section>
     </main>
 
+    <!-- 遥测读数带：等宽字体的活读数，让登录页像一间开着的控制室 -->
+    <div class="telemetry" aria-hidden="true">
+      <span class="tl-dot"></span>
+      <span v-for="t in telemetry" :key="t.tag" class="tl-item">
+        <span class="tl-tag">{{ t.tag }}</span>
+        <span class="tl-value ws-readout">{{ t.value.toFixed(t.digits) }}</span>
+        <span class="tl-unit">{{ t.unit }}</span>
+      </span>
+    </div>
+
     <footer class="login-foot">
       <span>webScada 组态监控平台</span>
       <span class="foot-ver">v{{ version }}</span>
@@ -159,24 +223,119 @@ async function onSubmit(): Promise<void> {
   pointer-events: none;
 }
 
-.single-line {
+/* 背景工艺线稿：P&ID 语汇，双层透明度（major 主设备 / 次级管件） */
+.process-sketch {
   position: absolute;
-  right: -30px;
-  bottom: -12px;
-  width: min(760px, 62vw);
+  right: -60px;
+  bottom: 34px;
+  width: min(1040px, 76vw);
   fill: none;
   stroke: var(--ws-signal-bright);
-  stroke-width: 1.4;
-  opacity: 0.5;
+  stroke-width: 1.3;
+  opacity: 0.34;
   pointer-events: none;
 }
 
-.single-line .bus {
-  stroke: rgba(238, 244, 247, 0.5);
+.process-sketch .p-line {
+  opacity: 0.85;
 }
 
-.single-line .faint {
+.process-sketch .p-line:not(.major) {
   opacity: 0.55;
+}
+
+.process-sketch .p-inner {
+  stroke-width: 1;
+  opacity: 0.8;
+}
+
+.process-sketch .p-fill-line {
+  stroke: var(--ws-signal-bright);
+  stroke-dasharray: 3 4;
+  opacity: 0.9;
+}
+
+.process-sketch .p-fill-line.faint {
+  opacity: 0.5;
+}
+
+.process-sketch .p-tick {
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
+.process-sketch .p-pipe {
+  stroke: rgba(238, 244, 247, 0.5);
+  stroke-width: 1.2;
+}
+
+.process-sketch .p-dim {
+  stroke: rgba(238, 244, 247, 0.3);
+  stroke-width: 1;
+}
+
+/* 主管道流动：虚线缓慢位移（reduced-motion 下静止） */
+.process-sketch .flow {
+  stroke-dasharray: 5 7;
+  animation: sketchFlow 14s linear infinite;
+}
+
+@keyframes sketchFlow {
+  to {
+    stroke-dashoffset: -120;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .process-sketch .flow {
+    animation: none;
+  }
+}
+
+/* 遥测读数带：控制室顶棚的读数屏 */
+.telemetry {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  padding: 9px 22px;
+  border: 1px solid var(--ws-inv-line);
+  background: rgba(8, 16, 24, 0.3);
+}
+
+.tl-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ws-ok-bright);
+  box-shadow: 0 0 6px var(--ws-ok-bright);
+  flex-shrink: 0;
+}
+
+.tl-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.tl-tag {
+  font-family: var(--ws-font-tech);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ws-inv-42);
+}
+
+.tl-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ws-signal-bright);
+}
+
+.tl-unit {
+  font-size: 11px;
+  color: var(--ws-inv-42);
 }
 
 /* 控制柜面板 */
@@ -188,7 +347,6 @@ async function onSubmit(): Promise<void> {
   grid-template-columns: 1.06fr 0.94fr;
   background: var(--ws-steel-0);
   border: 1px solid var(--ws-inv-line);
-  border-top: 3px solid var(--ws-signal-bright);
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.5);
   color: var(--ws-text);
 }
@@ -347,9 +505,10 @@ async function onSubmit(): Promise<void> {
 .login-foot {
   position: relative;
   z-index: 1;
+  width: min(980px, calc(100vw - 48px));
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 24px;
   font-size: 11px;
   color: var(--ws-inv-42);
 }
@@ -393,7 +552,18 @@ async function onSubmit(): Promise<void> {
     border-top: 1px solid var(--ws-steel-3);
   }
 
-  .single-line {
+  .process-sketch {
+    display: none;
+  }
+}
+
+/* 窄屏遥测带：只保留两项读数，避免挤压 */
+@media (max-width: 640px) {
+  .telemetry {
+    gap: 18px;
+  }
+
+  .tl-item:nth-child(n + 4) {
     display: none;
   }
 }

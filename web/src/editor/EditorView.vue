@@ -109,6 +109,28 @@ const saveStatus = computed(() => {
   return { text: '已保存', cls: 'ok' }
 })
 
+// ---- 状态栏活信号：连接指示（navigator.onLine）与页面尺寸读数 ----
+
+const online = ref(navigator.onLine)
+
+function syncOnline(): void {
+  online.value = navigator.onLine
+}
+
+onMounted(() => {
+  window.addEventListener('online', syncOnline)
+  window.addEventListener('offline', syncOnline)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('online', syncOnline)
+  window.removeEventListener('offline', syncOnline)
+})
+
+const pageSize = computed(() => {
+  const s = editor.currentPage?.screen
+  return s ? `${s.designWidth} × ${s.designHeight}` : '—'
+})
+
 // ---- 工具栏状态 ----
 const hasSelection = computed(() => editor.selection.length > 0)
 const canGroup = computed(() => editor.selectedNodes.length >= 2 && editor.selectedNodes.every((n) => !n.locked))
@@ -369,14 +391,19 @@ async function shareProject(): Promise<void> {
     <!-- 底部读数状态栏：编辑定位与视图状态一眼可见 -->
     <footer class="statusbar">
       <span class="sb-save" :class="saveStatus.cls"><i class="led"></i>{{ saveStatus.text }}</span>
+      <span v-if="editor.lastSavedAt" class="sb-item">保存于<b class="ws-readout">{{ editor.lastSavedAt }}</b></span>
       <span class="sb-rule" aria-hidden="true"></span>
       <span class="sb-item">页面<b>{{ editor.currentPage?.name ?? '—' }}</b></span>
+      <span class="sb-item">尺寸<b class="ws-readout">{{ pageSize }}</b></span>
       <span class="sb-item">选中<b class="ws-readout">{{ editor.selection.length }}</b></span>
       <span v-if="primaryRect" class="sb-readout sb-rect">
         X {{ primaryRect.x }} · Y {{ primaryRect.y }} · W {{ primaryRect.w }} · H {{ primaryRect.h }}
       </span>
       <span class="sb-spacer" />
       <span class="sb-hint">Ctrl+滚轮缩放 · 空格拖动画布</span>
+      <span class="sb-net" :class="online ? 'on' : 'off'" :title="online ? '连接正常' : '网络已断开'">
+        <i class="led"></i>{{ online ? '在线' : '离线' }}
+      </span>
       <span class="sb-readout sb-zoom">{{ zoomPct }}%</span>
     </footer>
 
@@ -754,6 +781,30 @@ main {
 .sb-save.dirty,
 .sb-save.saving { color: var(--ws-warn-bright); }
 .sb-save.error { color: var(--ws-alert-bright); }
+
+.sb-net {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  color: var(--ws-inv-60);
+}
+
+.sb-net .led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.sb-net.on {
+  color: var(--ws-ok-bright);
+}
+
+.sb-net.off {
+  color: var(--ws-alert-bright);
+}
 
 .sb-rule {
   width: 1px;

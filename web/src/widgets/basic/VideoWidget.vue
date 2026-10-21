@@ -24,10 +24,10 @@ const isRtsp = computed(() => /^rtsp:\/\//i.test(url.value))
       :style="{ pointerEvents: runtime.running ? 'auto' : 'none' }"
       playsinline
     />
-    <div v-else-if="isRtsp" class="empty">
+    <div v-else-if="isRtsp" class="ws-canvas-empty">
       RTSP 流需流媒体网关转码（WebRTC/HTTP-FLV）后以 http(s) 地址接入
     </div>
-    <div v-else class="empty">配置视频 URL（mp4 / webm / hls）</div>
+    <div v-else class="ws-canvas-empty">{{ runtime.running ? '视频未配置' : '在右侧属性填入视频 URL' }}</div>
   </div>
 </template>
 
@@ -44,18 +44,5 @@ video {
   height: 100%;
   object-fit: contain;
   display: block;
-}
-
-.empty {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #909399;
-  font-size: 12px;
-  text-align: center;
-  padding: 8px;
-  box-sizing: border-box;
 }
 </style>

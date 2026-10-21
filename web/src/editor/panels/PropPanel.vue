@@ -318,12 +318,12 @@ function removeEvent(evId: string, actIdx: number): void {
             <span class="form-hint">运行态禁止滚动/拖拽</span>
           </el-form-item>
         </el-form>
-        <p class="attr-title sub">使用说明</p>
+        <p class="attr-title sub">上手提示</p>
         <div class="hint">
-          · 从左侧"组件"面板拖入组件<br />
-          · 拖动移动（自动吸附 5px）；柄缩放；顶柄旋转<br />
-          · Ctrl+滚轮缩放画布（25%~400%），空格拖移平移<br />
-          · Ctrl+Z 撤销 / Ctrl+Shift+Z 重做（50 步）
+          · 从左侧面板把组件拖到画布，点它即可在此改样式<br />
+          · 拖动自动对齐；四角柄缩放，顶部柄旋转<br />
+          · Ctrl+滚轮缩放视图，空格键拖移画面<br />
+          · Ctrl+Z 撤销，Ctrl+Shift+Z 重做
         </div>
       </div>
     </template>
