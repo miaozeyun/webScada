@@ -55,6 +55,9 @@ export function startSource(ds: DataSource, variables: VariableDef[], onRaw: Raw
     case 'modbus':
       // Modbus 采集在服务端（collector），浏览器无 TCP 能力——no-op（运行态经 WS 取值）
       return { stop: () => {} }
+    case 'opcua':
+      // OPC UA 同理：服务端订阅推送，浏览器 no-op（运行态经 WS 取值）
+      return { stop: () => {} }
     case 'mqtt':
       return startMqtt(ds, vars, onRaw)
   }
@@ -285,6 +288,8 @@ export function testConnection(ds: DataSource): Promise<TestResult> {
       return Promise.resolve({ ok: true, message: 'mock 数据源在浏览器本地生成，无需连接' })
     case 'modbus':
       return Promise.resolve({ ok: false, message: 'Modbus TCP 仅支持服务端采集，请用数据源面板「测试连接」' })
+    case 'opcua':
+      return Promise.resolve({ ok: false, message: 'OPC UA 仅支持服务端采集，请用数据源面板「测试连接」' })
     case 'mqtt':
       return new Promise((resolve) => {
         const client = mqtt.connect(ds.config.brokerUrl, {

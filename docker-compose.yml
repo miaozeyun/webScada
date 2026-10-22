@@ -328,8 +328,27 @@ services:
     networks:
       - webscada-net
 
-  # sim-opcua（阶段二启用：asyncua 模拟 OPC UA 服务，规格同上——复用 server 镜像、
-  #   profiles: ["sim"]、挂载 scripts/sim、加入 webscada-net；本任务不建）
+  sim-opcua:
+    # OPC UA 仿真服务（工厂可用阶段二 Task 8）：ns=2 下 demo.temp（周期正弦 20~90）/
+    # demo.press / demo.state 三节点，节点表固化在脚本 docstring（scripts/sim/opcua_server.py）。
+    # 容器内 :4840 非特权端口（不对宿主机发布，server 经 webscada-net 以 sim-opcua:4840 访问；
+    # 非 <1024 特权端口，无 sim-modbus 的 NET_BIND_SERVICE 顾虑）
+    profiles: ["sim"]
+    build:
+      context: ./server
+      args:
+        REG_PREFIX: ${REG_PREFIX:-docker.io/}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    # 覆盖镜像 uvicorn 入口（沿 sim-modbus 经验：server 镜像 ENTRYPOINT 不 exec "$@"，须一并覆写）
+    entrypoint: []
+    command: ["python", "/app/sim/opcua_server.py"]
+    volumes:
+      - ./scripts/sim:/app/sim:ro
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - webscada-net
 
 networks:
   # 显式自定义 bridge：同编排内服务名即 DNS（server:8000 / postgres:5432 / emqx:1883）

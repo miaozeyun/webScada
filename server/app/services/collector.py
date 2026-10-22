@@ -1,11 +1,13 @@
 """采集器（M8 工作包 A）：服务端常驻采集，替代浏览器直连（02 §7.1 修订）。
 
-四类上游源（与前端 sources.ts 同语义）：
+六类上游源（与前端 sources.ts 同语义）：
 - MockSource：sine/ramp/random/square/hold 服务端仿真（公式逐条对齐前端 startMock）
 - RestSource：httpx 定时轮询（intervalMs 下限 500；失败 failureBackoffMs）
 - UpstreamWsSource：websockets 长连接客户端（subscribeFrame/heartbeatSec/重连退避）
 - MqttSource：aiomqtt 订阅（Fernet 解密 config.password 后鉴权；cleanSession/qos 按 doc；
   client id = webscada-{projectId8}-{nanoid8}）
+- ModbusSource：pymodbus 批量轮询（按组读 + 16/32 位解码）
+- OpcUaSource：asyncua 订阅推送（变量 address=nodeId；断线退避重连后重建全部订阅）
 
 帧缺失/解析失败 → raw=None → hub 换算 q='bad'（02 §2.9 第 1 条）；
 帧内路径缺字段 → 同样判 bad；mqtt 变量 address 即订阅 topic，不匹配的变量静默跳过（与前端一致）。
@@ -467,6 +469,139 @@ class MqttSource(BaseSource):
         await client.publish(topic, _payload_str(value), qos=cfg.writeQos if cfg.writeQos is not None else 0, retain=False)
 
 
+# ---------------- opcua ----------------
+
+
+def _opcua_ts_ms(data_value: Any) -> int:
+    """DataValue.SourceTimestamp（datetime）→ epoch 毫秒；缺失/异常回落当前时间。
+
+    asyncua 2.x 回调里时间戳在 data.monitored_item.Value（DataValue）上；无时区按 UTC。
+    """
+    ts = getattr(data_value, "SourceTimestamp", None)
+    if ts is None:
+        return _now_ms()
+    try:
+        return int(ts.timestamp() * 1000)
+    except (ValueError, OverflowError, OSError):
+        return _now_ms()
+
+
+class _OpcUaDataChangeHandler:
+    """OPC UA 订阅回调：nodeId → 变量分发（asyncua 2.x datachange_notification 签名）。
+
+    单变量分发全程兜底：一条 DC 异常只记日志，不拖垮整个订阅回调。
+    """
+
+    def __init__(self, source: "OpcUaSource") -> None:
+        self._source = source
+        # 同 nodeId 多变量各自入池（沿 mqtt 同 topic 多变量语义）
+        self._by_node: dict[str, list[VariableDef]] = {}
+        for var in source.variables:
+            if var.address:
+                self._by_node.setdefault(var.address.strip(), []).append(var)
+
+    def datachange_notification(self, node: Any, val: Any, data: Any) -> None:
+        try:
+            # 质量位沿管线：StatusCode != Good(0) → raw=None（hub 判 bad）
+            monitored = getattr(data, "monitored_item", None)
+            dv = getattr(monitored, "Value", None)
+            raw = val
+            status = getattr(dv, "StatusCode", None) if dv is not None else None
+            if status is not None and getattr(status, "value", 0) != 0:
+                raw = None
+            ts = _opcua_ts_ms(dv)
+            # asyncua 2.x 的 str(NodeId) 是 repr 非 OPC UA 串，必须 to_string()
+            node_id_obj = getattr(node, "nodeid", None)
+            node_id = node_id_obj.to_string() if node_id_obj is not None else str(node)
+            for var in self._by_node.get(node_id, []):
+                self._source._ingest(var, raw, ts)
+        except Exception:  # noqa: BLE001 - 回调异常兜底：单条通知失败不拖垮订阅
+            logger.exception(f"opcua 订阅回调异常 project={self._source.project_id} ds={self._source.ds.id}")
+
+
+class OpcUaSource(BaseSource):
+    """OPC UA 订阅推送源（asyncua）：connect → create_subscription(publishIntervalMs) →
+    每变量 address(nodeId) 建 DataChange 订阅；断线指数退避重连，重连成功后重建全部订阅
+    （订阅随连接销毁，不重建即数据静默停滞——Review Focus #5）；write = node.set_value。
+
+    asyncua 2.x 断线不向用户代码抛错（后台 publish 循环自吞），用 check_connection 轮询探测。
+    """
+
+    # 断线探测轮询周期：检测延迟上限（值越小越快发现断线，开销一次空请求）
+    _HEALTH_POLL_SEC = 1.0
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._client: Any = None
+
+    async def run(self) -> None:
+        from asyncua import Client
+
+        cfg = self.ds.config
+        lo, hi = self._backoff_range()
+        delay = lo
+        username = _decrypt_credential(cfg.username) if cfg.username else None
+        password = _decrypt_credential(cfg.password)
+        while True:
+            client: Any = None
+            try:
+                client = Client(url=cfg.endpointUrl, timeout=settings.COLLECTOR_CONNECT_TIMEOUT_MS / 1000)
+                if username is not None:
+                    client.set_user(username)
+                if password is not None:
+                    client.set_password(password)
+                await client.connect()
+                self._client = client
+                delay = lo
+                # 重连后重建全部订阅：订阅/监视项不跨连接存活，此处每轮全量重建
+                sub = await client.create_subscription(cfg.publishIntervalMs, _OpcUaDataChangeHandler(self))
+                ok_count = 0
+                for var in self.variables:
+                    address = (var.address or "").strip()
+                    if not address:
+                        self._ingest(var, None)  # 无地址 = bad（语义沿 modbus 地址非法）
+                        continue
+                    try:
+                        await sub.subscribe_data_change(client.get_node(address))
+                        ok_count += 1
+                    except Exception:  # noqa: BLE001 - 单变量 nodeId 非法不拖垮其余订阅
+                        logger.warning(
+                            f"opcua 订阅失败 nodeId={address} project={self.project_id} ds={self.ds.id}"
+                        )
+                        self._ingest(var, None)
+                logger.info(
+                    f"opcua 已连接 project={self.project_id} ds={self.ds.id} "
+                    f"订阅变量={ok_count}/{len(self.variables)} intervalMs={cfg.publishIntervalMs}"
+                )
+                # 断线探测：check_connection 在连接死亡时抛 ConnectionError → 走退避重连
+                while True:
+                    await asyncio.sleep(self._HEALTH_POLL_SEC)
+                    await client.check_connection()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"opcua 断开 project={self.project_id} ds={self.ds.id}：{type(exc).__name__} {exc}")
+            finally:
+                self._client = None
+                if client is not None:
+                    try:
+                        await client.disconnect()
+                    except Exception:  # noqa: BLE001 - 断链后的清理失败忽略
+                        pass
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, hi)
+
+    async def write(self, variable: VariableDef, value: Any) -> None:
+        client = self._client
+        if client is None:
+            raise RuntimeError("OPC UA 未连接，写入失败")
+        address = (variable.writeAddress or variable.address or "").strip()
+        if not address:
+            raise RuntimeError(f"变量 {variable.key} 未配置写地址（writeAddress/address）")
+        await client.get_node(address).set_value(value)
+        # 写后无需本地回环：服务端值变化经订阅自动推回（值未变化则本就无更新必要）
+
+
 # ---------------- Collector ----------------
 
 
@@ -763,6 +898,7 @@ class Collector:
             "rest": RestSource,
             "websocket": UpstreamWsSource,
             "mqtt": MqttSource,
+            "opcua": OpcUaSource,
         }
         return cls[ds.type](project_id, ds, variables)
 

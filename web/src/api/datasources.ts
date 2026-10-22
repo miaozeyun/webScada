@@ -13,7 +13,7 @@ export interface DatasourceTestResult {
 }
 
 export async function testDatasource(body: {
-  type: 'mqtt' | 'websocket' | 'rest' | 'mock' | 'modbus'
+  type: 'mqtt' | 'websocket' | 'rest' | 'mock' | 'modbus' | 'opcua'
   config: Record<string, unknown>
   projectId?: string
   datasourceId?: string

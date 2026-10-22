@@ -3,8 +3,9 @@
 POST /api/v1/datasources/test（operator/admin）：
 - 凭证注回：携带 projectId+datasourceId 且敏感字段空/缺省时，用库内 FER1: 密文解密后测试
   （与 PUT 空值保留合并同语义：编辑器持脱敏 doc 也能测试已存凭证的源）；非空明文按本次值。
-- 注回前提（M8 终审 #1）：本次连接地址（mqtt=brokerUrl / rest·websocket=url）与库内 stored_config
-  一致；不一致不注回（防 operator 换 URL 借注回静默窃取任意工程凭证），响应 message 提示重填凭证。
+- 注回前提（M8 终审 #1）：本次连接地址（mqtt=brokerUrl / opcua=endpointUrl / rest·websocket=url）
+  与库内 stored_config 一致；不一致不注回（防 operator 换 URL 借注回静默窃取任意工程凭证），
+  响应 message 提示重填凭证。
 - 审计：每次测试落 audit(action=datasource_test)；日志脱敏：敏感字段不落日志；结果不落库。
 - 限流：REST_DATASOURCE_TEST_PER_MIN（core/rate_limit 中间件消费）。
 """
@@ -29,26 +30,26 @@ _PROBE_TIMEOUT_SEC = 5.0
 
 
 class DatasourceTestBody(BaseModel):
-    type: Literal["mqtt", "websocket", "rest", "mock", "modbus"]
+    type: Literal["mqtt", "websocket", "rest", "mock", "modbus", "opcua"]
     config: dict[str, Any] = Field(default_factory=dict)
     projectId: str | None = None
     datasourceId: str | None = None
 
 
 def _config_endpoint(ds_type: str, config: dict) -> str:
-    """注回一致性校验用的连接地址：mqtt 取 brokerUrl，其余（rest/websocket/mock）取 url；均去首尾空白。"""
-    key = "brokerUrl" if ds_type == "mqtt" else "url"
+    """注回一致性校验用的连接地址：mqtt 取 brokerUrl、opcua 取 endpointUrl，其余（rest/websocket/mock）取 url；均去首尾空白。"""
+    key = {"mqtt": "brokerUrl", "opcua": "endpointUrl"}.get(ds_type, "url")
     return str((config or {}).get(key) or "").strip()
 
 
 def merge_stored_credentials(ds_type: str, config: dict, stored_config: dict) -> dict:
     """凭证注回（纯函数，就地修改并返回 config；契约 §4.5）。
 
-    - mqtt：config.password 空/缺省 → 取库内值（FER1: 解密；非密文原样）
+    - mqtt/opcua：config.password 空/缺省 → 取库内值（FER1: 解密；非密文原样）
     - rest/websocket：config.headers 敏感键（sanitize 同一正则口径）空/缺省 → 库内值解密
     - 非空明文按本次值（用户正在换凭证的场景优先）
     """
-    if ds_type == "mqtt":
+    if ds_type in ("mqtt", "opcua"):
         if not config.get("password"):
             stored_pw = (stored_config or {}).get("password")
             if stored_pw:
@@ -198,6 +199,143 @@ async def _probe_modbus(config: dict) -> tuple[bool, str]:
         client.close()
 
 
+async def _opcua_client(endpoint: str, username: Any, password: Any):
+    """建 OPC UA 客户端并注入用户凭证（无证书明文 None 安全模式，首版仅 opc.tcp）。"""
+    from asyncua import Client
+
+    client = Client(url=endpoint, timeout=_PROBE_TIMEOUT_SEC)
+    if username:
+        client.set_user(str(username))
+    if password:
+        client.set_password(str(password))
+    return client
+
+
+async def _probe_opcua(config: dict) -> tuple[bool, str]:
+    """OPC UA 连通性：建连 + 读 Server 服务器状态节点（i=2259 State）验证会话可用。"""
+    endpoint = str(config.get("endpointUrl", ""))
+    try:
+        client = await _opcua_client(endpoint, config.get("username"), config.get("password"))
+        await client.connect()
+        try:
+            state = await client.get_node("i=2259").get_value()  # Server_ServerStatus_State
+            return True, f"连接成功 {endpoint}（服务状态={state}）"
+        finally:
+            await client.disconnect()
+    except Exception as exc:  # noqa: BLE001
+        return False, f"连接失败：{exc}"
+
+
+# OPC UA browse 子节点返回上限（编辑器地址树分页下钻，防一次拉爆大地址空间）
+_BROWSE_MAX_NODES = 100
+
+
+async def _browse_opcua(
+    endpoint: str, username: Any, password: Any, node_id: str | None
+) -> tuple[bool, str, list[dict]]:
+    """browse 一层子节点（可选 nodeId；缺省浏览 Objects 根），限 100 条。
+
+    返回 (ok, message, nodes)；nodes 条目 {nodeId, browseName}，browseName 为
+    限定名 "ns:Name" 形式。nodeId 不存在/浏览失败 → ok=False 空列表（不 5xx）。
+    """
+    try:
+        client = await _opcua_client(endpoint, username, password)
+        await client.connect()
+    except Exception as exc:  # noqa: BLE001
+        return False, f"连接失败：{exc}", []
+    try:
+        node = client.get_node(node_id) if node_id else client.nodes.objects
+        # 先验节点存在：get_children 对不存在节点可能静默返回空（不如属性读可靠抛 BadNodeIdUnknown）
+        await node.read_browse_name()
+        children = await node.get_children()
+        nodes: list[dict] = []
+        for child in children[:_BROWSE_MAX_NODES]:
+            try:
+                bn = await child.read_browse_name()
+                name = f"{bn.NamespaceIndex}:{bn.Name}"
+            except Exception:  # noqa: BLE001 - 单节点 browseName 失败不拖垮列表
+                name = ""
+            nodes.append({"nodeId": child.nodeid.to_string(), "browseName": name})
+        more = len(children) > len(nodes)
+        message = f"已列出 {len(nodes)} 个子节点{f'（超过 {_BROWSE_MAX_NODES} 截断）' if more else ''}"
+        return True, message, nodes
+    except Exception as exc:  # noqa: BLE001
+        return False, f"浏览失败：{exc}", []
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+class OpcUaBrowseBody(BaseModel):
+    """POST /datasources/opcua/browse 请求体（沿 test 端点凭证注回模式，阶段二 Task 8）。"""
+
+    endpoint: str = Field(min_length=1, max_length=512)
+    username: str | None = None
+    password: str | None = None          # 空/缺省且 endpointUrl 与库内一致 → 注回库内密文
+    nodeId: str | None = Field(default=None, max_length=512)  # 缺省浏览 Objects
+    projectId: str | None = None
+    datasourceId: str | None = None
+
+
+@router.post("/datasources/opcua/browse")
+async def browse_opcua(
+    body: OpcUaBrowseBody,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """OPC UA 地址空间 browse（operator/admin）：一层子节点 {nodeId, browseName} 限 100。
+
+    凭证注回沿 test 端点模式（终审 #1 同口径）：endpointUrl 与库内一致才注回；
+    审计 action=datasource_test（同 test 端点，detail.op 区分）；日志只记元数据。
+    """
+    if user.role not in ("operator", "admin"):
+        raise AppError("FORBIDDEN", "viewer 角色不允许执行 OPC UA 地址浏览", 403)
+
+    username = body.username
+    password = body.password
+    refilled = False
+    url_mismatch = False
+    if body.projectId and body.datasourceId:
+        stored = await _load_stored_config(db, body.projectId, body.datasourceId)
+        if stored is not None:
+            if body.endpoint.strip() == str(stored.get("endpointUrl") or "").strip():
+                if not password:
+                    stored_pw = stored.get("password")
+                    if stored_pw:
+                        password = _decrypt_or_raw(str(stored_pw))
+                        refilled = True
+                if not username:
+                    stored_user = stored.get("username")
+                    if stored_user:
+                        username = str(stored_user)
+            else:
+                url_mismatch = True
+
+    started = time.perf_counter()
+    ok, message, nodes = await _browse_opcua(body.endpoint, username, password, body.nodeId)
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    if url_mismatch:
+        message += "；连接地址与已保存数据源不一致，未注回已存凭证，请重填凭证"
+
+    logger.info(
+        f"datasources/opcua/browse ok={ok} nodes={len(nodes)} latencyMs={latency_ms} user={user.username}"
+    )
+    try:
+        from app.services import audit_service
+
+        await audit_service.audit(
+            request, user, "datasource_test", target_type="datasource", target_id=body.datasourceId,
+            detail={"type": "opcua", "op": "browse", "ok": ok, "latencyMs": latency_ms,
+                    "refilled": refilled, "urlMatched": not url_mismatch, "projectId": body.projectId},
+        )
+    except ImportError:
+        logger.info("audit_service 未合入，opcua browse 审计跳过（打桩降级）")
+    return {"ok": ok, "message": message, "nodes": nodes, "latencyMs": latency_ms}
+
+
 @router.post("/datasources/test")
 async def test_datasource(
     body: DatasourceTestBody,
@@ -233,6 +371,8 @@ async def test_datasource(
         ok, message = await _probe_websocket(config)
     elif body.type == "modbus":
         ok, message = await _probe_modbus(config)
+    elif body.type == "opcua":
+        ok, message = await _probe_opcua(config)
     else:
         ok, message = await _probe_rest(config)
     latency_ms = int((time.perf_counter() - started) * 1000)

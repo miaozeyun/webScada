@@ -95,7 +95,7 @@ export interface ProjectMeta {
   thumbnail?: string | null
 }
 
-// ============ 数据源（四类） ============
+// ============ 数据源（六类） ============
 
 export interface MqttConfig {
   brokerUrl: string
@@ -158,6 +158,22 @@ export interface ModbusConfig {
   staleTimeoutMs?: number | null
 }
 
+/** OPC UA（工厂可用阶段二 Task 8，第六源，服务端 asyncua 订阅推送）；变量 address = nodeId 字符串（如 ns=2;s=demo.temp） */
+export interface OpcUaConfig {
+  /** 仅 opc.tcp:// */
+  endpointUrl: string
+  /** 首版仅 'none'（无证书/加密） */
+  securityMode?: 'none'
+  username?: string | null
+  /** 敏感：GET/导出/分享快照中恒为空串（G6）；库内 Fernet 加密 */
+  password?: string | null
+  /** 订阅发布周期（下限 200ms） */
+  publishIntervalMs?: number
+  reconnectMinMs?: number
+  reconnectMaxMs?: number
+  staleTimeoutMs?: number | null
+}
+
 interface DsBase {
   id: string
   name: string
@@ -170,8 +186,9 @@ export interface WebsocketDataSource extends DsBase { type: 'websocket'; config:
 export interface RestDataSource extends DsBase { type: 'rest'; config: RestConfig }
 export interface MockDataSource extends DsBase { type: 'mock'; config?: MockConfig }
 export interface ModbusDataSource extends DsBase { type: 'modbus'; config: ModbusConfig }
+export interface OpcUaDataSource extends DsBase { type: 'opcua'; config: OpcUaConfig }
 
-export type DataSource = MqttDataSource | WebsocketDataSource | RestDataSource | MockDataSource | ModbusDataSource
+export type DataSource = MqttDataSource | WebsocketDataSource | RestDataSource | MockDataSource | ModbusDataSource | OpcUaDataSource
 
 // ============ 变量字典 ============
 
@@ -200,7 +217,7 @@ export interface VariableDef {
   range?: VarRange | null
   defaultValue?: number | boolean | string | null
   datasourceId: string
-  /** 取数地址：mqtt=topic；websocket/rest=定位键；mock 忽略 */
+  /** 取数地址：mqtt=topic；websocket/rest=定位键；mock 忽略；opcua=nodeId 字符串（如 ns=2;s=demo.temp） */
   address?: string
   jsonPath?: string | null
   // ---- 反控（M7）：写通道经浏览器直连数据源，writable 变量才可写 ----

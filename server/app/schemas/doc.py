@@ -133,7 +133,7 @@ class ProjectMeta(DocModel):
     thumbnail: str | None = Field(default=None, max_length=300_000)
 
 
-# ================= 数据源（四类，discriminated union） =================
+# ================= 数据源（六类，discriminated union） =================
 
 class MqttConfig(DocModel):
     brokerUrl: str = Field(min_length=1, max_length=512)
@@ -195,6 +195,24 @@ class ModbusConfig(DocModel):
     staleTimeoutMs: int | None = Field(default=None, ge=1000)
 
 
+class OpcUaConfig(DocModel):
+    """OPC UA（工厂可用阶段二 Task 8，第六源，asyncua 订阅推送）。
+
+    变量 address = nodeId 字符串（如 ns=2;s=demo.temp）；writeAddress 缺省回落 address，
+    写入 = node.set_value。首版仅明文 None 安全模式（无证书/加密），用户名密码鉴权可选
+    （password 敏感：出口脱敏 / 库内 Fernet 加密，沿 mqtt 口径）。
+    """
+
+    endpointUrl: str = Field(min_length=1, max_length=512, pattern=r"^opc\.tcp://")  # 仅 opc.tcp
+    securityMode: Literal["none"] = "none"                      # 首版仅 None（枚举占位后续扩展）
+    username: str | None = Field(default=None, max_length=128)  # 不脱敏（G6 沿 mqtt username）
+    password: str | None = None                                 # 敏感：出口脱敏 / 库内加密
+    publishIntervalMs: int = Field(default=1000, ge=200)        # 订阅发布周期下限 200ms
+    reconnectMinMs: int = Field(default=1000, ge=100)
+    reconnectMaxMs: int = Field(default=30000, ge=1000)
+    staleTimeoutMs: int | None = Field(default=None, ge=1000)
+
+
 class _DsBase(DocModel):
     id: str = _ID
     name: str = _NAME128
@@ -226,8 +244,13 @@ class ModbusDataSource(_DsBase):
     config: ModbusConfig
 
 
+class OpcUaDataSource(_DsBase):
+    type: Literal["opcua"]
+    config: OpcUaConfig
+
+
 DataSource = Annotated[
-    Union[MqttDataSource, WebsocketDataSource, RestDataSource, MockDataSource, ModbusDataSource],
+    Union[MqttDataSource, WebsocketDataSource, RestDataSource, MockDataSource, ModbusDataSource, OpcUaDataSource],
     Field(discriminator="type"),
 ]
 
@@ -298,7 +321,8 @@ class VariableDef(DocModel):
     defaultValue: float | bool | str | None = None
     datasourceId: str = _ID
     # 取数地址：mqtt=topic；websocket=帧内定位键；rest=响应内定位键；mock 忽略；
-    # modbus=Modbus 区位十进制字符串（4xxxx 保持寄存器/3xxxx 输入寄存器/0xxxx 线圈/1xxxx 离散输入）
+    # modbus=Modbus 区位十进制字符串（4xxxx 保持寄存器/3xxxx 输入寄存器/0xxxx 线圈/1xxxx 离散输入）；
+    # opcua=nodeId 字符串（如 ns=2;s=demo.temp）
     address: str = Field(default="", max_length=512)
     jsonPath: str | None = Field(default=None, max_length=256)
     # ---- 反控（M7）：写通道经浏览器直连数据源，writable 变量才可写 ----

@@ -1,10 +1,10 @@
 """doc 凭证脱敏 / 空值保留合并 / 导入置空（G6）。
 
 与前端 web/src/utils/sanitize.ts 是同一契约的两端（G6）：
-- 脱敏范围：mqtt.config.password；rest/websocket 的 config.headers 中
+- 脱敏范围：mqtt/opcua 的 config.password；rest/websocket 的 config.headers 中
   键名匹配 authorization|token|password|secret|key（不区分大小写）的键值；
   settings.notify.channels[] 中钉钉渠道的 secret（工厂可用阶段二 Task 4）。
-- mqtt.config.username 不脱敏。
+- mqtt/opcua 的 config.username 不脱敏。
 - 所有出口（GET 工程详情 / 导出 / 分享快照）一律脱敏为空字符串。
 """
 import copy
@@ -32,9 +32,9 @@ def iter_notify_channels(doc: dict):
 
 def _iter_sensitive_fields(ds: dict, config: dict):
     """yield 每个敏感字段的 (容器 dict, 键名)。
-    mqtt → config.password；rest/websocket → config.headers 敏感键。
+    mqtt/opcua → config.password；rest/websocket → config.headers 敏感键。
     """
-    if ds.get("type") == "mqtt" and "password" in config:
+    if ds.get("type") in ("mqtt", "opcua") and "password" in config:
         yield config, "password"
     if ds.get("type") in ("rest", "websocket"):
         headers = config.get("headers")
@@ -86,8 +86,8 @@ def merge_sensitive_fields(submitted: dict, stored: dict) -> None:
         old_config = old_ds.get("config", {})
         old_headers = old_config.get("headers") or {}
 
-        # mqtt password
-        if ds.get("type") == "mqtt":
+        # mqtt / opcua password（opcua 沿 mqtt 同口径，阶段二 Task 8）
+        if ds.get("type") in ("mqtt", "opcua"):
             _merge_one(config, old_config, "password")
 
         # rest / websocket headers 敏感键
@@ -135,7 +135,7 @@ def clear_credentials_for_import(doc: dict) -> None:
     for ds, config in iter_datasource_configs(doc):
         if ds.get("type") == "mqtt":
             config["cleanSession"] = True
-        if ds.get("type") == "mqtt" and "password" in config:
+        if ds.get("type") in ("mqtt", "opcua") and "password" in config:
             config["password"] = ""
         if ds.get("type") in ("rest", "websocket"):
             headers = config.get("headers")

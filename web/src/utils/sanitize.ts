@@ -13,7 +13,7 @@ export function sanitizeDocForExport(doc: ProjectDoc): ProjectDoc {
   for (const ds of cloned.datasources ?? []) {
     if (!ds.config) continue
     // 仅清空已存在的键（与服务端 sanitize.py「缺失键保持缺失」一致，避免导出文件多出空键）
-    if (ds.type === 'mqtt' && 'password' in ds.config) {
+    if ((ds.type === 'mqtt' || ds.type === 'opcua') && 'password' in ds.config) {
       ds.config.password = ''
     } else if (ds.type === 'rest' || ds.type === 'websocket') {
       if (ds.config.headers) {

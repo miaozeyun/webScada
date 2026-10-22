@@ -109,12 +109,13 @@ docker volume inspect webscada_pgdata   # 查看宿主机实际路径
 |------|----------|------|
 | `sim-modbus` | Modbus TCP 从站 `:502` | 寄存器表固化在 `scripts/sim/modbus_slave.py` docstring（正弦计数 / float32 双字节序 23.5、88.0 / int32 -123456 / 线圈），HR 40001~40010 每秒刷新 |
 | `sim-mqtt-gateway` | 3 台产线设备 MQTT 网关 | `line1/line2/line3` 每秒发布 `factory/{dev}/temp`、`factory/{dev}/run` 与 `factory/line1/press`，payload `{"v":…,"ts":…}`；主题表见 `scripts/sim/mqtt_gateway.py` docstring |
+| `sim-opcua` | OPC UA 服务 `:4840` | ns=2 下 `demo.temp`（周期正弦 20~90，每秒刷新）/ `demo.press`（恒 0.75）/ `demo.state`（可写，反控演示）；变量 address 即 nodeId（如 `ns=2;s=demo.temp`），节点表见 `scripts/sim/opcua_server.py` docstring |
 
 启动 / 停止（`profiles: ["sim"]` 隔离，默认 `docker compose up -d` 不会启动它们）：
 
 ```bash
-docker compose --profile sim up -d sim-modbus sim-mqtt-gateway   # 或 --profile sim up -d 连基线一起起
-docker compose --profile sim stop sim-modbus sim-mqtt-gateway
+docker compose --profile sim up -d sim-modbus sim-mqtt-gateway sim-opcua   # 或 --profile sim up -d 连基线一起起
+docker compose --profile sim stop sim-modbus sim-mqtt-gateway sim-opcua
 docker compose logs sim-mqtt-gateway --tail 20                   # 可见 factory/line1/temp v=… 发布行
 ```
 

@@ -313,7 +313,7 @@ export interface VariableDef {
   defaultValue?: number | boolean | string; // 初始值：连接建立前与断线时组件显示该值；
                             // 随 doc 存储于 projects.doc，但不写入任何运行值/历史值存储（P0 无运行值落库）
   datasourceId: ID;        // 所属数据源，必须指向 datasources[].id
-  address: string;         // 取数地址：mqtt=topic；websocket=帧内定位约定键；rest=响应内定位键；mock 忽略
+  address: string;         // 取数地址：mqtt=topic；websocket=帧内定位约定键；rest=响应内定位键；mock 忽略；modbus=惯用区位十进制；opcua=nodeId 字符串（如 ns=2;s=demo.temp）
   jsonPath?: string;       // 载荷点路径（子集语法见第 1 章第 4 条），如 "data.temp"
   scale?: number;          // 工程值 = 原始值 × scale + offset；默认 1。服务端入 hub 前执行
   offset?: number;         // 默认 0
@@ -416,6 +416,21 @@ export type DataSource =
         // 变量 address 用 Modbus 惯用 5 位区位十进制：4xxxx 保持寄存器 / 3xxxx 输入寄存器
         // / 0xxxx 线圈（可写）/ 1xxxx 离散输入；scale/offset/precision 复用统一换算流水；
         // 协议自身无账号体系（UnitId 即从站标识），无敏感字段（脱敏/加密链路 no-op）
+      }
+  | {
+        id: ID; name: string; type: 'opcua';   // 工厂可用阶段二：服务端 asyncua 订阅推送（浏览器 no-op，运行态经 WS 取值）
+        enabled?: boolean;
+        config: {
+          endpointUrl: string;     // 仅 opc.tcp://（首版无 opc.https）
+          securityMode?: 'none';   // 首版仅明文 None 安全模式（枚举占位后续扩展证书/加密）
+          username?: string | null;   // 不脱敏（G6 沿 mqtt username）
+          password?: string | null;   // 敏感：出口脱敏 / 库内 Fernet 加密（沿 mqtt 口径）
+          publishIntervalMs?: number; // 订阅发布周期，默认 1000（下限 200）
+          reconnectMinMs?: number; reconnectMaxMs?: number;  // 断线指数退避（沿 mqtt 缺省 1000/30000）
+          staleTimeoutMs?: number | null;
+        };
+        // 变量 address = nodeId 字符串（如 ns=2;s=demo.temp）；writeAddress 缺省回落 address，
+        // 写入 = node.set_value；断线重连成功后重建全部订阅（订阅不跨连接存活）
       };
 ```
 
