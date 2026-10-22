@@ -240,6 +240,8 @@ export type WidgetType =
   | 'symbol'
   // ---- M9 批次3 新增（画面装饰）----
   | 'title-bar'
+  // ---- 工厂可用阶段二新增（数据表格族）----
+  | 'realtime-table'
   | 'group'
 
 export interface PageBackground { color: string; image?: string | null }

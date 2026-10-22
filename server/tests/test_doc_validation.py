@@ -347,3 +347,20 @@ async def test_notify_bad_min_level_rejected(client, auth_headers):
     resp = await put_doc(client, auth_headers, pid, doc)
     assert resp.status_code == 422
     assert any(e["path"].endswith("channels[0].webhook.minLevel") for e in resp.json()["errors"])
+
+
+async def test_realtime_table_widget_type_accepted(client, auth_headers):
+    """工厂可用阶段二 Task 6：WidgetType 纯增量 +realtime-table（schemaVersion 冻结 1，旧 doc 不受影响）。"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["pages"][0]["components"].append({
+        "id": "cmp_rt_table_01", "type": "realtime-table", "name": "产线实时表",
+        "x": 40, "y": 40, "w": 360, "h": 260, "z": 3,
+        "props": {
+            "columns": '[{"key":"reactor1_temp","label":"1号反应釜温度","precision":1,"unit":"°C"}]',
+            "showQuality": True, "showUnit": True,
+        },
+        "bindings": [],
+    })
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200

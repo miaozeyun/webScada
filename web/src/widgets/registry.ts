@@ -25,6 +25,7 @@ import {
   PieChart,
   Postcard,
   Switch,
+  Tickets,
   Timer,
   TrendCharts,
   VideoCamera,
@@ -52,6 +53,7 @@ import VarDisplayWidget from './basic/VarDisplayWidget.vue'
 import VideoWidget from './basic/VideoWidget.vue'
 import WeatherWidget from './basic/WeatherWidget.vue'
 import WebFrameWidget from './basic/WebFrameWidget.vue'
+import RealtimeTableWidget from './realtime/RealtimeTableWidget.vue'
 import BarChartWidget from './chart/BarChartWidget.vue'
 import GaugeWidget from './chart/GaugeWidget.vue'
 import HistoryChartWidget from './chart/HistoryChartWidget.vue'
@@ -565,6 +567,28 @@ register({
     },
   ],
   renderer: TitleBarWidget,
+})
+
+// ---- 工厂可用阶段二新增（数据表格族：Task 6 实时表格 / Task 7 历史表格） ----
+
+register({
+  type: 'realtime-table',
+  name: '实时表格',
+  epIcon: markRaw(Tickets),
+  category: 'basic',
+  defaultSize: { w: 360, h: 260 },
+  defaultProps: () => ({ columns: '[]', showQuality: false, showUnit: true }),
+  propsSchema: [
+    {
+      key: 'columns',
+      label: '数据列（JSON 数组：{key,label,precision?,unit?}，key=变量 key）',
+      type: 'textarea',
+      defaultValue: '[]',
+    },
+    { key: 'showQuality', label: '显示质量列（非 good 灰显）', type: 'switch', defaultValue: false },
+    { key: 'showUnit', label: '值后拼接单位', type: 'switch', defaultValue: true },
+  ],
+  renderer: RealtimeTableWidget,
 })
 
 // ---- 图表类（M2b：echarts 按需渲染，P0 静态模拟序列，M3 起绑定驱动） ----
