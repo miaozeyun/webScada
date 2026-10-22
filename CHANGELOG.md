@@ -7,6 +7,45 @@ webScada 的所有显著变更记录在本文件。
 
 ## [Unreleased] — 运维与法务文档包 + 服务端闭环改造（进行中）
 
+### 工厂可用阶段二「用得顺手」：OPC UA + 历史聚合/导出 + 数据表格 + 工程级通知 + 免重登（2026-10-22）
+
+#### Added
+
+- **历史聚合扩展**：`GET /projects/{id}/history` 增 `agg` 参数（mean/min/max/last/sum，缺省 mean），
+  服务端窗口聚合按所选口径取值（last=桶内末点、sum=桶内求和）；历史图表属性面板新增聚合下拉
+  （props `agg` 纯增量，旧工程不受影响）。
+- **历史 CSV 导出**：`GET /projects/{id}/history/export?key&from&to` 单变量原始行流式导出——
+  keyset 分页（5000 行/页循环迭代，不整载、无行数上限），列 `ts,value`（ISO8601 + 原始工程值），
+  跨度 ≤30 天，JWT/分享 token 双通道鉴权，限流与查询端点同额；属性面板历史图表/趋势图工具条
+  增导出按钮。30 天 ×5s ≈ 51.8 万行实测流式导出完整可解析。
+- **操作员免重登（refresh token）**：登录页「记住我 7 天」，rememberMe 登录签发 refresh
+  （sha256 落库，Alembic 0003）；`POST /auth/refresh` 一次性轮换（旧 token 吊销 + 新对），
+  复用已轮换 token 判定泄露重放并吊销该用户全部 refresh；登出/改密一并切断 refresh；前端
+  http.ts 401 拦截器单飞刷新（并发请求排队共享同一次刷新，失败才登出）后重放原请求。
+- **通知渠道落工程 doc**：`doc.settings.notify.channels` 四渠道（webhook/钉钉/企微/邮件，按
+  kind 判别 + 渠道级 minLevel 过滤），沿 G14 存 doc 无独立端点；钉钉 secret Fernet 加密、
+  出口统一脱敏、PUT 空值合并（空串=保留/null=清除）；工程配置优先、无配置回落 env 单渠道，
+  按工程缓存（保存/导入/删除即时失效 + 5s TTL 兜底）；网络类异常重试 3 次（1s/2s/4s 指数
+  退避，HTTP 4xx 不重试）；数据抽屉新增「通知」渠道 CRUD 表单。
+- **钉钉/企微发送实现**：钉钉毫秒时间戳 + `\n` 拼接 secret 以 HMAC-SHA256 base64 加签
+  （固定向量单测钉死时序与 percent-encode），text 消息；企微 markdown 消息无签名；真实群
+  推送冒烟列入人工清单（需现场机器人 URL）。
+- **实时/历史表格组件**：`realtime-table`（columns=变量列 JSON，列内显式 precision/unit
+  ——分享页无变量定义回落时仍可格式化；质量位非 good 灰显、报警行警示色，theme.css 令牌）
+  与 `history-table`（variableKey 存变量 id 经 doc/runtime 反查，rangeMs 1h/6h/24h ×
+  bucketCount 区间桶末值快照，60s 定时刷新、卸载清定时器）；行构造纯函数 tableRows.ts 与
+  组件解耦。
+- **OPC UA 第六数据源**：asyncua 订阅推送型采集源（address=nodeId 字符串，DataChange 订阅，
+  断线指数退避、重连后重建全部订阅；write=set_value 走 writable 管线；凭证加密脱敏沿 MQTT
+  口径）；`POST /datasources/opcua/browse` 子节点浏览（operator+，落审计）；compose sim
+  profile 新增 `sim-opcua`（ns=2 demo.temp/press/state，temp 周期变化）。实装 asyncua 2.1.0
+  与旧文档五处偏差已留档（docs/经验教训.md）。
+- **阶段验收（门禁）**：报警触发后 0.07s 到达 webhook 接收器（阈值 30s，TLS 接收器 + 容器
+  CA 注入实测）；30 天 518,400 行合成数据 CSV 经 nginx 流式导出完整解析（首尾时间戳/步长
+  断言）；refresh 链路 API 级验证（过期 access 401 → 刷新换新对 → 业务 200，复用旧 refresh
+  401 且同族全吊销）；`scripts/seed_demo.py` 演示工程增实时/历史表格组件与 `--notify-webhook`
+  渠道参数（幂等判定扩展到组件与渠道一致性）。
+
 ### 工厂可用阶段一「接得进来」：Modbus 深化 + MQTT 通配修复 + 点位 CSV 导入 + 仿真验证台（2026-10-22）
 
 #### Added
