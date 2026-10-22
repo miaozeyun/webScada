@@ -1057,4 +1057,4 @@ export interface NotifyConfig {                  // ProjectSettings 增量：not
 ### 9.2 WidgetType 增量（数据表格族）
 
 - `WidgetType` +`'realtime-table'`（实时表格）：doc.variables 挑列（props `columns: {key,label,precision?,unit?}[]`）实时展示工程值，可选质量位列（非 good 灰显）与单位拼接。
-- `WidgetType` +`'history-table'`（历史表格）：单变量按区间分桶（props `variableKey/rangeMs/bucketCount`）取每桶末值成表；取数走 03 §2.10 查询端点 `agg='last'`（stepMs 由 rangeMs/bucketCount 联动，前端二次分桶兜稀疏序列）。
+- `WidgetType` +`'history-table'`（历史表格）：单变量按区间分桶（props `variableKey/rangeMs/bucketCount`）取每桶末值成表；取数走 03 §2.10 查询端点并显式传 `agg='last'`（参数枚举与语义见 03 §2.10 入参；stepMs 由 rangeMs/bucketCount 联动，前端二次分桶兜稀疏序列）。
