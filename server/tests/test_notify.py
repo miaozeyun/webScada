@@ -522,3 +522,82 @@ async def test_secret_put_merge_empty_keeps_null_clears(client, auth_headers, db
     resp = await put_doc(client, auth_headers, pid, doc3, base_revision=resp.json()["revision"])
     assert resp.status_code == 200
     assert await stored_secret() is None
+
+
+# ---------------- 钉钉/企微专属发送（工厂可用阶段二 Task 5） ----------------
+
+
+def _capture_posts(monkeypatch) -> list[dict]:
+    """捕获外发完整 URL + 请求体（沿 _patch_webhook_urls 的 MockTransport 模式扩展 body）。"""
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        seen.append({"url": str(request.url), "body": json.loads(request.content.decode("utf-8"))})
+        return httpx.Response(200)
+
+    monkeypatch.setattr(notify, "_build_webhook_client",
+                        lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=1))
+    return seen
+
+
+def test_dingtalk_sign_fixed_vector():
+    """sign 固定向量防时序/编码回归（Review Focus #1：毫秒时间戳 + HMAC-SHA256 + base64 + urlencode）。
+
+    期望值由标准实现独立手算后写死：digest hex=784b2732d1819d54ab53bf7654fc2cdc260e2c752f0891f546b7e00a81c7acb7
+    （hmac.new 与 hmac.digest 双实现交叉验证一致；quote_plus 与 urlencode({"sign":...}) 一致）。
+    """
+    assert notify._dingtalk_sign("1719000000000", "SECxxxxxxxx") == \
+        "eEsnMtGBnVSrU792VPws3CYOLHUvCJH1RrfgCoHHrLc%3D"
+
+
+async def test_dingtalk_signed_url_and_text_payload(client, auth_headers, monkeypatch):
+    """钉钉：URL 追加 &timestamp=<毫秒>&sign=<urlencode(HMAC)>；payload 为 text 消息形状。"""
+    pid, _ = await _mk_project(client, auth_headers, _notify_doc([
+        {"kind": "dingtalk", "url": "https://oapi.dingtalk.com/robot/send?access_token=tok",
+         "secret": "SECxxxxxxxx"},
+    ]))
+    seen = _capture_posts(monkeypatch)
+
+    await notify.send_alarm(make_rec_for(pid), RULE)
+
+    assert len(seen) == 1
+    base, _, query = seen[0]["url"].partition("?")
+    assert base == "https://oapi.dingtalk.com/robot/send"
+    params = dict(p.split("=", 1) for p in query.split("&"))
+    assert params["access_token"] == "tok"          # 原有 query 参数原样保留
+    ts = params["timestamp"]
+    assert ts.isdigit() and len(ts) == 13           # 毫秒时间戳原样（纯数字，无编码）
+    assert params["sign"] == notify._dingtalk_sign(ts, "SECxxxxxxxx")  # 算法级一致性断言
+    assert seen[0]["body"] == {"msgtype": "text",
+                               "text": {"content": f"[webScada] {pid} temp_01 critical: 1号反应釜温度超高: 111.2"}}
+
+
+async def test_dingtalk_without_secret_sends_unsigned(client, auth_headers, monkeypatch):
+    """secret 空（未配置/解密失败降级空串）→ 不追加签名参数，按原 URL 发送（_decrypt_secret 口径）。"""
+    pid, _ = await _mk_project(client, auth_headers, _notify_doc([
+        {"kind": "dingtalk", "url": "https://oapi.dingtalk.com/robot/send?access_token=tok"},
+    ]))
+    seen = _capture_posts(monkeypatch)
+
+    await notify.send_alarm(make_rec_for(pid), RULE)
+
+    assert len(seen) == 1
+    assert seen[0]["url"] == "https://oapi.dingtalk.com/robot/send?access_token=tok"
+    assert seen[0]["body"]["msgtype"] == "text"
+
+
+async def test_wecom_markdown_payload_no_sign(client, auth_headers, monkeypatch):
+    """企微：URL 原样无追加（无签名）；payload 为 markdown 消息形状（内容口径同钉钉）。"""
+    pid, _ = await _mk_project(client, auth_headers, _notify_doc([
+        {"kind": "wecom", "url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY"},
+    ]))
+    seen = _capture_posts(monkeypatch)
+
+    await notify.send_alarm(make_rec_for(pid), RULE)
+
+    assert len(seen) == 1
+    assert seen[0]["url"] == "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY"
+    assert seen[0]["body"] == {"msgtype": "markdown",
+                               "markdown": {"content": f"[webScada] {pid} temp_01 critical: 1号反应釜温度超高: 111.2"}}

@@ -10,15 +10,19 @@
 - 节流沿既有 (project_id, rule_id) 口径（工程级一次判定，与渠道数无关）
 
 发送与重试：
-- webhook(httpx) + 邮件（smtplib 线程池包装）；dingtalk/wecom 本任务先按通用 webhook
-  形状发送，专属 payload/签名由 Task 5 替换（代码注释标注）
+- webhook(httpx 通用 JSON 帧) + 钉钉（毫秒时间戳加签 URL + text 消息）+
+  企微（markdown 消息，无签名）+ 邮件（smtplib 线程池包装）
 - 每渠道失败重试 3 次指数退避（1s/2s/4s）；仅网络类异常（httpx.TransportError/
   连接/超时）重试，HTTP 非 2xx（含 4xx 业务拒绝）不重试
 - 全部渠道失败仅计数 stats.notify_failed_total / 成功计数 notify_sent_total（/metrics
   消费），不抛（通知故障不阻断报警主流程）；外发经 alarm_service._spawn 后台任务派发
 """
 import asyncio
+import base64
+import hashlib
+import hmac
 import time
+import urllib.parse
 import uuid as uuidlib
 from datetime import datetime, timezone
 
@@ -136,7 +140,7 @@ def _channels_from_doc(doc: dict) -> list[dict] | None:
 
 
 def _decrypt_secret(value) -> str:
-    """钉钉加签密钥解密（库内 FER1: 密文）；解密失败降级为空串并告警（Task 5 签名依赖此值）。"""
+    """钉钉加签密钥解密（库内 FER1: 密文）；解密失败降级为空串并告警（签名依赖此值）。"""
     if not isinstance(value, str) or not value:
         return ""
     if looks_encrypted(value):
@@ -265,6 +269,49 @@ async def _send_webhook(url: str, rec, rule: dict | None) -> bool:
     return await _send_with_retry(label, rec, lambda: _post_webhook_json(url, payload))
 
 
+def _im_content(rec) -> str:
+    """钉钉/企微消息内容（字段拼装口径同 _webhook_payload：工程/变量/级别/消息）。"""
+    return f"[webScada] {rec.project_id} {rec.variable_key} {rec.level}: {rec.message}"
+
+
+def _dingtalk_sign(timestamp_ms: str, secret: str) -> str:
+    """钉钉加签（官方算法）：HMAC-SHA256(key=secret, msg="{ts}\\n{secret}") → base64 → urlencode。
+
+    timestamp_ms 为毫秒字符串、原样进 URL；sign 值整体 percent-encode（base64 含 + / =）。
+    固定向量（tests/test_notify.py::test_dingtalk_sign_fixed_vector）钉死时序与编码：
+    ts="1719000000000"、secret="SECxxxxxxxx" → "eEsnMtGBnVSrU792VPws3CYOLHUvCJH1RrfgCoHHrLc%3D"
+    """
+    string_to_sign = f"{timestamp_ms}\n{secret}"
+    digest = hmac.new(secret.encode("utf-8"), string_to_sign.encode("utf-8"), hashlib.sha256).digest()
+    return urllib.parse.quote_plus(base64.b64encode(digest))
+
+
+async def _send_dingtalk(url: str, secret: str, rec, rule: dict | None) -> bool:
+    """钉钉渠道：URL 追加 timestamp/sign 加签参数 + text 消息。
+
+    secret 为空（未配置/解密失败降级）→ 不加签按原 URL 发送（_decrypt_secret 口径）。
+    """
+    label = f"钉钉渠道（{_url_label(url)}）"
+
+    def _signed_url() -> str:
+        # 每次尝试现算时间戳与签名：重试退避后再发须用新时刻；URL 已含 ?access_token=... 故追加用 &
+        if not secret:
+            return url
+        ts = str(int(time.time() * 1000))
+        sep = "&" if "?" in url else "?"
+        return f"{url}{sep}timestamp={ts}&sign={_dingtalk_sign(ts, secret)}"
+
+    payload = {"msgtype": "text", "text": {"content": _im_content(rec)}}
+    return await _send_with_retry(label, rec, lambda: _post_webhook_json(_signed_url(), payload))
+
+
+async def _send_wecom(url: str, rec, rule: dict | None) -> bool:
+    """企微渠道：markdown 消息、无签名，URL 原样。"""
+    payload = {"msgtype": "markdown", "markdown": {"content": _im_content(rec)}}
+    label = f"企微渠道（{_url_label(url)}）"
+    return await _send_with_retry(label, rec, lambda: _post_webhook_json(url, payload))
+
+
 def _smtp_send_sync(rec, rule: dict | None, recipients: list[str]) -> None:
     """阻塞 SMTP 发送（仅在线程池中执行）。From/账号走 env；To 取渠道收件人。"""
     import smtplib
@@ -327,12 +374,9 @@ async def _dispatch_channel(channel: dict, rec, rule: dict | None) -> bool:
     if kind == "webhook":
         return await _send_webhook(channel["url"], rec, rule)
     if kind == "dingtalk":
-        # Task 5 替换：钉钉专属 payload（msgtype=text）与加签 URL（HMAC-SHA256 毫秒时间戳），
-        # 当前按通用 webhook 形状发送（secret 已解密待用）
-        return await _send_webhook(channel["url"], rec, rule)
+        return await _send_dingtalk(channel["url"], str(channel.get("secret") or ""), rec, rule)
     if kind == "wecom":
-        # Task 5 替换：企微 markdown payload，当前按通用 webhook 形状发送
-        return await _send_webhook(channel["url"], rec, rule)
+        return await _send_wecom(channel["url"], rec, rule)
     if kind == "email":
         return await _send_email(channel.get("recipients") or [], rec, rule)
     logger.warning("未知通知渠道 kind={}，跳过", kind)
