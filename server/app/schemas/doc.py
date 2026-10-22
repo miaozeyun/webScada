@@ -360,6 +360,7 @@ WidgetType = Literal[
     "title-bar",
     # 工厂可用阶段二新增（数据表格族：实时/历史表格，props 由前端 registry 校验）
     "realtime-table",
+    "history-table",
     # 结构
     "group",
 ]

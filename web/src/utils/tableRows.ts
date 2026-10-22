@@ -1,7 +1,8 @@
 /**
  * 表格组件行构造纯函数（工厂可用阶段二 Task 6 实时表格 / Task 7 历史表格共用落点）。
- * 纯函数无 Vue/Pinia 依赖：组件侧以 getVar 闭包注入运行态变量池（useRuntimeStore，K12 同源通道），
- * 值均为服务端/引擎换算后的工程值（K9 口径），此处只做展示格式化与状态标记。
+ * 纯函数无 Vue/Pinia 依赖：实时表格以 getVar 闭包注入运行态变量池（useRuntimeStore，K12 同源通道），
+ * 历史表格消费 queryHistory 返回的 [ts, value][] 序列；值均为服务端/引擎换算后的工程值（K9 口径），
+ * 此处只做降采样、展示格式化与状态标记。
  */
 import type { ValueQuality } from '@/types/doc'
 
@@ -71,4 +72,62 @@ export function buildRealtimeRows(
       alarm: cell.alarm === true,
     }
   })
+}
+
+// ============ 历史表格（工厂可用阶段二 Task 7：区间桶快照） ============
+
+/** 历史表格行：每行 = 一个时间桶，代表点为桶内最后一点（last 口径，与服务端 agg=last 同构） */
+export interface HistoryRow {
+  /** 桶代表点时间戳（epoch ms，桶内最后一点） */
+  ts: number
+  /** 时间标签：序列跨度 ≤ 24h 用 HH:mm，> 24h 用 MM-DD HH:mm（本地时区，两位补零） */
+  time: string
+  /** 值显示文本（toFixed(2)，与历史表格列口径一致） */
+  text: string
+  /** 桶内最后一点的工程值（服务端已换算，K9 口径） */
+  value: number
+}
+
+/** 两位补零 */
+const two = (n: number): string => String(n).padStart(2, '0')
+
+/** 毫秒 → 时间标签：withDate 时带 MM-DD 前缀（跨天跨度须区分日期） */
+function formatHistoryTime(ts: number, withDate: boolean): string {
+  const d = new Date(ts)
+  const hm = `${two(d.getHours())}:${two(d.getMinutes())}`
+  return withDate ? `${two(d.getMonth() + 1)}-${two(d.getDate())} ${hm}` : hm
+}
+
+/** 序列跨度超过 24h 的时间标签带日期阈值（毫秒） */
+const DAY_MS = 24 * 3600_000
+
+/**
+ * 历史表格行构造：把（升序）时间序列降采样为至多 bucketCount 行。
+ * - 等距分桶：桶宽 = (last.ts - first.ts) / bucketCount，点归桶 floor((ts-first)/桶宽)，末桶封顶防溢出；
+ *   桶内后到覆盖先到 → 每桶保留最后一点（last 口径，与 queryHistory agg='last' 一致，二次分桶仅兜稀疏/原始序列）
+ * - 空桶不出行（不虚增 '--' 行）；空/未定义 series、bucketCount < 1 → 空行数组
+ * - 时间标签随跨度自适应：≤ 24h 仅 HH:mm，> 24h 带 MM-DD；值统一 toFixed(2)
+ */
+export function buildHistoryRows(
+  series: ReadonlyArray<[number, number]> | undefined,
+  bucketCount: number,
+): HistoryRow[] {
+  if (!series || series.length === 0 || !(bucketCount >= 1)) return []
+  const firstTs = series[0][0]
+  const lastTs = series[series.length - 1][0]
+  // 单点/全同刻序列：跨度 0 无分桶意义，末点独占一行（避免 0 除）
+  if (lastTs <= firstTs) {
+    const [ts, v] = series[series.length - 1]
+    return [{ ts, time: formatHistoryTime(ts, false), text: v.toFixed(2), value: v }]
+  }
+  const width = (lastTs - firstTs) / bucketCount
+  const buckets: Array<[number, number]> = []
+  for (const [ts, v] of series) {
+    const idx = Math.min(Math.floor((ts - firstTs) / width), bucketCount - 1)
+    buckets[idx] = [ts, v]
+  }
+  const withDate = lastTs - firstTs > DAY_MS
+  return buckets
+    .filter((b): b is [number, number] => !!b)
+    .map(([ts, v]) => ({ ts, time: formatHistoryTime(ts, withDate), text: v.toFixed(2), value: v }))
 }

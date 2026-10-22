@@ -242,6 +242,7 @@ export type WidgetType =
   | 'title-bar'
   // ---- 工厂可用阶段二新增（数据表格族）----
   | 'realtime-table'
+  | 'history-table'
   | 'group'
 
 export interface PageBackground { color: string; image?: string | null }

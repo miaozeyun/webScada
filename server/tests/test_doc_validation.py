@@ -364,3 +364,17 @@ async def test_realtime_table_widget_type_accepted(client, auth_headers):
     })
     resp = await put_doc(client, auth_headers, pid, doc)
     assert resp.status_code == 200
+
+
+async def test_history_table_widget_type_accepted(client, auth_headers):
+    """工厂可用阶段二 Task 7：WidgetType 纯增量 +history-table（区间桶快照表，props 由前端 registry 校验）。"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["pages"][0]["components"].append({
+        "id": "cmp_hist_table_01", "type": "history-table", "name": "24h温度快照",
+        "x": 40, "y": 40, "w": 360, "h": 480, "z": 3,
+        "props": {"variableKey": "var_x01", "rangeMs": 86400000, "bucketCount": 24},
+        "bindings": [],
+    })
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200

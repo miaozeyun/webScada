@@ -5,6 +5,7 @@
  */
 import { markRaw, type Component } from 'vue'
 import {
+  Calendar,
   Clock,
   Cloudy,
   Collection,
@@ -54,6 +55,7 @@ import VideoWidget from './basic/VideoWidget.vue'
 import WeatherWidget from './basic/WeatherWidget.vue'
 import WebFrameWidget from './basic/WebFrameWidget.vue'
 import RealtimeTableWidget from './realtime/RealtimeTableWidget.vue'
+import HistoryTableWidget from './realtime/HistoryTableWidget.vue'
 import BarChartWidget from './chart/BarChartWidget.vue'
 import GaugeWidget from './chart/GaugeWidget.vue'
 import HistoryChartWidget from './chart/HistoryChartWidget.vue'
@@ -589,6 +591,39 @@ register({
     { key: 'showUnit', label: '值后拼接单位', type: 'switch', defaultValue: true },
   ],
   renderer: RealtimeTableWidget,
+})
+
+register({
+  type: 'history-table',
+  name: '历史表格',
+  epIcon: markRaw(Calendar),
+  category: 'basic',
+  defaultSize: { w: 360, h: 480 },
+  defaultProps: () => ({ variableKey: '', rangeMs: 86400000, bucketCount: 24 }),
+  propsSchema: [
+    { key: 'variableKey', label: '变量', type: 'variable', defaultValue: '' },
+    {
+      key: 'rangeMs',
+      label: '时间范围',
+      type: 'select',
+      options: [
+        { label: '1 小时', value: 3600000 },
+        { label: '6 小时', value: 21600000 },
+        { label: '24 小时', value: 86400000 },
+      ],
+      defaultValue: 86400000,
+    },
+    {
+      key: 'bucketCount',
+      label: '时间桶数（行数，每桶取末值）',
+      type: 'number',
+      min: 1,
+      max: 120,
+      step: 1,
+      defaultValue: 24,
+    },
+  ],
+  renderer: HistoryTableWidget,
 })
 
 // ---- 图表类（M2b：echarts 按需渲染，P0 静态模拟序列，M3 起绑定驱动） ----
