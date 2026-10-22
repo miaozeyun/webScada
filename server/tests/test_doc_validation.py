@@ -268,3 +268,82 @@ async def test_modbus_fields_rejected_on_non_modbus_source(client, auth_headers)
     body = resp.json()
     assert body["code"] == "reference_error"
     assert any(e["path"] == "variables[0].modbusDataType" for e in body["errors"])
+
+
+# ================= 工厂可用阶段二 Task 4：settings.notify 通知渠道契约 =================
+
+
+async def test_notify_channels_all_kinds_accepted(client, auth_headers):
+    """四种渠道合法形态全通过（缺省 minLevel=warn 可省略）"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["settings"]["notify"] = {"channels": [
+        {"kind": "webhook", "url": "https://hook.local/alarm"},
+        {"kind": "dingtalk", "url": "https://oapi.dingtalk.com/robot/send?access_token=t", "secret": "SECxx"},
+        {"kind": "wecom", "url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=k", "minLevel": "critical"},
+        {"kind": "email", "recipients": ["a@t.test", "b@t.test"], "minLevel": "info"},
+    ]}
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200
+
+
+async def test_notify_unknown_kind_rejected(client, auth_headers):
+    """非法 kind → 422 doc_invalid（discriminated union 分发失败）"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["settings"]["notify"] = {"channels": [{"kind": "sms", "url": "https://x.test/hook"}]}
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["code"] == "doc_invalid"
+    assert any("channels[0]" in e["path"] for e in body["errors"])
+
+
+async def test_notify_webhook_url_must_be_https(client, auth_headers):
+    """webhook/钉钉/企微 URL 必须以 https:// 开头（http 拒绝）"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["settings"]["notify"] = {"channels": [{"kind": "webhook", "url": "http://hook.local/alarm"}]}
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+    # 判别联合错误路径带 kind 段：settings.notify.channels[0].webhook.url
+    assert any("channels[0].webhook.url" in e["path"] for e in resp.json()["errors"])
+
+    doc["settings"]["notify"]["channels"][0]["url"] = "https://hook.local/alarm"
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200
+
+
+async def test_notify_email_recipients_bounds_and_format(client, auth_headers):
+    """收件人 1~20 个且每个含 @：空列表/超限/缺 @ → 422，errors 带字段路径"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["settings"]["notify"] = {"channels": [{"kind": "email", "recipients": []}]}
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+    assert any("channels[0].email.recipients" in e["path"] for e in resp.json()["errors"])
+
+    doc["settings"]["notify"]["channels"][0]["recipients"] = [f"u{i}@t.test" for i in range(21)]  # 超限
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+
+    doc["settings"]["notify"]["channels"][0]["recipients"] = ["not-an-email"]  # 缺 @
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+    assert any(e["path"].endswith("channels[0].email.recipients") for e in resp.json()["errors"])
+
+    doc["settings"]["notify"]["channels"][0]["recipients"] = ["ops@t.test"]
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200
+
+
+async def test_notify_bad_min_level_rejected(client, auth_headers):
+    """minLevel 仅 info/warn/critical"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["settings"]["notify"] = {"channels": [
+        {"kind": "webhook", "url": "https://hook.local/a", "minLevel": "fatal"},
+    ]}
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+    assert any(e["path"].endswith("channels[0].webhook.minLevel") for e in resp.json()["errors"])

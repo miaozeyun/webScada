@@ -2,7 +2,8 @@
 
 与前端 web/src/utils/sanitize.ts 是同一契约的两端（G6）：
 - 脱敏范围：mqtt.config.password；rest/websocket 的 config.headers 中
-  键名匹配 authorization|token|password|secret|key（不区分大小写）的键值。
+  键名匹配 authorization|token|password|secret|key（不区分大小写）的键值；
+  settings.notify.channels[] 中钉钉渠道的 secret（工厂可用阶段二 Task 4）。
 - mqtt.config.username 不脱敏。
 - 所有出口（GET 工程详情 / 导出 / 分享快照）一律脱敏为空字符串。
 """
@@ -17,6 +18,16 @@ def iter_datasource_configs(doc: dict):
     for ds in doc.get("datasources") or []:
         if isinstance(ds, dict) and isinstance(ds.get("config"), dict):
             yield ds, ds["config"]
+
+
+def iter_notify_channels(doc: dict):
+    """遍历 doc.settings.notify.channels，yield 渠道 dict（钉钉渠道含敏感 secret）。"""
+    notify_cfg = (doc.get("settings") or {}).get("notify")
+    if not isinstance(notify_cfg, dict):
+        return
+    for ch in notify_cfg.get("channels") or []:
+        if isinstance(ch, dict):
+            yield ch
 
 
 def _iter_sensitive_fields(ds: dict, config: dict):
@@ -43,6 +54,9 @@ def sanitize_doc_for_output(doc: dict) -> dict:
     for ds, config in iter_datasource_configs(out):
         for container, key in _iter_sensitive_fields(ds, config):
             container[key] = ""
+    for ch in iter_notify_channels(out):
+        if ch.get("kind") == "dingtalk" and "secret" in ch:
+            ch["secret"] = ""
     project = out.get("project")
     if isinstance(project, dict) and project.get("thumbnail") is not None:
         project.pop("thumbnail")
@@ -88,6 +102,19 @@ def merge_sensitive_fields(submitted: dict, stored: dict) -> None:
                 # 规则⑤；否则省略 headers 的 PUT 会静默清掉库内凭证——复查 minor 修复）
                 config["headers"] = copy.deepcopy(old_headers)
 
+    # settings.notify.channels[].secret（钉钉）：渠道无 id，按 (kind, url) 关联库内旧渠道
+    # （与数据源凭证注回的 URL 一致性口径一致；同 URL 换渠道视为同一机器人）
+    stored_dingtalk: dict[str, dict] = {}
+    for ch in iter_notify_channels(stored):
+        if ch.get("kind") == "dingtalk" and ch.get("url"):
+            stored_dingtalk.setdefault(str(ch["url"]), ch)
+    for ch in iter_notify_channels(submitted):
+        if ch.get("kind") != "dingtalk":
+            continue
+        old_ch = stored_dingtalk.get(str(ch.get("url") or ""))
+        if old_ch is not None:
+            _merge_one(ch, old_ch, "secret")
+
 
 def _merge_one(container: dict, old_container: dict, key: str) -> None:
     """单字段合并：null → 删除键；缺失/空串 → 保留旧值；非空 → 保留新值。"""
@@ -116,3 +143,6 @@ def clear_credentials_for_import(doc: dict) -> None:
                 for key in list(headers.keys()):
                     if SENSITIVE_HEADER_RE.search(key):
                         headers[key] = ""
+    for ch in iter_notify_channels(doc):
+        if ch.get("kind") == "dingtalk" and "secret" in ch:
+            ch["secret"] = ""

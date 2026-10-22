@@ -139,6 +139,24 @@ def fake_ws():
         pkg.ws_manager = prev_attr
 
 
+@pytest.fixture(autouse=True)
+def _stub_notify(monkeypatch):
+    """notify.send_alarm 打桩（本文件聚焦状态机，外发链路由 test_notify.py 覆盖）。
+
+    阶段二起 send_alarm 会派生并发任务读工程 doc 解析渠道——测试未注入
+    notify.session_factory 时落到模块级 SessionLocal（跨 pytest 事件循环的
+    StaticPool 连接），其异步扰动会让本文件共享单连接上的 commit/refresh
+    交错出 InvalidRequestError（曾致 clear 用例随机挂）。打桩后状态机时序
+    与 M8 行为一致。
+    """
+    from app.services import notify as notify_mod
+
+    async def _noop(rec, rule=None):
+        return None
+
+    monkeypatch.setattr(notify_mod, "send_alarm", _noop)
+
+
 # ---------------- 状态机核心语义（服务层直测） ----------------
 
 async def test_trigger_idempotent_no_new_row(env):

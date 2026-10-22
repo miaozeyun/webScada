@@ -46,12 +46,77 @@ class AlarmSettings(DocModel):
     soundThrottleSec: int = Field(default=60, ge=1, le=3600)
 
 
+# ---- 通知渠道（工厂可用阶段二 Task 4，沿 G14 先例存 doc.settings.notify）----
+# 外发渠道按 kind 判别；工程配置优先，无配置回落 env（notify.py）。
+# 纯增量字段缺省安全：旧 doc 无 notify → None → env 回落，schemaVersion 不变。
+
+# 通知级别（低于该级别的报警不向本渠道外发）
+NotifyLevel = Literal["info", "warn", "critical"]
+
+# webhook/钉钉/企微均为推送 URL，强制 https://（防明文出口泄漏 access_token）
+_HttpsUrl = Annotated[str, Field(min_length=1, max_length=2048, pattern=r"^https://")]
+
+
+class _NotifyChannelBase(DocModel):
+    minLevel: NotifyLevel = "warn"
+
+
+class WebhookChannel(_NotifyChannelBase):
+    kind: Literal["webhook"]
+    url: _HttpsUrl
+
+
+class DingTalkChannel(_NotifyChannelBase):
+    """钉钉群机器人：secret 为加签密钥（敏感：出口脱敏/库内 Fernet 加密，空串=保留 null=清除）。"""
+
+    kind: Literal["dingtalk"]
+    url: _HttpsUrl
+    secret: str | None = Field(default=None, max_length=256)
+
+
+class WecomChannel(_NotifyChannelBase):
+    """企业微信群机器人（无签名，key 内嵌 URL）。"""
+
+    kind: Literal["wecom"]
+    url: _HttpsUrl
+
+
+class EmailChannel(_NotifyChannelBase):
+    """邮件：收件人在 doc；SMTP 服务参数（主机/账号/From）仍走 env NOTIFY_SMTP_*。"""
+
+    kind: Literal["email"]
+    recipients: list[str] = Field(min_length=1, max_length=20)
+
+    @field_validator("recipients")
+    @classmethod
+    def _check_recipients(cls, v: list[str]) -> list[str]:
+        out = [r.strip() for r in v]
+        for r in out:
+            if not r or "@" not in r or len(r) > 254:
+                raise ValueError(f"收件人邮箱非法（须含 @ 且 ≤254 字符）：{r}")
+        return out
+
+
+NotifyChannel = Annotated[
+    Union[WebhookChannel, DingTalkChannel, WecomChannel, EmailChannel],
+    Field(discriminator="kind"),
+]
+
+
+class NotifyConfig(DocModel):
+    """通知渠道集：channels 为空列表 = 显式站内 only（不回落 env）。"""
+
+    channels: list[NotifyChannel] = Field(default_factory=list)
+
+
 class ProjectSettings(DocModel):
     designSize: DesignSize = Field(default_factory=lambda: DesignSize(width=1920, height=1080))
     adaptive: AdaptiveMode = "fit-contain"
     theme: Literal["blue-dark", "blue-light"] = "blue-dark"
     primaryColor: str = "#2563eb"
     alarm: AlarmSettings = Field(default_factory=AlarmSettings)
+    # 通知渠道（缺省 None = 未配置 → notify 外发回落 env 单渠道）
+    notify: NotifyConfig | None = None
 
 
 class ProjectMeta(DocModel):

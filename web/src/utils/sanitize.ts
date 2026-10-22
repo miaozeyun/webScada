@@ -23,6 +23,10 @@ export function sanitizeDocForExport(doc: ProjectDoc): ProjectDoc {
       }
     }
   }
+  // 钉钉通知渠道加签密钥（阶段二 Task 4，与服务端 sanitize.py 同口径）
+  for (const ch of cloned.settings?.notify?.channels ?? []) {
+    if (ch.kind === 'dingtalk' && 'secret' in ch) ch.secret = ''
+  }
   // 台账缩略图为展示缓存（编辑器保存时自动重建），导出文件不携带
   if (cloned.project && 'thumbnail' in cloned.project) {
     const { thumbnail: _omit, ...rest } = cloned.project

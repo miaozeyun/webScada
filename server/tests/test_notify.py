@@ -1,4 +1,5 @@
-"""notify 测试（B 包，契约 §6.2）：级别过滤、节流、webhook(httpx MockTransport)、SMTP 线程池。"""
+"""notify 测试（B 包，契约 §6.2）：级别过滤、节流、webhook(httpx MockTransport)、SMTP 线程池。
+工厂可用阶段二 Task 4：通知渠道落工程 doc（工程配置优先/env 回落/缓存失效/重试/凭证管线）。"""
 import uuid as uuidlib
 from datetime import datetime, timezone
 
@@ -8,8 +9,9 @@ import smtplib
 
 from app.core import stats
 from app.core.config import settings
-from app.db.models import AlarmRecord
+from app.db.models import AlarmRecord, Project
 from app.services import notify
+from tests.conftest import make_doc, put_doc
 
 UTCD = timezone.utc
 
@@ -41,7 +43,9 @@ RULE = {"id": "r1", "name": "温度超高"}
 
 
 @pytest.fixture(autouse=True)
-def _clean():
+def _clean(db_factory, monkeypatch):
+    """每测试清空节流表 + 渠道缓存；渠道读取的会话工厂指向当前测试库（rules_engine 同款测试缝）。"""
+    monkeypatch.setattr(notify, "session_factory", db_factory)
     notify.reset_notify_state()
     yield
     notify.reset_notify_state()
@@ -140,6 +144,7 @@ async def test_webhook_transport_error_counts_failed(monkeypatch):
     def boom(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused")
 
+    monkeypatch.setattr(notify, "RETRY_BACKOFF_SEC", (0, 0, 0))  # 网络类异常会重试：退避归零保测试速度
     _patch_hook(monkeypatch, boom)
     before = counters()
     await notify.send_alarm(make_rec(), RULE)
@@ -238,3 +243,257 @@ async def test_both_channels_send_once_each(monkeypatch):
     after = counters()
     assert len(calls) == 1 and len(FakeSMTP.instances) == 1
     assert after["webscada_notify_sent_total"] - before.get("webscada_notify_sent_total", 0) == 2
+
+
+# ---------------- 通知渠道落工程 doc（工厂可用阶段二 Task 4） ----------------
+
+
+def make_rec_for(pid, level: str = "critical", rule_id: str = "r1") -> AlarmRecord:
+    """指定工程的报警行（渠道解析依赖 rec.project_id）。"""
+    return AlarmRecord(
+        id=99,
+        project_id=pid if isinstance(pid, uuidlib.UUID) else uuidlib.UUID(str(pid)),
+        rule_id=rule_id,
+        variable_key="temp_01",
+        level=level,
+        message="1号反应釜温度超高: 111.2",
+        value="111.2",
+        status="triggered",
+        triggered_at=datetime(2026, 1, 1, 8, 30, 0, tzinfo=UTCD),
+    )
+
+
+async def _mk_project(client, auth_headers, doc: dict | None = None) -> tuple[str, int]:
+    """新建工程（可选先 PUT doc），返回 (pid, revision)。"""
+    resp = await client.post("/api/v1/projects", headers=auth_headers, json={"name": "通知测试工程"})
+    assert resp.status_code == 201
+    pid = resp.json()["id"]
+    rev = 1
+    if doc is not None:
+        r = await put_doc(client, auth_headers, pid, doc)
+        assert r.status_code == 200, r.text
+        rev = r.json()["revision"]
+    return pid, rev
+
+
+def _notify_doc(channels: list[dict]) -> dict:
+    doc = make_doc()
+    doc["settings"]["notify"] = {"channels": channels}
+    return doc
+
+
+def _patch_webhook_urls(monkeypatch) -> list[str]:
+    """捕获外发完整 URL（MockTransport）。"""
+    urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        urls.append(str(request.url))
+        return httpx.Response(200)
+
+    monkeypatch.setattr(notify, "_build_webhook_client",
+                        lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=1))
+    return urls
+
+
+async def test_project_channels_webhook_and_email_both_send(client, auth_headers, monkeypatch):
+    """工程 doc 配 2 渠道（webhook+email）→ 两路都发；渠道来自 doc 而非 env。"""
+    pid, _ = await _mk_project(client, auth_headers, _notify_doc([
+        {"kind": "webhook", "url": "https://hook.local/alarm"},
+        {"kind": "email", "recipients": ["a@ops.test", "b@ops.test"]},
+    ]))
+
+    monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "")  # env 留空：证明渠道取自工程 doc
+    monkeypatch.setattr(settings, "NOTIFY_SMTP_HOST", "")    # SMTP 参数仍走 env → 邮件渠道依赖 _email_env
+    _email_env(monkeypatch)
+    urls = _patch_webhook_urls(monkeypatch)
+
+    before = counters()
+    await notify.send_alarm(make_rec_for(pid), RULE)
+    after = counters()
+
+    assert urls == ["https://hook.local/alarm"]
+    assert len(FakeSMTP.instances) == 1
+    assert FakeSMTP.instances[0].sent[0]["To"] == "a@ops.test, b@ops.test"  # 收件人取自 doc 渠道
+    assert after["webscada_notify_sent_total"] - before.get("webscada_notify_sent_total", 0) == 2
+
+
+async def test_project_channel_min_level_filters_per_channel(client, auth_headers, monkeypatch):
+    """minLevel 为渠道级：warn 报警只发 warn 渠道，critical 两路都发。"""
+    pid, _ = await _mk_project(client, auth_headers, _notify_doc([
+        {"kind": "webhook", "url": "https://hook.local/crit-only", "minLevel": "critical"},
+        {"kind": "email", "recipients": ["ops@ops.test"], "minLevel": "warn"},
+    ]))
+    _email_env(monkeypatch)
+    urls = _patch_webhook_urls(monkeypatch)
+
+    await notify.send_alarm(make_rec_for(pid, level="warn"), RULE)
+    assert urls == []                              # warn 低于 critical 渠道阈值 → 不发
+    assert len(FakeSMTP.instances) == 1            # email 渠道阈值 warn → 发
+
+    await notify.send_alarm(make_rec_for(pid, level="critical", rule_id="r2"), RULE)
+    assert urls == ["https://hook.local/crit-only"]
+    assert len(FakeSMTP.instances) == 2
+
+
+async def test_no_doc_config_falls_back_to_env(client, auth_headers, monkeypatch):
+    """工程无 notify 配置 → env 回落：NOTIFY_WEBHOOK_URL 映射为 webhook 渠道。"""
+    pid, _ = await _mk_project(client, auth_headers, make_doc())
+    monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "http://hook.local/env")
+    monkeypatch.setattr(settings, "NOTIFY_SMTP_HOST", "")
+    urls = _patch_webhook_urls(monkeypatch)
+
+    await notify.send_alarm(make_rec_for(pid), RULE)
+    assert urls == ["http://hook.local/env"]
+
+
+async def test_no_channels_anywhere_sends_nothing(client, auth_headers, monkeypatch):
+    """工程无配置 + env 全空 → 空列表 = 站内 only，无任何外发。"""
+    pid, _ = await _mk_project(client, auth_headers, make_doc())
+    monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "")
+    monkeypatch.setattr(settings, "NOTIFY_SMTP_HOST", "")
+    urls = _patch_webhook_urls(monkeypatch)
+
+    before = counters()
+    await notify.send_alarm(make_rec_for(pid), RULE)
+    after = counters()
+    assert urls == [] and FakeSMTP.instances == []
+    assert after.get("webscada_notify_sent_total", 0) == before.get("webscada_notify_sent_total", 0)
+
+
+async def test_doc_empty_channels_disables_env_fallback(client, auth_headers, monkeypatch):
+    """显式空 channels（工程已配置通知）→ 不回落 env，站内 only。"""
+    pid, _ = await _mk_project(client, auth_headers, _notify_doc([]))
+    monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "http://hook.local/env")
+    urls = _patch_webhook_urls(monkeypatch)
+
+    await notify.send_alarm(make_rec_for(pid), RULE)
+    assert urls == []
+
+
+async def test_channel_cache_invalidation_on_save_and_direct(client, auth_headers, db_factory, monkeypatch):
+    """缓存双保险：API 保存经热更新钩子失效（Review Focus #4）；直改库 + invalidate 直测立即生效。"""
+    pid, rev = await _mk_project(client, auth_headers, _notify_doc([
+        {"kind": "webhook", "url": "https://hook.local/a"},
+    ]))
+    urls = _patch_webhook_urls(monkeypatch)
+
+    await notify.send_alarm(make_rec_for(pid, rule_id="r1"), RULE)
+    assert urls == ["https://hook.local/a"]        # 首发已填充渠道缓存
+
+    # API 保存新 URL（保存热更新钩子失效缓存，TTL 内也用新渠道）
+    resp = await put_doc(client, auth_headers, pid, _notify_doc([
+        {"kind": "webhook", "url": "https://hook.local/b"},
+    ]), base_revision=rev)
+    assert resp.status_code == 200
+    await notify.send_alarm(make_rec_for(pid, rule_id="r2"), RULE)
+    assert urls == ["https://hook.local/a", "https://hook.local/b"]
+
+    # 直改库 + invalidate_project_channels 直测（不经保存流水线）
+    from sqlalchemy.orm.attributes import flag_modified
+
+    async with db_factory() as session:
+        project = await session.get(Project, uuidlib.UUID(pid))
+        project.doc["settings"]["notify"]["channels"][0]["url"] = "https://hook.local/c"
+        flag_modified(project, "doc")              # dict 重赋值 == 原值不会标脏，须显式 flag
+        await session.commit()
+    notify.invalidate_project_channels(pid)
+    await notify.send_alarm(make_rec_for(pid, rule_id="r3"), RULE)
+    assert urls == ["https://hook.local/a", "https://hook.local/b", "https://hook.local/c"]
+
+
+async def test_retry_exactly_three_times_on_network_error(client, auth_headers, monkeypatch):
+    """网络类异常重试恰 3 次（初次+3=4 次尝试）；失败计数只记一次。"""
+    pid, _ = await _mk_project(client, auth_headers, _notify_doc([
+        {"kind": "webhook", "url": "https://hook.local/flaky"},
+    ]))
+    attempts = {"n": 0}
+
+    def boom(request: httpx.Request) -> httpx.Response:
+        attempts["n"] += 1
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr(notify, "RETRY_BACKOFF_SEC", (0, 0, 0))  # 退避归零保测试速度
+    monkeypatch.setattr(notify, "_build_webhook_client",
+                        lambda: httpx.AsyncClient(transport=httpx.MockTransport(boom), timeout=1))
+    before = counters()
+    await notify.send_alarm(make_rec_for(pid), RULE)
+    after = counters()
+    assert attempts["n"] == 4
+    assert after["webscada_notify_failed_total"] - before.get("webscada_notify_failed_total", 0) == 1
+    assert after.get("webscada_notify_sent_total", 0) == before.get("webscada_notify_sent_total", 0)
+
+
+async def test_http_4xx_business_rejection_no_retry(client, auth_headers, monkeypatch):
+    """HTTP 4xx 业务拒绝不重试（仅 1 次尝试即放弃）。"""
+    pid, _ = await _mk_project(client, auth_headers, _notify_doc([
+        {"kind": "webhook", "url": "https://hook.local/reject"},
+    ]))
+    attempts = {"n": 0}
+
+    def reject(request: httpx.Request) -> httpx.Response:
+        attempts["n"] += 1
+        return httpx.Response(400)
+
+    monkeypatch.setattr(notify, "RETRY_BACKOFF_SEC", (0, 0, 0))
+    monkeypatch.setattr(notify, "_build_webhook_client",
+                        lambda: httpx.AsyncClient(transport=httpx.MockTransport(reject), timeout=1))
+    before = counters()
+    await notify.send_alarm(make_rec_for(pid), RULE)
+    after = counters()
+    assert attempts["n"] == 1
+    assert after["webscada_notify_failed_total"] - before.get("webscada_notify_failed_total", 0) == 1
+
+
+async def test_dingtalk_secret_sanitized_out_and_encrypted_in_db(client, auth_headers, db_factory):
+    """钉钉 secret：GET 详情/导出一律空串；库内为 FER1: 密文（分享快照走同一脱敏出口）。"""
+    from app.utils.encrypt import decrypt
+
+    pid, _ = await _mk_project(client, auth_headers, _notify_doc([
+        {"kind": "dingtalk", "url": "https://oapi.dingtalk.com/robot/send?access_token=tok",
+         "secret": "SECxxx"},
+    ]))
+
+    body = (await client.get(f"/api/v1/projects/{pid}", headers=auth_headers)).json()
+    ch_out = body["doc"]["settings"]["notify"]["channels"][0]
+    assert ch_out["secret"] == ""
+    assert ch_out["url"] == "https://oapi.dingtalk.com/robot/send?access_token=tok"
+
+    export = (await client.get(f"/api/v1/projects/{pid}/export", headers=auth_headers)).json()
+    assert export["settings"]["notify"]["channels"][0]["secret"] == ""
+
+    async with db_factory() as session:
+        stored = (await session.get(Project, uuidlib.UUID(pid))).doc
+    stored_secret = stored["settings"]["notify"]["channels"][0]["secret"]
+    assert stored_secret.startswith("FER1:")
+    assert decrypt(stored_secret) == "SECxxx"
+
+
+async def test_secret_put_merge_empty_keeps_null_clears(client, auth_headers, db_factory):
+    """PUT 空值合并（沿数据源规则⑤）：空串=保留库内密文；显式 null=清除。"""
+    from app.utils.encrypt import decrypt
+
+    pid, rev = await _mk_project(client, auth_headers, _notify_doc([
+        {"kind": "dingtalk", "url": "https://oapi.dingtalk.com/robot/send?access_token=tok",
+         "secret": "S1"},
+    ]))
+
+    async def stored_secret():
+        async with db_factory() as session:
+            stored = (await session.get(Project, uuidlib.UUID(pid))).doc
+        return stored["settings"]["notify"]["channels"][0].get("secret")
+
+    # 编辑器回读（脱敏 secret=""）→ 用户改无关项 → 原样 PUT → 空串保留库内值
+    doc2 = (await client.get(f"/api/v1/projects/{pid}", headers=auth_headers)).json()["doc"]
+    assert doc2["settings"]["notify"]["channels"][0]["secret"] == ""
+    resp = await put_doc(client, auth_headers, pid, doc2, base_revision=rev)
+    assert resp.status_code == 200
+    kept = await stored_secret()
+    assert kept is not None and kept.startswith("FER1:")
+    assert decrypt(kept) == "S1"
+
+    # 显式 null → 清除（库内键删除）
+    doc3 = (await client.get(f"/api/v1/projects/{pid}", headers=auth_headers)).json()["doc"]
+    doc3["settings"]["notify"]["channels"][0]["secret"] = None
+    resp = await put_doc(client, auth_headers, pid, doc3, base_revision=resp.json()["revision"])
+    assert resp.status_code == 200
+    assert await stored_secret() is None

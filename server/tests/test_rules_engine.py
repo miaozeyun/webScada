@@ -74,6 +74,23 @@ def seam(env):
     rules_engine.session_factory = None
 
 
+@pytest.fixture(autouse=True)
+def _stub_notify(monkeypatch):
+    """notify.send_alarm 打桩（本文件聚焦判定引擎，外发链路由 test_notify.py 覆盖）。
+
+    阶段二起 send_alarm 会派生并发任务读工程 doc 解析渠道——测试未注入
+    notify.session_factory 时落到模块级 SessionLocal（跨 pytest 事件循环的
+    StaticPool 连接），其异步扰动会让本文件共享单连接上的 commit/refresh
+    交错出 InvalidRequestError（曾致快速序列用例随机挂）。
+    """
+    from app.services import notify as notify_mod
+
+    async def _noop(rec, rule=None):
+        return None
+
+    monkeypatch.setattr(notify_mod, "send_alarm", _noop)
+
+
 def var_def(**over) -> dict:
     d = {"id": "v1", "key": "temp_01", "label": "1号反应釜温度", "type": "number", "precision": 1}
     d.update(over)

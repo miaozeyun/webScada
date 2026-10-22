@@ -170,23 +170,26 @@ async def delete_project(db: AsyncSession, project: Project) -> None:
     await db.delete(project)
     await db.commit()
     try:  # 跨包惰性 import（契约 §6.4）：运行态层缺席时不影响删除主流程
-        from app.services import collector, hub, ws_manager
+        from app.services import collector, hub, notify, ws_manager
 
         hub.hub.remove(project.id)
         await collector.collector.remove(project.id)
         await ws_manager.manager.broadcast_project_removed(project.id)
+        notify.invalidate_project_channels(project.id)  # 删除即失效通知渠道缓存
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"工程删除运行态清理失败 project={project.id}：{type(exc).__name__} {exc}")
 
 
 async def _runtime_hot_reload(project_id: uuidlib.UUID, doc: dict) -> None:
-    """保存/导入成功后的运行态热更新钩子：hub 重建索引（保留存续变量现值）+ collector 差量重建。
+    """保存/导入成功后的运行态热更新钩子：hub 重建索引（保留存续变量现值）+ collector 差量重建
+    + 通知渠道缓存失效（阶段二 Task 4：保存后新渠道即时生效，不等 TTL）。
     失败仅告警不回滚（保存已提交，运行态可在下次保存/重启恢复）。"""
     try:  # 跨包惰性 import（契约 §6.4）
-        from app.services import collector, hub
+        from app.services import collector, hub, notify
 
         hub.hub.set_doc(project_id, doc)
         await collector.collector.sync(project_id, doc)
+        notify.invalidate_project_channels(project_id)
         logger.info(f"运行态热更新完成 project={project_id} 数据源任务={len(collector.collector._projects.get(project_id, {}))}")
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"运行态热更新失败 project={project_id}：{type(exc).__name__} {exc}")
@@ -209,3 +212,10 @@ def _encrypt_doc_credentials(doc: dict) -> None:
             value = container.get(key)
             if isinstance(value, str) and value and not looks_encrypted(value):
                 container[key] = encrypt(value)
+    # settings.notify.channels[] 钉钉 secret（工厂可用阶段二 Task 4）
+    for ch in sz.iter_notify_channels(doc):
+        if ch.get("kind") != "dingtalk":
+            continue
+        value = ch.get("secret")
+        if isinstance(value, str) and value and not looks_encrypted(value):
+            ch["secret"] = encrypt(value)

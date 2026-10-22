@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 工程数据管理（M3/M5）：数据源 / 变量 / 报警规则 三表 CRUD（Drawer + el-tabs）。
+ * 工程数据管理（M3/M5）：数据源 / 变量 / 报警规则 / 通知渠道 四表 CRUD（Drawer + el-tabs）。
  * 直接编辑 editor.doc 对应数组并 _markDirty（走 3s 自动保存链路）；
  * doc 级数据不入页面级 undo 栈（历史为页面快照，语义不含本面板）。
  */
@@ -19,6 +19,9 @@ import type {
   AlarmRule,
   DataSource,
   MockSpec,
+  NotifyChannel,
+  NotifyChannelKind,
+  NotifyLevel,
   VariableDef,
   VariableType,
 } from '@/types/doc'
@@ -26,11 +29,12 @@ import type {
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const editor = useEditorStore()
-const tab = ref<'sources' | 'variables' | 'alarms'>('sources')
+const tab = ref<'sources' | 'variables' | 'alarms' | 'notify'>('sources')
 
 const datasources = computed<DataSource[]>(() => editor.doc?.datasources ?? [])
 const variables = computed<VariableDef[]>(() => editor.doc?.variables ?? [])
 const alarms = computed<AlarmRule[]>(() => editor.doc?.alarmRules ?? [])
+const channels = computed<NotifyChannel[]>(() => editor.doc?.settings?.notify?.channels ?? [])
 
 function markDirty(): void {
   editor._markDirty()
@@ -458,10 +462,117 @@ async function removeAlm(r: AlarmRule): Promise<void> {
   doc.alarmRules = doc.alarmRules.filter((x) => x.id !== r.id)
   markDirty()
 }
+
+// ================= 通知渠道（工厂可用阶段二 Task 4：存 doc.settings.notify） =================
+
+const chVisible = ref(false)
+const chForm = reactive({
+  /** 编辑中的渠道下标（-1 = 新增）；渠道模型无 id，按数组位置定位 */
+  idx: -1,
+  kind: 'webhook' as NotifyChannelKind,
+  url: '',
+  /** 钉钉加签密钥：编辑留空 = 保留已存值（服务端合并规则⑤） */
+  secret: '',
+  clearSecret: false,
+  minLevel: 'warn' as NotifyLevel,
+  recipientsText: '',
+})
+
+const CHANNEL_LABEL: Record<NotifyChannelKind, string> = {
+  webhook: 'Webhook',
+  dingtalk: '钉钉机器人',
+  wecom: '企微机器人',
+  email: '邮件',
+}
+
+function openCh(idx?: number): void {
+  chVisible.value = true
+  const ch = idx != null ? channels.value[idx] : undefined
+  if (ch) {
+    Object.assign(chForm, {
+      idx,
+      kind: ch.kind,
+      url: ch.kind === 'email' ? '' : ch.url,
+      secret: ch.kind === 'dingtalk' ? (ch.secret ?? '') : '',
+      clearSecret: false,
+      minLevel: ch.minLevel ?? 'warn',
+      recipientsText: ch.kind === 'email' ? ch.recipients.join('\n') : '',
+    })
+  } else {
+    Object.assign(chForm, { idx: -1, kind: 'webhook', url: '', secret: '', clearSecret: false, minLevel: 'warn' as const, recipientsText: '' })
+  }
+}
+
+function saveCh(): void {
+  let item: NotifyChannel
+  if (chForm.kind === 'email') {
+    const recipients = chForm.recipientsText.split('\n').map((s) => s.trim()).filter(Boolean)
+    if (!recipients.length) {
+      ElMessage.warning('请至少填写一个收件人邮箱')
+      return
+    }
+    if (recipients.length > 20) {
+      ElMessage.warning('收件人最多 20 个')
+      return
+    }
+    if (recipients.some((r) => !r.includes('@'))) {
+      ElMessage.warning('收件人邮箱须包含 @')
+      return
+    }
+    item = { kind: 'email', recipients, minLevel: chForm.minLevel }
+  } else {
+    const url = chForm.url.trim()
+    if (!url.startsWith('https://')) {
+      ElMessage.warning('URL 必须以 https:// 开头')
+      return
+    }
+    if (chForm.kind === 'dingtalk') {
+      // 编辑留空 = 保留（提交空串触发服务端合并）；新增留空 = 无密钥（提交 null）
+      item = {
+        kind: 'dingtalk',
+        url,
+        secret: chForm.clearSecret ? null : (chForm.idx >= 0 ? (chForm.secret || '') : (chForm.secret || null)),
+        minLevel: chForm.minLevel,
+      }
+    } else {
+      item = { kind: chForm.kind, url, minLevel: chForm.minLevel }
+    }
+  }
+  const doc = editor.doc!
+  if (!doc.settings.notify) doc.settings.notify = { channels: [] }
+  if (chForm.idx >= 0) doc.settings.notify.channels[chForm.idx] = item
+  else doc.settings.notify.channels.push(item)
+  chVisible.value = false
+  markDirty()
+}
+
+async function removeCh(idx: number): Promise<void> {
+  const ch = channels.value[idx]
+  if (!ch) return
+  try {
+    await ElMessageBox.confirm(`确定删除「${CHANNEL_LABEL[ch.kind]}」通知渠道？`, '删除通知渠道', { type: 'warning' })
+  } catch {
+    return
+  }
+  const doc = editor.doc!
+  doc.settings.notify?.channels.splice(idx, 1)
+  markDirty()
+}
+
+function channelTarget(ch: NotifyChannel): string {
+  if (ch.kind === 'email') {
+    return ch.recipients.length <= 2 ? ch.recipients.join('，') : `${ch.recipients[0]} 等 ${ch.recipients.length} 人`
+  }
+  try {
+    return new URL(ch.url).host
+  } catch {
+    return ch.url
+  }
+}
 </script>
 
 <template>
-  <el-drawer :model-value="true" title="工程数据（数据源 / 变量 / 报警）" size="620px" @close="emit('close')">
+  <el-drawer :model-value="true" title="工程数据（数据源 / 变量 / 报警 / 通知）" size="620px" @close="emit('close')">
     <el-tabs v-model="tab">
       <!-- 数据源 -->
       <el-tab-pane label="数据源" name="sources">
@@ -544,13 +655,38 @@ async function removeAlm(r: AlarmRule): Promise<void> {
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="120">
+      <!-- 通知渠道 -->
+      <el-tab-pane :label="`通知（${channels.length}）`" name="notify">
+        <div class="pane">
+          <el-button size="small" type="primary" plain :icon="Plus" @click="openCh()">新增渠道</el-button>
+          <el-table :data="channels" size="small" empty-text="暂无通知渠道（外发回落服务端环境变量配置）">
+            <el-table-column label="类型" width="100">
               <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="openAlm(row)">编辑</el-button>
-                <el-button link type="danger" size="small" @click="removeAlm(row)">删除</el-button>
+                <el-tag :type="row.kind === 'email' ? 'info' : 'success'" size="small">
+                  {{ CHANNEL_LABEL[row.kind as NotifyChannelKind] }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="目标" min-width="140">
+              <template #default="{ row }">{{ channelTarget(row) }}</template>
+            </el-table-column>
+            <el-table-column label="级别阈值" width="96">
+              <template #default="{ row }">
+                <el-tag :type="row.minLevel === 'critical' ? 'danger' : row.minLevel === 'warn' ? 'warning' : 'info'" size="small">
+                  {{ LEVEL_LABEL[(row.minLevel ?? 'warn') as AlarmLevel] }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120">
+              <template #default="{ row, $index }">
+                <el-button link type="primary" size="small" @click="openCh($index)">编辑</el-button>
+                <el-button link type="danger" size="small" @click="removeCh($index)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
+          <div class="form-hint">
+            报警触发后按各渠道「级别阈值」过滤外发；工程配置后优先生效，未配置时回落服务端环境变量（Webhook/邮件）。
+          </div>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -848,6 +984,53 @@ async function removeAlm(r: AlarmRule): Promise<void> {
       </template>
     </el-dialog>
 
+    <!-- 通知渠道表单（工厂可用阶段二 Task 4） -->
+    <el-dialog v-model="chVisible" :title="chForm.idx >= 0 ? '编辑通知渠道' : '新增通知渠道'" width="500px" append-to-body>
+      <el-form label-width="92px" size="small">
+        <el-form-item label="类型" required>
+          <el-select v-model="chForm.kind" :disabled="chForm.idx >= 0">
+            <el-option label="Webhook（通用）" value="webhook" />
+            <el-option label="钉钉机器人" value="dingtalk" />
+            <el-option label="企业微信机器人" value="wecom" />
+            <el-option label="邮件" value="email" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="chForm.kind !== 'email'" label="URL" required>
+          <el-input
+            v-model="chForm.url"
+            :placeholder="chForm.kind === 'dingtalk'
+              ? 'https://oapi.dingtalk.com/robot/send?access_token=…'
+              : chForm.kind === 'wecom' ? 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…' : 'https://…'"
+          />
+        </el-form-item>
+        <el-form-item v-if="chForm.kind === 'dingtalk'" label="加签密钥">
+          <div class="secret-row">
+            <el-input
+              v-model="chForm.secret"
+              type="password" show-password
+              :placeholder="chForm.idx >= 0 ? '留空 = 保留已保存密钥' : 'SEC…（机器人安全设置选「加签」时的密钥，可空）'"
+            />
+            <el-checkbox v-if="chForm.idx >= 0" v-model="chForm.clearSecret">清除</el-checkbox>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="chForm.kind === 'email'" label="收件人" required>
+          <el-input v-model="chForm.recipientsText" type="textarea" :rows="4" placeholder="一行一个邮箱，1~20 个" />
+        </el-form-item>
+        <el-form-item label="级别阈值">
+          <el-select v-model="chForm.minLevel">
+            <el-option label="提示 info 及以上" value="info" />
+            <el-option label="警告 warn 及以上" value="warn" />
+            <el-option label="仅严重 critical" value="critical" />
+          </el-select>
+          <span class="form-hint">低于该级别的报警不向本渠道发送</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="chVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveCh">保存</el-button>
+      </template>
+    </el-dialog>
+
     <!-- CSV 文件选择（隐藏，避免原生控件样式） -->
     <input ref="csvFileInput" class="hidden-file" type="file" accept=".csv,text/csv" @change="onCsvFileChange" />
   </el-drawer>
@@ -906,6 +1089,14 @@ async function removeAlm(r: AlarmRule): Promise<void> {
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: 8px;
+}
+
+/* 钉钉密钥行：密码框 + 清除复选（清除 = 提交 null，服务端删除已存密钥） */
+.secret-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
 }
 
 .form-hint {

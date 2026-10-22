@@ -26,12 +26,61 @@ export interface AlarmSettings {
   soundThrottleSec: number
 }
 
+// ---- 通知渠道（工厂可用阶段二 Task 4：存 doc.settings.notify，工程配置优先/env 回落） ----
+
+/** 通知级别：报警 level ≥ 渠道 minLevel 才向该渠道外发（缺省 warn） */
+export type NotifyLevel = 'info' | 'warn' | 'critical'
+
+/** 通用 Webhook（url 强制 https://） */
+export interface WebhookNotifyChannel {
+  kind: 'webhook'
+  url: string
+  minLevel?: NotifyLevel
+}
+
+/** 钉钉群机器人：secret 为加签密钥（敏感：出口脱敏/库内加密；空串=保留、null=清除） */
+export interface DingTalkNotifyChannel {
+  kind: 'dingtalk'
+  url: string
+  secret?: string | null
+  minLevel?: NotifyLevel
+}
+
+/** 企业微信群机器人（无签名，key 内嵌 URL） */
+export interface WecomNotifyChannel {
+  kind: 'wecom'
+  url: string
+  minLevel?: NotifyLevel
+}
+
+/** 邮件：收件人在 doc（1~20 个，须含 @）；SMTP 服务参数仍走服务端 env */
+export interface EmailNotifyChannel {
+  kind: 'email'
+  recipients: string[]
+  minLevel?: NotifyLevel
+}
+
+export type NotifyChannel =
+  | WebhookNotifyChannel
+  | DingTalkNotifyChannel
+  | WecomNotifyChannel
+  | EmailNotifyChannel
+
+export type NotifyChannelKind = NotifyChannel['kind']
+
+/** 通知渠道集：channels 为空数组 = 显式站内 only（不回落 env） */
+export interface NotifyConfig {
+  channels: NotifyChannel[]
+}
+
 export interface ProjectSettings {
   designSize: DesignSize
   adaptive: AdaptiveMode
   theme: 'blue-dark' | 'blue-light'
   primaryColor: string
   alarm: AlarmSettings
+  /** 缺省 null = 未配置 → 服务端外发回落 env 单渠道 */
+  notify?: NotifyConfig | null
 }
 
 export interface ProjectMeta {
