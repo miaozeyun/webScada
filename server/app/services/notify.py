@@ -306,6 +306,15 @@ def _smtp_login(smtp) -> None:
 async def _send_email(recipients: list[str], rec, rule: dict | None) -> bool:
     """邮件渠道：收件人来自 doc 渠道（env 回落时为 NOTIFY_SMTP_FROM）；SMTP 服务参数为 env。"""
     if not settings.NOTIFY_SMTP_HOST or not recipients:
+        # 显式失败而非静默吞：工程配了邮件渠道但服务端 SMTP 未配置/收件人空——
+        # 「配了收件人却收不到信」必须可发现（计数进 /metrics + 日志指出解法）
+        reason = (
+            "服务端未配置 SMTP（NOTIFY_SMTP_HOST 为空），请在服务端 .env 配置 NOTIFY_SMTP_HOST/NOTIFY_SMTP_FROM"
+            if not settings.NOTIFY_SMTP_HOST
+            else "渠道收件人列表为空"
+        )
+        stats.inc("notify_failed_total")
+        logger.warning("邮件渠道未发送（alarm={}）：{}", rec.id, reason)
         return False
     return await _send_with_retry(
         "邮件渠道", rec, lambda: asyncio.to_thread(_smtp_send_sync, rec, rule, recipients)

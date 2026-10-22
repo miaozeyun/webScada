@@ -468,6 +468,31 @@ async def test_dingtalk_secret_sanitized_out_and_encrypted_in_db(client, auth_he
     assert decrypt(stored_secret) == "SECxxx"
 
 
+async def test_email_channel_without_smtp_env_counts_failed_with_warning(client, auth_headers, monkeypatch):
+    """工程配了邮件渠道但服务端未配 NOTIFY_SMTP_HOST：显式失败计数 + warning（不静默吞）。"""
+    from loguru import logger as loguru_logger
+
+    pid, _ = await _mk_project(client, auth_headers, _notify_doc([
+        {"kind": "email", "recipients": ["ops@ops.test"]},
+    ]))
+    monkeypatch.setattr(settings, "NOTIFY_WEBHOOK_URL", "")
+    monkeypatch.setattr(settings, "NOTIFY_SMTP_HOST", "")  # 服务端 SMTP 未配置
+    urls = _patch_webhook_urls(monkeypatch)
+
+    messages: list[str] = []
+    sink_id = loguru_logger.add(lambda m: messages.append(m), level="WARNING")
+    try:
+        before = counters()
+        await notify.send_alarm(make_rec_for(pid), RULE)
+        after = counters()
+    finally:
+        loguru_logger.remove(sink_id)
+
+    assert urls == [] and FakeSMTP.instances == []
+    assert after["webscada_notify_failed_total"] - before.get("webscada_notify_failed_total", 0) == 1
+    assert any("NOTIFY_SMTP_HOST" in str(m) for m in messages)
+
+
 async def test_secret_put_merge_empty_keeps_null_clears(client, auth_headers, db_factory):
     """PUT 空值合并（沿数据源规则⑤）：空串=保留库内密文；显式 null=清除。"""
     from app.utils.encrypt import decrypt

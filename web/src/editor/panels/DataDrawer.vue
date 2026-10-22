@@ -655,6 +655,16 @@ function channelTarget(ch: NotifyChannel): string {
                 </el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="操作" width="120">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="openAlm(row)">编辑</el-button>
+                <el-button link type="danger" size="small" @click="removeAlm(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </el-tab-pane>
+
       <!-- 通知渠道 -->
       <el-tab-pane :label="`通知（${channels.length}）`" name="notify">
         <div class="pane">
