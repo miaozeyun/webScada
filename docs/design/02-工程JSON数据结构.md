@@ -69,6 +69,7 @@ export interface ProjectSettings {
   theme: 'blue-dark' | 'blue-light';             // 蓝色系简洁主题（全局主题基调）
   primaryColor: string;                          // 主题主色，默认 '#2563eb'，组件默认取色来源
   alarm: AlarmSettings;                          // 报警声音/级别设置：存 doc.settings.alarm，随工程 doc 保存（不设独立报警设置端点）
+  notify: NotifyConfig | null;                   // 通知渠道（阶段二增量，缺省 null=未配置回落 env；详见 §9.1）
 }
 
 /** 报警声音/级别设置（settings.alarm） */
@@ -172,6 +173,8 @@ export type WidgetType =
   | 'breaker' | 'isolator' | 'ground' | 'ct' | 'pt' | 'transformer'
   // M9 批次1 增量（行业图元，详见 §8）
   | 'symbol'
+  // 阶段二增量（数据表格族，详见 §9.2）
+  | 'realtime-table' | 'history-table'
   // 结构
   | 'group';
 ```
@@ -346,7 +349,7 @@ export type MockSpec =
   | { kind: 'square'; onValue: number; offValue: number; periodMs: number; duty?: number }; // 方波，占空比默认 0.5
 ```
 
-### 2.10 数据源（四类）
+### 2.10 数据源（六类）
 
 ```ts
 export type DataSource =
@@ -1020,3 +1023,38 @@ interface EventActionDef {
 - dataTransfer `application/x-widget`（+ text/plain 兜底）载荷三形态：
   纯 type（注册组件）/ `symbol|<symbolId>`（图元库）/ `mysym|<资产id>`（我的图元）。
 - `editor.addComponent(type, x, y, extraProps?)` 第四参覆盖默认 props（symbol 场景同时覆盖节点名/尺寸）。
+
+## 9. 阶段二增量契约（通知渠道 / 数据表格组件）
+
+> 工厂可用阶段二引入。**全部为可选字段或可选枚举值，旧 doc 不含即不受影响，schemaVersion 不变（仍为 1）**。
+> 双端实现：`web/src/types/doc.ts` ↔ `server/app/schemas/doc.py`（本节为权威描述，改动须双侧同步）。
+> 第六数据源 OPC UA（`OpcUaConfig`）已随阶段二 Task 8 直接落入 §2.10 DataSource union（浏览器 no-op，运行态经 WS 取值），本节不重复。
+
+### 9.1 通知渠道（settings.notify，四渠道 discriminated union）
+
+```ts
+export type NotifyLevel = 'info' | 'warn' | 'critical';
+
+export interface NotifyConfig {                  // ProjectSettings 增量：notify: NotifyConfig | null = null
+  channels: Array<                              // 渠道按 kind 判别（discriminated union）
+    | { kind: 'webhook';  url: string; minLevel?: NotifyLevel }
+    | { kind: 'dingtalk'; url: string; secret: string | null; minLevel?: NotifyLevel }  // secret=加签密钥（≤256）
+    | { kind: 'wecom';    url: string; minLevel?: NotifyLevel }
+    | { kind: 'email';    recipients: string[]; minLevel?: NotifyLevel }  // 收件人 1~20 个（须含 @ 且 ≤254 字符）
+  >;
+}
+```
+
+- `minLevel` 缺省 `'warn'`；级别序 `info < warn < critical`，报警 level ≥ 渠道 minLevel 才向该渠道外发（渠道级过滤；同规则节流沿既有 `(projectId, ruleId)` 口径，与渠道数无关）。
+- 语义要点（服务端 `services/notify.py` 唯一实现点）：
+  - `notify` 缺省 `null`（未配置）→ **回落 env 单渠道**：`NOTIFY_WEBHOOK_URL` 映射 webhook、`NOTIFY_SMTP_HOST(+FROM)` 映射 email（收件人沿 FROM 自发自收）。
+  - 显式 `{channels: []}` → **站内 only，不回落** env。
+  - webhook/钉钉/企微 `url` 强制 `https://`（防明文出口泄漏内嵌 token/key）；email 仅收件人在 doc，SMTP 服务参数（主机/账号/From）仍走服务端 env `NOTIFY_SMTP_*`。
+- `secret`（钉钉加签密钥）沿 K11 凭证管线：PUT 空串/缺省=保留库内值、显式 `null`=清除；库内 Fernet 加密（`FER1` 密文前缀）；所有出口（GET 详情/导出/分享快照）脱敏；导入文件 secret 一律置空。渠道无 id，按 `(kind, url)` 关联库内旧值做空值合并。
+- 发送失败重试 **3 次指数退避（1s/2s/4s），仅网络类异常**（连接失败/超时等 TransportError）；HTTP 非 2xx（含 4xx 业务拒绝）不重试。全部渠道失败仅累计 `notify_failed_total`（/metrics 消费），不抛——通知故障不阻断报警主流程。
+- 渠道缓存：按工程缓存 **TTL 5s** 兜底；保存/导入/删除经 `project_service` 热更新钩子 `invalidate_project_channels` 即时失效（双保险，沿 rules_engine 缓存先例）。
+
+### 9.2 WidgetType 增量（数据表格族）
+
+- `WidgetType` +`'realtime-table'`（实时表格）：doc.variables 挑列（props `columns: {key,label,precision?,unit?}[]`）实时展示工程值，可选质量位列（非 good 灰显）与单位拼接。
+- `WidgetType` +`'history-table'`（历史表格）：单变量按区间分桶（props `variableKey/rangeMs/bucketCount`）取每桶末值成表；取数走 03 §2.10 查询端点 `agg='last'`（stepMs 由 rangeMs/bucketCount 联动，前端二次分桶兜稀疏序列）。
