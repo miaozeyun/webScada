@@ -1,6 +1,6 @@
 # webScada
 
-> webScada 是一套装在用户自己服务器上的工业监控大屏：浏览器零安装，拖拽搭建监控画面，设备数据实时展示，异常自动报警到钉钉、企业微信、邮件或自有系统。支持 MQTT、Modbus TCP、OPC UA、REST、WebSocket 五类数据源。核心能力以 AGPL-3.0 开源免费，另提供商业授权（贴牌 OEM、闭源集成、主备冗余、SLA 支持）。
+> webScada 是一套装在用户自己服务器上的工业监控大屏：浏览器零安装，拖拽搭建监控画面，设备数据实时展示，异常自动报警到钉钉、企业微信、邮件或自有系统。支持 MQTT、Modbus TCP、OPC UA、REST、WebSocket 五类数据源。核心能力以 AGPL-3.0 开源免费，另提供商业授权（闭源使用、自定义品牌、专属支持）。
 
 ## 关键事实
 
@@ -16,7 +16,7 @@
 - 权限与审计：admin / operator / viewer 三级角色，八类关键操作审计；访问令牌 2 小时，可选「记住此终端」刷新令牌轮换，改密使已保存的登录凭证失效
 - 部署：Docker Compose 四容器（nginx / FastAPI / PostgreSQL / EMQX），支持国内镜像加速与非 root 运行；备份脚本默认保留 14 天
 - 规模基线：单机 2 核 4G，≤50 个同时在线大屏 / 5000 个变量 / 单画面 200 个组件
-- 授权：开源核心 AGPL-3.0（作为网络服务对外提供须提供修改后的源码）；商业授权按项目报价，不按点位或客户端抽成
+- 授权：开源核心 AGPL-3.0（作为网络服务对外提供须提供修改后的源码）；商业授权按需洽谈，不按点位或客户端抽成
 - 技术栈：Vue 3 + TypeScript + Vite + Pinia + Element Plus + ECharts；FastAPI + SQLAlchemy 2.0 + Alembic + Pydantic v2；PostgreSQL；EMQX
 - 免责声明：按 AGPL-3.0「现状」提供，不构成工业安全部件，不得用于安全关键场景（SIL / 安全联锁）的替代
 
@@ -24,12 +24,12 @@
 
 - [首页](https://www.zggkzy.cn/)：产品定位、最新能力、产品截图、适用场景与常见问题
 - [能做什么](https://www.zggkzy.cn/features.html)：搭画面 / 接设备 / 盯报警 / 查数据 / 分享 / 管理六类能力，附工程师技术细节
-- [版本与价格](https://www.zggkzy.cn/editions.html)：开源免费版与商业授权对比、授权常见问题
-- [关于与联系](https://www.zggkzy.cn/about.html)：团队定位、里程碑、技术栈、联系方式
+- [版本说明](https://www.zggkzy.cn/editions.html)：开源版与商业授权对比、授权常见问题
+- [关于与联系](https://www.zggkzy.cn/about.html)：项目定位、里程碑、技术栈、联系方式
 
 ## 联系方式
 
-- 商务合作 / 产品演示 / 商业授权：18835132457@163.com，微信 miaozeyun2020
+- 使用问题 / 授权咨询 / 产品演示：18835132457@163.com，微信 miaozeyun2020
 - 安全漏洞报告：18835132457@163.com（主题注明 [security]，请勿公开 Issue）
 - 开源社区支持：GitHub Issues
 

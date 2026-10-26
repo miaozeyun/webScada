@@ -53,8 +53,13 @@ node shots4.mjs  # 分享管理（token 已脱敏）/ 数据源面板
 | 占位 | 出现位置 | 替换为 |
 |---|---|---|
 | `webscada.example.com` | 各页 canonical / og:url、sitemap.xml、robots.txt、llms.txt、JSON-LD | 正式域名 |
-| `X ICP 备 00000000 号` | 各页页脚 | 真实 ICP 备案号（境内服务器必须） |
 | `og-cover.svg` | 各页 og:image / twitter:image | 建议导出 1200×630 PNG（多数平台不渲染 SVG 分享图），改名 og-cover.png 并同步改引用 |
+
+**页脚不预置 ICP 占位。** 挂一个假备案号会被扫站工具判为「备案信息异常」，比不挂更麻烦。
+备案通过后执行 `./scripts/set-site-domain.sh <域名> "京ICP备12345678号-1"`，脚本把备案号写进各页页脚
+（可重复执行，已写入的跳过）。未提供第二个参数时页脚保持无备案号状态。
+
+境内服务器上线后 30 日内还需完成公安联网备案（beian.mps.gov.cn），通过后把「公网安备 XXXX 号」一并补进页脚。
 
 开源仓库公开后，可在导航与页脚补回 GitHub 链接（源码中 TODO 已注明位置）。
 

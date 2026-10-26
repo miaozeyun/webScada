@@ -77,7 +77,7 @@
           { "@type": "Question", "name": "晚上没人盯大屏，报警怎么办？", "acceptedAnswer": { "@type": "Answer", "text": "报警规则在服务器上 7×24 判断，不依赖浏览器是否打开。触发后可自动推送到钉钉、企业微信、邮箱或您自己的系统，发送失败会自动重试，成功与否都有记录可查。" } },
           { "@type": "Question", "name": "设备断网或掉线，系统能发现吗？", "acceptedAnswer": { "@type": "Answer", "text": "能。设备通讯中断时系统会自动生成一条严重级别的「通讯中断」报警，恢复后自动解除，避免出现画面停住却没人发现的状况。" } },
           { "@type": "Question", "name": "历史数据能存多久，能导出吗？", "acceptedAnswer": { "@type": "Answer", "text": "默认每 5 秒记录一次、保留 30 天，可按需调整；支持按时间段查询平均值、最大值、最小值，并一键导出 CSV（Excel 可直接打开）。" } },
-          { "@type": "Question", "name": "webScada 怎么收费？", "acceptedAnswer": { "@type": "Answer", "text": "核心功能以 AGPL-3.0 开源免费，不按点位或客户端数量收费。需要贴牌 OEM、闭源集成、主备冗余和 SLA 支持时，走商业授权，按项目报价。" } },
+          { "@type": "Question", "name": "webScada 怎么收费？", "acceptedAnswer": { "@type": "Answer", "text": "核心功能以 AGPL-3.0 开源免费，不按点位或客户端数量收费，部署一次即可长期使用。只有需要闭源使用或自定义品牌时，才涉及商业授权。" } },
           { "@type": "Question", "name": "部署复杂吗，需要什么样的服务器？", "acceptedAnswer": { "@type": "Answer", "text": "一条 Docker Compose 命令即可完成部署，一台 2 核 4G 的普通服务器就能跑起来，局域网内即可使用，不依赖公有云。" } }
         ]
       }
@@ -99,8 +99,8 @@
       </button>
       <nav class="nav" id="site-nav" aria-label="主导航">
         <a href="features.html">能做什么</a>
-        <a href="editions.html">版本与价格</a>
-        <a href="about.html">关于我们</a>
+        <a href="editions.html">版本说明</a>
+        <a href="about.html">关于 webScada</a>
         <a class="btn btn-primary" href="https://scada.zggkzy.cn/" target="_blank" rel="noopener">立即试用</a>
         <a class="btn btn-ghost" href="about.html#contact">预约演示</a>
       </nav>
@@ -338,12 +338,12 @@
             </ul>
           </article>
           <article class="card audience">
-            <h3>设备厂商 / OEM</h3>
+            <h3>设备厂商</h3>
             <p class="audience-for">想让设备多一块拿得出手的监控大屏</p>
             <ul class="check-list">
-              <li>可贴自己的品牌交付，界面配色随您定</li>
+              <li>可自定义品牌与界面配色</li>
               <li>源码在手，能做深度定制和私有化交付</li>
-              <li>按项目商业授权，不按点位抽成</li>
+              <li>不按点位抽成，按实际需要选择授权方式</li>
             </ul>
           </article>
         </div>
@@ -411,7 +411,7 @@
           </details>
           <details>
             <summary>怎么收费？</summary>
-            <div class="faq-a">核心功能以 AGPL-3.0 开源免费，不按点位或客户端数量收费。需要贴牌 OEM、闭源集成、主备冗余和 SLA 支持时，走商业授权，按项目报价。</div>
+            <div class="faq-a">核心功能以 AGPL-3.0 开源免费，不按点位或客户端数量收费，部署一次即可长期使用。只有需要闭源使用或自定义品牌时，才涉及商业授权。</div>
           </details>
           <details>
             <summary>部署复杂吗，需要什么样的服务器？</summary>
@@ -449,7 +449,7 @@
           <h4>产品</h4>
           <ul>
             <li><a href="features.html">能做什么</a></li>
-            <li><a href="editions.html">版本与价格</a></li>
+            <li><a href="editions.html">版本说明</a></li>
             <li><a href="index.html#faq">常见问题</a></li>
           </ul>
         </nav>
@@ -460,17 +460,16 @@
             <li><a href="index.html#shots">产品截图</a></li>
           </ul>
         </nav>
-        <nav aria-label="公司">
-          <h4>公司</h4>
+        <nav aria-label="关于">
+          <h4>关于</h4>
           <ul>
-            <li><a href="about.html">关于我们</a></li>
-            <li><a href="about.html#contact">商务合作</a></li>
+            <li><a href="about.html">关于 webScada</a></li>
+            <li><a href="about.html#contact">联系方式</a></li>
           </ul>
         </nav>
       </div>
       <div class="footer-bottom">
         <span>© <span id="year">2026</span> webScada · 开源核心以 AGPL-3.0 授权 · 本软件不构成工业安全部件，不得用于安全关键场景</span>
-        <span><!-- TODO: 替换为真实 ICP 备案号 --><a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" style="color:inherit">X ICP 备 00000000 号</a></span>
       </div>
     </div>
   </footer>
