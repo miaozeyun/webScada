@@ -2,6 +2,7 @@
 
 - GET  /projects/{id}/alarms                 列表（status 缺省=未恢复集合；variableKey 前缀匹配）
 - POST /projects/{id}/alarms/{alarmId}/ack   operator/admin；幂等；广播 alarmAck；落审计 alarm_ack
+- POST /projects/{id}/alarms/{alarmId}/clear operator/admin；人工清除残留报警；广播 alarmClear；落审计 alarm_clear
 - GET  /projects/{id}/alarm-records          废弃别名（委托同实现）
 - POST /projects/{id}/alarm-records          旧前端上报兼容：active/recovered → trigger/clear
 """
@@ -16,7 +17,7 @@ from app.api.deps import get_current_user, require_operator
 from app.core.errors import AppError
 from app.db.base import get_db
 from app.db.models import AlarmRecord, Project, User
-from app.schemas.alarm import AckBody, AckOut, AlarmOut, AlarmRecordIn
+from app.schemas.alarm import AckBody, AckOut, AlarmOut, AlarmRecordIn, ClearBody, ClearOut
 from app.services import alarm_service, project_service
 
 router = APIRouter(tags=["alarms"])
@@ -151,6 +152,41 @@ async def ack_alarm(
         ackedBy=str(user.id),  # 契约示例口径：ack 出参 ackedBy 为 user id 串
         ackedNote=rec.acked_note,
     )
+
+
+@router.post("/projects/{project_id}/alarms/{alarm_id}/clear", response_model=ClearOut)
+async def clear_alarm(
+    project_id: str,
+    alarm_id: int,
+    request: Request,
+    body: ClearBody | None = None,
+    user: User = Depends(require_operator),
+    db: AsyncSession = Depends(get_db),
+) -> ClearOut:
+    """人工清除（operator/admin）：triggered/acked → cleared，幂等。
+
+    用于规则已变更、设备已拆除等「永远不会自动恢复」的残留报警；广播 alarmClear 并落审计。
+    """
+    project = await project_service.get_project(db, project_id)
+    rec = await alarm_service.force_clear(db, project.id, alarm_id)
+    try:
+        from app.services import audit_service
+
+        await audit_service.audit(
+            request,
+            user,
+            "alarm_clear",
+            target_type="alarm",
+            target_id=str(alarm_id),
+            detail={
+                "project_id": str(project.id),
+                "rule_id": rec.rule_id,
+                "note": body.note if body else None,
+            },
+        )
+    except ImportError:
+        logger.info("audit_service 未合入（C 包），alarm_clear 审计跳过（打桩降级）")
+    return ClearOut(id=rec.id, status=rec.status, clearedAt=rec.cleared_at)
 
 
 @router.get("/projects/{project_id}/alarm-records")

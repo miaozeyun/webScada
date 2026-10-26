@@ -26,6 +26,8 @@ class ShareOut(BaseModel):
     expiresAt: datetime | None
     revokedAt: datetime | None = None
     createdAt: datetime
+    # 快照最近刷新时间（2026-10-26）：与工程 updatedAt 比较判断「有未发布变更」
+    refreshedAt: datetime | None = None
 
 
 class ShareItem(ShareOut):

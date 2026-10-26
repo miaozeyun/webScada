@@ -140,6 +140,9 @@ class RulesEngine:
         self._refreshing: set[str] = set()
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._bg_tasks: set[asyncio.Task] = set()
+        # 已观察到非 good 质量的变量（(project_id, variable_id)）：坏质量收口只做一次，
+        # 恢复 good 时移除。避免 stale 帧高频重复派发 clear 任务。
+        self._bad_vars: set[tuple[str, str]] = set()
 
     # ---------------- 规则注册表 ----------------
 
@@ -225,16 +228,23 @@ class RulesEngine:
     # ---------------- 值监听入口（同步；契约监听器签名） ----------------
 
     def on_value(self, project_id, variable, value, q, ts) -> None:
-        if q != "good":
-            return
         pid = str(project_id)
+        var_id = self._var_field(variable, "id")
+        var_id = str(var_id) if var_id is not None else ""
         entries = self._entries.get(pid)
         # 缓存缺席/过期 → 后台刷新（本事件按现有缓存判定，下个事件起生效）
         if entries is None or time.monotonic() - self._loaded_at.get(pid, -1e18) > RULES_TTL_SEC:
             self._schedule_refresh(pid)
+        if q != "good":
+            # 设备断线/停更时质量转 stale/bad：该变量的活动工艺报警必须收口，
+            # 否则会永远挂在「触发中」，值班员看到一条永远不恢复的报警。
+            if var_id:
+                self._on_bad_quality(pid, var_id, ts)
+            return
+        if var_id:
+            self._bad_vars.discard((pid, var_id))
         if not entries:
             return
-        var_id = self._var_field(variable, "id")
         ts_sec = _ts_to_epoch_sec(ts)
         for e in entries:
             if e.variable_id != var_id:
@@ -243,6 +253,32 @@ class RulesEngine:
             if num is None:
                 continue
             self._eval_rule(pid, e, num, ts_sec)
+
+    def _on_bad_quality(self, pid: str, var_id: str, ts) -> None:
+        """质量非 good：把该变量所有活动规则置为恢复（派发 clear 任务，入库+广播）。
+
+        用 _bad_vars 去重：stale 帧可能每秒到达，但收口只做一次；值恢复 good 后
+        重新允许下一次断线收口。规则缓存缺席时先触发刷新，下个坏质量帧再收口。
+        """
+        key = (pid, var_id)
+        if key in self._bad_vars:
+            return
+        self._bad_vars.add(key)
+        entries = self._entries.get(pid) or []
+        if not entries:
+            self._schedule_refresh(pid)
+            return
+        ts_sec = _ts_to_epoch_sec(ts)
+        for e in entries:
+            if e.variable_id != var_id:
+                continue
+            st = self._states.get((pid, e.rule_id))
+            if st is None or not st.active:
+                continue
+            st.active = False
+            st.since = None
+            logger.info("质量非 good 收口：project={} rule={} variable={}", pid, e.rule_id, var_id)
+            self._spawn_state_task(pid, e, "clear", 0.0, ts_sec, st)
 
     @staticmethod
     def _var_field(variable, name: str):

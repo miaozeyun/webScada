@@ -1,8 +1,9 @@
 """审计服务（M8 RBAC 配套，契约 §6.3）：全部安全敏感写路径的埋点唯一入口。
 
-七类 action（models.AuditLog 注释同步冻结）：login / write_var / alarm_ack /
+八类 action（models.AuditLog 注释同步冻结）：login / write_var / alarm_ack /
 project_save / share_create / share_revoke / user_mgmt；M8 终审 #1 新增 datasource_test
-（数据源连通性测试：凭证注回的唯一明文出口，须留痕）。
+（数据源连通性测试：凭证注回的唯一明文出口，须留痕）；2026-10-26 新增 alarm_clear
+（人工清除残留报警，运维动作须留痕）。
 
 关键设计：
 - 自建短会话提交：审计不搭主请求事务，主事务回滚不会吞掉审计记录（安全事件必须留痕）
@@ -18,7 +19,17 @@ from app.db.models import AuditLog, User
 
 # action 枚举（契约 §6.3 七类 + M8 终审新增 datasource_test）；未知 action 仍记录但告警，便于发现漏改的埋点
 ALLOWED_ACTIONS = frozenset(
-    {"login", "write_var", "alarm_ack", "project_save", "share_create", "share_revoke", "user_mgmt", "datasource_test"}
+    {
+        "login",
+        "write_var",
+        "alarm_ack",
+        "alarm_clear",
+        "project_save",
+        "share_create",
+        "share_revoke",
+        "user_mgmt",
+        "datasource_test",
+    }
 )
 
 # 会话工厂注入点：默认取 app.db.base.SessionLocal（惰性 import，防模块导入期连库副作用）；

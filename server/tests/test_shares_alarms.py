@@ -53,7 +53,7 @@ async def test_share_lifecycle(client, auth_headers):
     resp = await client.post(f"/api/v1/projects/{project_id}/shares", headers=auth_headers, json={})
     assert resp.status_code == 201
     create_body = resp.json()
-    assert set(create_body) == {"token", "url", "expiresAt", "revokedAt", "createdAt"}  # 03 §2.6 出参
+    assert set(create_body) == {"token", "url", "expiresAt", "revokedAt", "createdAt", "refreshedAt"}  # 03 §2.6 出参（2026-10-26 增 refreshedAt）
     token = create_body["token"]
     assert len(token) >= 24
     assert create_body["url"].endswith(f"/s/{token}")
@@ -159,7 +159,7 @@ async def test_share_list_endpoint(client, auth_headers):
     assert by_token[token_a]["revokedAt"] is None
     assert by_token[token_b]["revokedAt"] is not None
     for item in items:
-        assert set(item) == {"token", "url", "expiresAt", "revokedAt", "createdAt", "lastAccessAt"}
+        assert set(item) == {"token", "url", "expiresAt", "revokedAt", "createdAt", "lastAccessAt", "refreshedAt"}
         assert item["url"].endswith(f"/s/{item['token']}")
 
     # 未登录 401
@@ -297,3 +297,42 @@ async def test_alarm_records_roundtrip(client, auth_headers):
     assert body["items"][0]["status"] == "cleared"
     assert body["items"][0]["triggeredAt"] is not None
     assert body["items"][0]["clearedAt"] is not None
+
+
+# ---------------- 2026-10-26：分享快照最小投影（匿名可见，剔除连接配置/通知/地址） ----------------
+
+
+async def test_share_snapshot_excludes_connection_secrets(client, auth_headers):
+    project_id = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["settings"]["notify"] = {
+        "channels": [
+            {
+                "kind": "dingtalk",
+                "url": "https://oapi.dingtalk.com/robot/send?access_token=TOKEN_SHOULD_NOT_LEAK",
+                "secret": "SECRET_SHOULD_NOT_LEAK",
+                "minLevel": "warn",
+            }
+        ]
+    }
+    from tests.conftest import put_doc
+
+    resp = await put_doc(client, auth_headers, project_id, doc, base_revision=1)
+    assert resp.status_code == 200, resp.text
+
+    resp = await client.post(f"/api/v1/projects/{project_id}/shares", headers=auth_headers, json={})
+    assert resp.status_code == 201
+    token = resp.json()["token"]
+
+    body = (await client.get(f"/api/v1/shares/{token}")).json()["doc"]
+    # 数据源只留标识，连接配置/凭证整体剔除
+    for ds in body["datasources"]:
+        assert "config" not in ds
+    # 通知渠道整节剔除（URL 内含 access_token）
+    assert "notify" not in body["settings"]
+    # 变量寄存器/写地址剔除
+    for var in body["variables"]:
+        assert "address" not in var and "writeAddress" not in var and "unitId" not in var
+    # 绑定/渲染必需字段保留
+    assert body["variables"][0]["key"] == "reactor1_temp"
+    assert body["variables"][0]["datasourceId"] == "ds_mqtt_01"

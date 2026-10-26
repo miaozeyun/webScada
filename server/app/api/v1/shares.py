@@ -18,18 +18,30 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_operator
+from app.core.config import settings
 from app.core.errors import AppError
 from app.db.base import get_db
 from app.db.models import Project, ShareLink, User
 from app.schemas.share import ShareCreate, ShareDoc, ShareItem, ShareOut, ShareRefreshOut
 from app.services import audit_service, project_service
+from app.utils import sanitize as sz
 
 router = APIRouter(tags=["shares"])
 
 
 def _share_url(request: Request, token: str) -> str:
-    """契约 §2.6 url 出参：前端分享路由 /s/{token}（按请求 scheme://host 拼接）。"""
-    return f"{str(request.base_url).rstrip('/')}/s/{token}"
+    """契约 §2.6 url 出参：前端分享路由 /s/{token}。
+
+    优先 PUBLIC_BASE_URL（反代/非 80 端口部署的唯一可靠来源）；未配置时按请求推导。
+    注意 nginx 的 Host 头若只传 $host 会丢端口，compose 已改为 $http_host。
+    """
+    base = settings.PUBLIC_BASE_URL.strip() or str(request.base_url)
+    return f"{base.rstrip('/')}/s/{token}"
+
+
+def _share_snapshot(project: Project) -> dict:
+    """分享快照：在凭证脱敏之上剔除数据源连接配置/通知渠道/寄存器地址（匿名可见）。"""
+    return sz.sanitize_doc_for_share(project.doc)
 
 
 def _is_expired(link: ShareLink) -> bool:
@@ -76,8 +88,9 @@ async def create_share(
         project_id=project.id,
         token=secrets.token_urlsafe(24),
         # 快照冻结当前脱敏 doc（G6：凭证恒为空）
-        doc_snapshot=project_service.doc_for_api(project),
+        doc_snapshot=_share_snapshot(project),
         expires_at=_resolve_expires_at(body, now),
+        refreshed_at=now,
     )
     db.add(link)
     await db.commit()
@@ -90,6 +103,7 @@ async def create_share(
     return ShareOut(
         token=link.token, url=_share_url(request, link.token),
         expiresAt=link.expires_at, revokedAt=link.revoked_at, createdAt=link.created_at,
+        refreshedAt=link.refreshed_at,
     )
 
 
@@ -115,6 +129,7 @@ async def list_shares(
                 token=link.token, url=_share_url(request, link.token),
                 expiresAt=link.expires_at, revokedAt=link.revoked_at,
                 createdAt=link.created_at, lastAccessAt=link.last_access_at,
+                refreshedAt=link.refreshed_at,
             )
             for link in rows
         ]
@@ -144,7 +159,8 @@ async def refresh_share(
     if project is None:
         raise AppError("not_found", "工程已删除", 404)
 
-    link.doc_snapshot = project_service.doc_for_api(project)
+    link.doc_snapshot = _share_snapshot(project)
+    link.refreshed_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(link)
 

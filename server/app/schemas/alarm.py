@@ -54,3 +54,17 @@ class AckOut(BaseModel):
     ackedAt: datetime
     ackedBy: str
     ackedNote: str | None = None
+
+
+class ClearBody(BaseModel):
+    """人工清除入参：原因说明可选（≤256 字符，落审计）。"""
+
+    note: str | None = Field(default=None, max_length=256)
+
+
+class ClearOut(BaseModel):
+    """人工清除出参（triggered/acked → cleared；已 cleared 幂等返回原态）。"""
+
+    id: int
+    status: str
+    clearedAt: datetime | None = None

@@ -11,6 +11,7 @@ POST /api/v1/datasources/test（operator/admin）：
 """
 import copy
 import time
+import uuid as uuidlib
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request
@@ -22,6 +23,7 @@ from app.api.deps import get_current_user
 from app.core.errors import AppError
 from app.db.base import get_db
 from app.db.models import User
+from app.services import project_service
 from app.utils.sanitize import SENSITIVE_HEADER_RE
 
 router = APIRouter(tags=["datasources"])
@@ -395,3 +397,24 @@ async def test_datasource(
     except ImportError:
         logger.info("audit_service 未合入（C 包），datasource_test 审计跳过（打桩降级）")
     return {"ok": ok, "type": body.type, "latencyMs": latency_ms, "message": message}
+
+
+@router.get("/projects/{project_id}/datasources/status")
+async def datasource_status(
+    project_id: str,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """数据源运行健康（2026-10-26）：在线/断线、最后成功收数、错误计数。
+
+    值来自 collector 进程内状态（与 comm_monitor 同源），不触发任何探测。
+    hub 未装配（测试 mini app）/工程未加载时返回空列表，前端显示「未在采集」。
+    """
+    project = await project_service.get_project(db, project_id)
+    try:  # 惰性 import：collector 缺席时降级空快照
+        from app.services import collector as collector_mod
+
+        items = collector_mod.collector.status(uuidlib.UUID(str(project.id)))
+    except Exception:  # noqa: BLE001
+        items = []
+    return {"items": items, "ts": int(time.time() * 1000)}

@@ -497,6 +497,31 @@ async def _enqueue(channel: dict, rec, rule: dict | None, event: str, error: str
         logger.warning("通知入队失败（alarm={} kind={}）：{}", getattr(rec, "id", "?"), channel.get("kind"), exc)
 
 
+async def _record_sent(channel: dict, rec, rule: dict | None, event: str) -> None:
+    """即时发送成功也留一条 sent 记录（2026-10-26）：否则管理端无法回答
+    「这条报警到底发出去没有」——outbox 此前只存失败行。"""
+    try:
+        now = datetime.now(timezone.utc)
+        async with _get_session_factory()() as db:
+            db.add(
+                NotificationOutbox(
+                    project_id=rec.project_id,
+                    alarm_id=rec.id,
+                    event=event,
+                    channel_kind=str(channel.get("kind")),
+                    channel_json=_seal_channel(channel),
+                    payload_json={"rec": _rec_snapshot(rec), "rule": rule or {}},
+                    status="sent",
+                    attempts=1,
+                    next_at=now,
+                    sent_at=now,
+                )
+            )
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001 - 记录失败不影响通知已送达的事实
+        logger.warning("通知成功记录失败（alarm={} kind={}）：{}", getattr(rec, "id", "?"), channel.get("kind"), exc)
+
+
 async def send_alarm(rec, rule: dict | None) -> None:
     """触发外发入口（alarm_service 新行后调用；签名冻结 §6.2，禁止改名）。
 
@@ -517,7 +542,9 @@ async def send_alarm(rec, rule: dict | None) -> None:
             return
         results = await asyncio.gather(*(_dispatch_channel(ch, rec, rule) for ch in channels))
         for channel, (ok, error) in zip(channels, results, strict=False):
-            if not ok:
+            if ok:
+                await _record_sent(channel, rec, rule, "trigger")
+            else:
                 await _enqueue(channel, rec, rule, "trigger", error)
         if not any(ok for ok, _ in results):
             logger.debug("alarm {} 全部渠道发送失败（已入补发队列）", rec.id)
@@ -545,7 +572,9 @@ async def send_recovery(rec) -> None:
         )
         results = await asyncio.gather(*(_dispatch_channel(ch, snap, None) for ch in channels))
         for channel, (ok, error) in zip(channels, results, strict=False):
-            if not ok:
+            if ok:
+                await _record_sent(channel, snap, None, "recovery")
+            else:
                 await _enqueue(channel, snap, None, "recovery", error)
     except Exception as exc:  # noqa: BLE001
         logger.warning("send_recovery 异常（不抛）：{}", exc)

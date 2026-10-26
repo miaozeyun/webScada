@@ -86,6 +86,22 @@ def _bump_active(delta: int) -> None:
     stats.set_gauge("alarms_active", _active_hint)
 
 
+async def _broadcast_clear(pid: uuid.UUID, alarm_id: int, at_ms: int) -> None:
+    """alarmClear 帧广播（A 包未合入时降级为 debug 日志，不影响主流程）。"""
+    try:
+        from app.services import ws_manager  # 惰性：跨包（A）
+    except ImportError:
+        logger.debug("ws_manager 未合入（A 包），alarmClear 帧广播降级为日志")
+        return
+    try:
+        # 帧目录（03 §3.4）字段名沿用 recoveredAt（帧契约冻结）；此处传 cleared 时刻（epoch ms）
+        result = ws_manager.broadcast_alarm_clear(pid, alarm_id, at_ms)
+        if inspect.isawaitable(result):
+            await result
+    except Exception as exc:
+        logger.warning("alarmClear 帧广播失败（不抛）：{}", exc)
+
+
 def set_active_hint(n: int) -> None:
     """启动/维护路径校准 gauge（background_jobs 调用）。"""
     global _active_hint
@@ -218,22 +234,86 @@ async def clear(db: AsyncSession, project_id, rule_id: str, at: datetime) -> int
 
         _spawn(notify.send_recovery(rec))
 
-    async def _do_broadcast():
-        try:
-            from app.services import ws_manager  # 惰性：跨包（A）
-        except ImportError:
-            logger.debug("ws_manager 未合入（A 包），alarmClear 帧广播降级为日志")
-            return
-        try:
-            # 帧目录（03 §3.4）字段名沿用 recoveredAt（帧契约冻结）；此处传 cleared 时刻（epoch ms）
-            result = ws_manager.broadcast_alarm_clear(pid, rec_id, epoch_ms(cleared_at))
-            if inspect.isawaitable(result):
-                await result
-        except Exception as exc:
-            logger.warning("alarmClear 帧广播失败（不抛）：{}", exc)
-
-    _spawn(_do_broadcast())
+    _spawn(_broadcast_clear(pid, int(rec_id), epoch_ms(cleared_at)))
     return int(rec_id)
+
+
+async def reconcile_rules(db: AsyncSession, project_id, doc: dict) -> list[int]:
+    """规则变更收口（保存 doc 后调用）：规则被删除或停用 → 其活动报警置 cleared。
+
+    - 只收口「不在启用规则集合内」的行；仍在启用的规则报警保持原状。
+    - **排除 sys_comm: 系统报警**（通讯中断由 comm_monitor 自管，保存任意工程不得误清）。
+    - 配置变更不是现场恢复：广播 alarmClear 让界面同步，但**不**发外部恢复通知（避免客户群刷屏）。
+    返回被清除的 alarm id 列表。
+    """
+    pid = _norm_pid(project_id)
+    live: set[str] = set()
+    rules = doc.get("alarmRules") if isinstance(doc, dict) else None
+    for r in rules or []:
+        if isinstance(r, dict) and r.get("enabled", True) and r.get("id"):
+            live.add(str(r["id"]))
+
+    rows = (
+        await db.execute(
+            select(AlarmRecord.id, AlarmRecord.rule_id).where(
+                AlarmRecord.project_id == pid,
+                AlarmRecord.status.in_(ACTIVE_STATUSES),
+                ~AlarmRecord.rule_id.like("sys_comm:%"),
+            )
+        )
+    ).all()
+    stale = [(int(r.id), str(r.rule_id)) for r in rows if str(r.rule_id) not in live]
+    if not stale:
+        return []
+
+    now = _now()
+    ids = [i for i, _ in stale]
+    res = await db.execute(
+        update(AlarmRecord)
+        .where(AlarmRecord.id.in_(ids), AlarmRecord.status.in_(ACTIVE_STATUSES))
+        .values(status="cleared", cleared_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    n = res.rowcount or 0
+    _bump_active(-n)
+    for aid, rule_id in stale:
+        logger.info("规则收口：project={} rule={} alarm={} → cleared", pid, rule_id, aid)
+        _spawn(_broadcast_clear(pid, aid, epoch_ms(now)))
+    return ids
+
+
+async def force_clear(db: AsyncSession, project_id, alarm_id: int, at: datetime | None = None) -> AlarmRecord:
+    """人工清除（operator/admin 运维动作）：triggered/acked → cleared，幂等。
+
+    与引擎 clear 的区别：按 alarm id 直接收口，不要求规则仍在；用于清理规则已变更、
+    设备已被拆除等「永远不会自动恢复」的残留报警。广播 alarmClear，不发恢复通知。
+    """
+    pid = _norm_pid(project_id)
+    now = _aware(at) if at is not None else _now()
+    res = await db.execute(
+        update(AlarmRecord)
+        .where(
+            AlarmRecord.id == alarm_id,
+            AlarmRecord.project_id == pid,
+            AlarmRecord.status.in_(ACTIVE_STATUSES),
+        )
+        .values(status="cleared", cleared_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    changed = bool(res.rowcount)
+    rec = (
+        await db.execute(
+            select(AlarmRecord).where(AlarmRecord.id == alarm_id, AlarmRecord.project_id == pid)
+        )
+    ).scalar_one_or_none()
+    if rec is None:
+        raise AppError("NOT_FOUND", "报警不存在或不属该工程", 404)
+    if changed:
+        _bump_active(-1)
+        _spawn(_broadcast_clear(pid, alarm_id, epoch_ms(now)))
+    return rec
 
 
 async def ack(db: AsyncSession, project_id, alarm_id: int, user: User, note: str | None) -> AlarmRecord:

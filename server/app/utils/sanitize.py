@@ -63,6 +63,58 @@ def sanitize_doc_for_output(doc: dict) -> dict:
     return out
 
 
+def _strip_demo_notes(nodes: list) -> list:
+    """递归剔除演示说明节点（props.demoNote=true）：它们只服务编辑器讲解，不应出现在交付画面。"""
+    kept: list = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            kept.append(node)
+            continue
+        props = node.get("props")
+        if isinstance(props, dict) and props.get("demoNote") is True:
+            continue
+        children = node.get("children")
+        if isinstance(children, list):
+            node["children"] = _strip_demo_notes(children)
+        kept.append(node)
+    return kept
+
+
+def sanitize_doc_for_share(doc: dict) -> dict:
+    """分享快照专用投影（2026-10-26 安全加固）：匿名只读运行页只需要渲染与绑定信息。
+
+    在普通输出脱敏之上进一步剔除：
+    - 数据源 config（PLC host/port、MQTT broker、OPC UA endpoint、headers）
+    - settings.notify（webhook/企微/钉钉 URL 内含 access_token，邮件收件人）
+    - 变量寄存器/写地址（address/writeAddress/modbus*/unitId）
+    - 演示说明组件（props.demoNote=true）
+    分享页运行态走服务端 WS 值流，不依赖以上任何字段；剔除后拿到链接的人无法
+    反推现场网络拓扑或机器人密钥。
+    """
+    out = sanitize_doc_for_output(doc)
+    for ds in out.get("datasources") or []:
+        if isinstance(ds, dict):
+            ds.pop("config", None)
+    settings = out.get("settings")
+    if isinstance(settings, dict):
+        settings.pop("notify", None)
+    for v in out.get("variables") or []:
+        if isinstance(v, dict):
+            for key in (
+                "address",
+                "writeAddress",
+                "modbusDataType",
+                "modbusByteOrder",
+                "unitId",
+                "range",
+            ):
+                v.pop(key, None)
+    for page in out.get("pages") or []:
+        if isinstance(page, dict) and isinstance(page.get("components"), list):
+            page["components"] = _strip_demo_notes(page["components"])
+    return out
+
+
 def merge_sensitive_fields(submitted: dict, stored: dict) -> None:
     """PUT 空值保留合并（02 §4.3 规则⑤，就地修改 submitted）。
 

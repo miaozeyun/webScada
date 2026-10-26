@@ -166,6 +166,16 @@ async def update_doc(db: AsyncSession, project: Project, doc_raw: dict, base_rev
     await db.refresh(project)
     # 运行态热更新（M8 工作包 A 钩子）：hub.set_doc + collector.sync 差量重建，值流不中断（03 §3.8）
     await _runtime_hot_reload(project.id, project.doc)
+    # 规则变更收口：删除/停用的规则不得留下永不恢复的活动报警（sys_comm 系统报警除外）。
+    # 失败只记日志，不回滚已保存的 doc（保存成功优先）。
+    try:
+        from app.services import alarm_service  # 惰性：避免模块级交叉依赖
+
+        cleared = await alarm_service.reconcile_rules(db, project.id, project.doc)
+        if cleared:
+            logger.info("保存后规则收口：project={} 清除 {} 条残留报警", project.id, len(cleared))
+    except Exception as exc:  # noqa: BLE001 — 收口失败不影响保存结果
+        logger.warning("保存后规则收口失败（project={}）：{}", project.id, exc)
     return project
 
 

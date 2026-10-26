@@ -87,6 +87,8 @@ class ShareLink(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)   # 非 NULL=已撤销
     last_access_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # 快照最近刷新时间（创建/refresh 写入）：与 projects.updated_at 比较判断「分享画面是否落后」
+    refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # token 的 UNIQUE 约束已隐式建唯一索引，不再重复建 idx_share_token（与 alembic 0001 一致）
 
@@ -134,8 +136,8 @@ class AlarmRecord(Base):
 class AuditLog(Base):
     """审计日志（M8 RBAC 配套）：只追加不更新；冗余 username 快照防用户删除后不可读。
 
-    action 枚举（工作包 C audit_service 埋点）：login / write_var / alarm_ack /
-    project_save / share_create / share_revoke / user_mgmt。
+    action 枚举（工作包 C audit_service 埋点）：login / write_var / alarm_ack / alarm_clear /
+    project_save / share_create / share_revoke / user_mgmt / datasource_test。
     """
 
     __tablename__ = "audit_logs"

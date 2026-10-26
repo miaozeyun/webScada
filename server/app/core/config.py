@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     APP_NAME: str = "webScada"
     # 交付版本单一事实源：/health、启动日志、诊断包共用，避免各处硬编码漂移
     APP_VERSION: str = "0.2.0"
+    # 对外可访问地址（分享链接/邮件/二维码用）；空 = 从请求推导。
+    # 反代/非 80 端口部署必须显式配置，例如 https://scada.example.com:8088
+    PUBLIC_BASE_URL: str = ""
     DEBUG: bool = False
     # 生产：postgresql+asyncpg://...（compose 注入）；测试：sqlite+aiosqlite:///:memory:
     DATABASE_URL: str = "postgresql+asyncpg://webscada:webscada123@postgres:5432/webscada"
