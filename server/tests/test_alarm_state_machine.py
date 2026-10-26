@@ -155,6 +155,7 @@ def _stub_notify(monkeypatch):
         return None
 
     monkeypatch.setattr(notify_mod, "send_alarm", _noop)
+    monkeypatch.setattr(notify_mod, "send_recovery", _noop)
 
 
 # ---------------- 状态机核心语义（服务层直测） ----------------

@@ -29,7 +29,7 @@ export const useEditorStore = defineStore('editor', {
     /** 变更计数：自增触发自动保存防抖 */
     dirtySeq: 0,
     saving: false,
-    saveError: '' as '' | 'network' | 'conflict',
+    saveError: '' as '' | 'network' | 'conflict' | 'server',
     /** 最近一次保存成功的时刻（状态栏读数；空 = 本次会话未保存过） */
     lastSavedAt: null as string | null,
     historyVersion: 0,
@@ -115,7 +115,9 @@ export const useEditorStore = defineStore('editor', {
         return true
       } catch (err) {
         const status = (err as { response?: { status?: number } })?.response?.status
-        this.saveError = status === 409 ? 'conflict' : 'network'
+        // 有响应 = 服务端拒绝（422/500），无响应才是断网；两者排障方向完全不同，
+        // 不能把 422 显示成「断网」让用户去查网络/容器。
+        this.saveError = status === 409 ? 'conflict' : status ? 'server' : 'network'
         return false
       } finally {
         this.saving = false

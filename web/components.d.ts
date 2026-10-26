@@ -14,6 +14,8 @@ declare module 'vue' {
     AlarmBanner: typeof import('./src/components/alarm/AlarmBanner.vue')['default']
     AlarmPanel: typeof import('./src/components/alarm/AlarmPanel.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
+    ElBreadcrumb: typeof import('element-plus/es')['ElBreadcrumb']
+    ElBreadcrumbItem: typeof import('element-plus/es')['ElBreadcrumbItem']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElCheckbox: typeof import('element-plus/es')['ElCheckbox']
     ElCollapse: typeof import('element-plus/es')['ElCollapse']

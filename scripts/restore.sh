@@ -19,22 +19,54 @@ echo "!! 恢复将停止 server/nginx 并【清空当前数据库】，整库回
 read -r -p "确认请输入数据库名（.env 的 POSTGRES_DB，默认 webscada）： " CONFIRM
 [ "$CONFIRM" = "webscada" ] || { echo "[restore] 已取消（输入与库名不一致）" >&2; exit 1; }
 
-echo "[restore] 1/5 停止写入端（server / nginx）…"
-docker compose stop server nginx
+echo "[restore] 1/6 停止写入端（server / nginx / emqx）…"
+docker compose stop server nginx emqx
 
-echo "[restore] 2/5 重建数据库…"
+echo "[restore] 2/6 重建数据库…"
 docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS \"$POSTGRES_DB\"" -c "CREATE DATABASE \"$POSTGRES_DB\""'
 
-echo "[restore] 3/5 pg_restore 导入（dump 先复制入容器：管道 /dev/stdin 不可 seek，pg_restore 自定义格式要求可寻址文件）…"
+echo "[restore] 3/6 pg_restore 导入（dump 先复制入容器：管道 /dev/stdin 不可 seek，pg_restore 自定义格式要求可寻址文件）…"
 CID="$(docker compose ps -q postgres)"
 docker cp "$DUMP" "$CID:/tmp/webscada-restore.dump"
 docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error /tmp/webscada-restore.dump && rm -f /tmp/webscada-restore.dump'
 
-echo "[restore] 4/5 重启应用并等待健康检查…"
-docker compose up -d server nginx
+echo "[restore] 4/6 还原附件与 EMQX 数据（backup.sh 的 uploads/emqx 归档）…"
+# 归档文件名与 dump 共用时间戳：webscada-{db,uploads,emqx}-TS.*
+DUMP_DIR="$(cd "$(dirname "$DUMP")" && pwd)"
+DUMP_BASE="$(basename "$DUMP")"
+TS="${DUMP_BASE#webscada-db-}"
+TS="${TS%.dump}"
+PROJECT="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$CID")"
+PG_IMAGE="$(docker inspect -f '{{.Config.Image}}' "$CID")"
+restore_volume() {
+  local archive="$1" volume="$2" label="$3"
+  if [ ! -f "$archive" ]; then
+    echo "[restore]   跳过 $label：未找到 $(basename "$archive")（旧版备份可能没有此项）"
+    return
+  fi
+  # --user 0：卷根目录由 appuser/EMQX 初始化，非 root 会 EACCES；
+  # find -delete 连隐藏文件一起清；失败只告警不中断，保证后面还能把服务拉起来。
+  if docker run --rm --user 0:0 \
+    -v "${PROJECT}_${volume}":/data \
+    -v "$archive":/backup.tar.gz:ro \
+    "$PG_IMAGE" sh -c 'set -e; find /data -mindepth 1 -delete; tar xzf /backup.tar.gz -C /data'; then
+    echo "[restore]   $label 已还原"
+  else
+    echo "[restore]   警告：$label 还原失败（服务仍会启动，请手动检查该卷）" >&2
+  fi
+}
+restore_volume "$DUMP_DIR/webscada-uploads-$TS.tar.gz" uploads_data "图片附件"
+restore_volume "$DUMP_DIR/webscada-emqx-$TS.tar.gz" emqx_data "EMQX 账号/会话"
+
+echo "[restore] 5/6 重启应用并等待健康检查…"
+docker compose up -d emqx server nginx
+# 端口以 compose 实际映射为准：本机 .env 的 HTTP_PORT（如 8088）不会自动进入当前 shell，
+# 直接 ${HTTP_PORT:-80} 会在恢复成功后误报「健康检查未通过」。
+PORT="$(docker compose port nginx 80 2>/dev/null | head -1 | sed 's/.*://')"
+PORT="${PORT:-${HTTP_PORT:-80}}"
 HEALTH_OK=0
 for _ in $(seq 1 12); do
-  if curl -fsS "http://localhost:${HTTP_PORT:-80}/api/v1/health" >/dev/null 2>&1; then HEALTH_OK=1; break; fi
+  if curl -fsS "http://localhost:${PORT}/api/v1/health" >/dev/null 2>&1; then HEALTH_OK=1; break; fi
   sleep 5
 done
 if [ "$HEALTH_OK" -ne 1 ]; then
@@ -42,7 +74,7 @@ if [ "$HEALTH_OK" -ne 1 ]; then
   exit 1
 fi
 
-echo "[restore] 5/5 行数校验（对照备份前的业务量级）："
+echo "[restore] 6/6 行数校验（对照备份前的业务量级）："
 docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT '\''users='\''||count(*) FROM users UNION ALL SELECT '\''projects='\''||count(*) FROM projects UNION ALL SELECT '\''share_links='\''||count(*) FROM share_links UNION ALL SELECT '\''alarm_records='\''||count(*) FROM alarm_records"'
 
 echo "[restore] 完成。请登录页面抽查：工程可打开、分享页正常、报警页有数据。"

@@ -13,6 +13,8 @@
 | 分享快照 | `share_links.doc_snapshot` | 整库 dump ✅ |
 | 报警记录 | `alarm_records` | 整库 dump ✅ |
 | 操作审计 | 审计表（服务端闭环阶段 1 交付） | 上线后自动包含在整库 dump 中 |
+| 图片/附件 | `uploads_data` 命名卷 | `webscada-uploads-*.tar.gz` ✅ |
+| EMQX 内置账号/会话 | `emqx_data` 命名卷 | `webscada-emqx-*.tar.gz` ✅ |
 | 浏览器本地历史桶（localStorage） | 各操作者浏览器 | ❌ 不在服务端备份范围（运行态引擎迁移服务端后此问题消亡） |
 | `.env` / TLS 证书 | 宿主机文件 | 手工纳入你的机密备份流程（勿入库） |
 
@@ -24,9 +26,13 @@
 cd /opt/webScada          # 仓库根目录
 ./scripts/backup.sh
 # 产物：
-#   backups/webscada-db-YYYYMMDD-HHMMSS.dump   （pg_dump custom 格式，整库）
-#   backups/webscada-docs-YYYYMMDD-HHMMSS.json （工程 JSONL，一行一个 ProjectDoc）
+#   backups/webscada-db-YYYYMMDD-HHMMSS.dump      （pg_dump custom 格式，整库）
+#   backups/webscada-docs-YYYYMMDD-HHMMSS.json    （工程 JSONL，一行一个 ProjectDoc）
+#   backups/webscada-uploads-YYYYMMDD-HHMMSS.tar.gz（图片资产，失败仅告警）
+#   backups/webscada-emqx-YYYYMMDD-HHMMSS.tar.gz   （EMQX 账号/会话，失败仅告警）
 ```
+
+`restore.sh` 会按 dump 文件名推导同一时间戳的 uploads/emqx 归档并一并还原（旧备份没有这两项时跳过）。
 
 保留策略：默认 14 天，环境变量 `BACKUP_KEEP_DAYS` 覆盖。
 

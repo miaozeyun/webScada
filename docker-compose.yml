@@ -6,6 +6,13 @@
 #   postgres/emqx 保留官方镜像所需的 gosu/能力集，仅加 no-new-privileges
 name: webscada
 
+# 日志轮转基线：容器默认 json-file 无上限，长期运行会把宿主机磁盘写满
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   postgres:
     image: ${REG_PREFIX:-docker.io/}library/postgres:16-alpine
@@ -23,6 +30,7 @@ services:
       retries: 12
     security_opt:
       - no-new-privileges:true   # 官方镜像 root 起 + gosu 降权（降权方向不受该旗标影响）
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - webscada-net
@@ -59,6 +67,7 @@ services:
       retries: 12
     security_opt:
       - no-new-privileges:true
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - webscada-net
@@ -237,6 +246,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - webscada-net
@@ -272,6 +282,7 @@ services:
     # 官方 entrypoint 需保留 setuid/setgid 等能力将 worker 降权为 nginx 用户，故仅加 no-new-privileges
     security_opt:
       - no-new-privileges:true
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - webscada-net

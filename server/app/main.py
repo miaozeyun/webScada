@@ -62,7 +62,7 @@ def create_app() -> FastAPI:
     logger.remove()
     logger.add(sys.stderr, level="DEBUG" if settings.DEBUG else "INFO")
 
-    app = FastAPI(title="webScada API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="webScada API", version=settings.APP_VERSION, lifespan=lifespan)
     register_handlers(app)
 
     # CORS 收紧（M8）：同源部署（nginx 统一入口）默认零 CORS；跨域部署显式白名单

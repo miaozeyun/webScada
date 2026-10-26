@@ -209,6 +209,15 @@ async def clear(db: AsyncSession, project_id, rule_id: str, at: datetime) -> int
         return None
     _bump_active(-1)
 
+    # 恢复通知（阶段三）：值班员必须知道「好了」，否则只会看到报警、永远不知道何时恢复
+    rec = (
+        await db.execute(select(AlarmRecord).where(AlarmRecord.id == rec_id))
+    ).scalar_one_or_none()
+    if rec is not None:
+        from app.services import notify  # 惰性：同包跨模块
+
+        _spawn(notify.send_recovery(rec))
+
     async def _do_broadcast():
         try:
             from app.services import ws_manager  # 惰性：跨包（A）

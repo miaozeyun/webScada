@@ -30,6 +30,11 @@ const rows = ref<AlarmOut[]>([])
 const total = ref(0)
 const loading = ref(false)
 
+/** 系统级报警（通讯中断）变量 key 为 __comm__:<dsId>，列表里显示可读标签 */
+function keyText(key: string): string {
+  return key.startsWith('__comm__:') ? '通讯中断' : key
+}
+
 // ---- 过滤条件 ----
 
 /** 状态多选；缺省勾选=未恢复集合（与服务端缺省口径一致，契约 §4.1）；清空=回落缺省（不传 status） */
@@ -209,7 +214,9 @@ function fmtTime(iso?: string | null): string {
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="variableKey" label="变量" min-width="110" show-overflow-tooltip />
+      <el-table-column label="变量" min-width="110" show-overflow-tooltip>
+        <template #default="{ row }">{{ keyText(row.variableKey) }}</template>
+      </el-table-column>
       <el-table-column label="报警内容" min-width="200" show-overflow-tooltip>
         <template #default="{ row }">
           <span>{{ row.message }}</span>

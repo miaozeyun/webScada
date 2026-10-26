@@ -62,6 +62,30 @@ async def test_delete_project_cascade(client, auth_headers):
     assert (await client.get(f"/api/v1/projects/{created['id']}", headers=auth_headers)).status_code == 404
 
 
+async def test_clone_project_copies_doc_with_new_identity(client, auth_headers):
+    """模板克隆：新 id/名称，画面/变量/报警原样复制，源工程不受影响。"""
+    created = await _create(client, auth_headers)
+    doc = make_doc()
+    assert (await put_doc(client, auth_headers, created["id"], doc, base_revision=1)).status_code == 200
+
+    resp = await client.post(
+        f"/api/v1/projects/{created['id']}/clone", headers=auth_headers, json={"name": "二号机组"}
+    )
+    assert resp.status_code == 201
+    clone = resp.json()
+    assert clone["id"] != created["id"] and clone["revision"] == 1
+
+    clone_doc = (await client.get(f"/api/v1/projects/{clone['id']}", headers=auth_headers)).json()["doc"]
+    assert clone_doc["project"]["id"] == clone["id"]
+    assert clone_doc["project"]["name"] == "二号机组"
+    assert [v["key"] for v in clone_doc["variables"]] == [v["key"] for v in doc["variables"]]
+    assert len(clone_doc["pages"]) == len(doc["pages"])
+
+    source_doc = (await client.get(f"/api/v1/projects/{created['id']}", headers=auth_headers)).json()["doc"]
+    assert source_doc["project"]["id"] == created["id"]
+    assert source_doc["project"]["name"] == "演示工程"
+
+
 async def test_doc_too_large_422(client, auth_headers):
     created = await _create(client, auth_headers)
     doc = make_doc()

@@ -1,7 +1,8 @@
 /**
  * 点位 CSV 批量导入解析（工厂可用阶段一 Task 6）——纯函数，无 DOM / 无第三方库。
  *
- * 表头固定英文列名（首行，列序不限、可为子集，必填 key/label/type/address）：
+ * 表头固定英文列名（首行，列序不限、可为子集，必填 key/label/type；address 允许为空，
+ * 以支持 mock 变量的导出→导入往返）：
  *   key,label,type,address,unit,jsonPath,scale,offset,precision,bitIndex,writable,
  *   writeAddress,modbusDataType,modbusByteOrder,unitId,min,max
  *
@@ -53,7 +54,7 @@ export const POINT_CSV_COLUMNS: readonly string[] = [
   'modbusByteOrder', 'unitId', 'min', 'max',
 ] as const
 
-export const POINT_CSV_REQUIRED: readonly string[] = ['key', 'label', 'type', 'address'] as const
+export const POINT_CSV_REQUIRED: readonly string[] = ['key', 'label', 'type'] as const
 
 const VAR_KEY_RE = /^[A-Za-z0-9_.\-]+$/
 const VAR_TYPES = new Set(['number', 'boolean', 'string'])
@@ -62,6 +63,31 @@ const MODBUS_BYTE_ORDERS = new Set(['ABCD', 'CDAB', 'BADC', 'DCBA'])
 /** 列名 → 最大长度（对齐 doc.py Field 约束，超限必然 422，导入前拦截） */
 const LENGTH_LIMITS: Readonly<Record<string, number>> = {
   key: 128, label: 128, unit: 32, address: 512, jsonPath: 256, writeAddress: 512,
+}
+
+/**
+ * 变量表 → 点位 CSV（与 parsePointCsv 同格式，可往返）。
+ *
+ * 虚拟变量（expr）不导出：CSV 是「点表」口径，表达式没有列位；
+ * 导出后再导入不会静默改坏虚拟变量（导入侧对 key 冲突的虚拟变量直接跳过并提示）。
+ */
+export function buildPointCsv(variables: VariableDef[]): string {
+  const esc = (v: unknown): string => {
+    const s = v === null || v === undefined ? '' : String(v)
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const lines = [POINT_CSV_COLUMNS.join(',')]
+  for (const v of variables) {
+    if (v.expr) continue
+    lines.push([
+      v.key, v.label, v.type, v.address ?? '', v.unit ?? '', v.jsonPath ?? '',
+      v.scale ?? '', v.offset ?? '', v.precision ?? '', v.bitIndex ?? '',
+      v.writable ? 'true' : 'false', v.writeAddress ?? '',
+      v.modbusDataType ?? '', v.modbusByteOrder ?? '', v.unitId ?? '',
+      v.range?.min ?? '', v.range?.max ?? '',
+    ].map(esc).join(','))
+  }
+  return `${lines.join('\n')}\n`
 }
 
 // ============ CSV 状态机（RFC 4180 子集） ============
@@ -222,7 +248,7 @@ export function parsePointCsv(text: string): PointCsvResult {
       const type = cell('type')
       if (key === '') rowErrs.push('key 不能为空')
       else if (!VAR_KEY_RE.test(key)) rowErrs.push(`key 含非法字符（仅允许字母/数字与 . _ -）：${key}`)
-      for (const name of ['label', 'type', 'address'] as const) {
+      for (const name of ['label', 'type'] as const) {
         if (cell(name) === '') rowErrs.push(`${name} 不能为空`)
       }
       if (type !== '' && !VAR_TYPES.has(type)) {

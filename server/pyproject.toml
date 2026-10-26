@@ -49,3 +49,6 @@ include = ["app*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# 测试文件用 `from tests.conftest import ...` 引用同包辅助；不把 server/ 放进 sys.path
+# 会在部分 cwd/入口下 collection 失败（followups #1）
+pythonpath = ["."]

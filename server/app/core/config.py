@@ -15,6 +15,8 @@ class Settings(BaseSettings):
 
     # ---- 应用 ----
     APP_NAME: str = "webScada"
+    # 交付版本单一事实源：/health、启动日志、诊断包共用，避免各处硬编码漂移
+    APP_VERSION: str = "0.2.0"
     DEBUG: bool = False
     # 生产：postgresql+asyncpg://...（compose 注入）；测试：sqlite+aiosqlite:///:memory:
     DATABASE_URL: str = "postgresql+asyncpg://webscada:webscada123@postgres:5432/webscada"
@@ -67,6 +69,15 @@ class Settings(BaseSettings):
     SCHEMA_COMPAT_WINDOW: int = 1         # 兼容窗口深度（当前=1，即 N-1）
 
     # ---- M8 服务端闭环：采集 ----
+    # 载荷时间戳允许偏差：超出即判上游时钟错误/retained 旧消息，回落服务端当前时间（03 §2.7）
+    FRAME_TS_MAX_SKEW_MS: int = 300_000
+    # 通讯中断判定（comm_monitor）：最短静默窗 + 长连接类型阈值（轮询型按 3× 采集周期）
+    COMM_TIMEOUT_MIN_MS: int = 15_000
+    COMM_TIMEOUT_CONN_MS: int = 90_000
+    COMM_TIMEOUT_OPCUA_MS: int = 30_000
+    # 通知补发队列保留：已发送 7 天、死信 30 天（每日维护清理，防表无界增长）
+    OUTBOX_SENT_KEEP_DAYS: int = 7
+    OUTBOX_DEAD_KEEP_DAYS: int = 30
     COLLECTOR_RECONNECT_MIN_MS: int = 1000
     COLLECTOR_RECONNECT_MAX_MS: int = 30000
     COLLECTOR_CONNECT_TIMEOUT_MS: int = 5000

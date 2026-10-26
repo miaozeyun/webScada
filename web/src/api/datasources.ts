@@ -20,3 +20,27 @@ export async function testDatasource(body: {
 }): Promise<DatasourceTestResult> {
   return http.post('/datasources/test', body)
 }
+
+export interface OpcUaNode {
+  nodeId: string
+  browseName: string
+}
+
+export interface OpcUaBrowseResult {
+  ok: boolean
+  message: string
+  nodes: OpcUaNode[]
+  latencyMs: number
+}
+
+/** OPC UA 地址空间浏览（一层子节点，缺省 Objects 根）；编辑已存源时由服务端注回凭证 */
+export function browseOpcUa(body: {
+  endpoint: string
+  username?: string | null
+  password?: string | null
+  nodeId?: string | null
+  projectId?: string
+  datasourceId?: string
+}): Promise<OpcUaBrowseResult> {
+  return http.post('/datasources/opcua/browse', body)
+}

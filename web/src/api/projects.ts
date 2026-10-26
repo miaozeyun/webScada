@@ -33,6 +33,10 @@ export const listProjects = (params: { keyword?: string; page: number; size: num
 export const createProject = (data: { name: string; description?: string }) =>
   http.post<ProjectDetail>('/projects', data)
 
+/** 模板克隆：新工程 id/名称，画面/绑定/报警/数据源原样复制（OEM 一模板 N 台设备） */
+export const cloneProject = (id: string, name: string) =>
+  http.post<ProjectDetail>(`/projects/${id}/clone`, { name })
+
 export const getProject = (id: string) => http.get<ProjectDetail>(`/projects/${id}`)
 
 export const deleteProject = (id: string) => http.delete<void>(`/projects/${id}`)

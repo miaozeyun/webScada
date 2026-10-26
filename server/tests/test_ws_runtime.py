@@ -326,13 +326,66 @@ def test_virtual_variable_topological_evaluation(mini):
         hub_mod.hub.set_doc(PID, seed_doc(str(PID)))
 
 
+def test_virtual_variable_turns_bad_when_dependency_stale(mini):
+    """依赖停更时虚拟变量必须转 bad，不能继续用旧值算出「正常值」。"""
+    doc = seed_doc(str(PID))
+    # sine 会周期性来帧，超时后应判 stale；chain 依赖它，坏值必须继续向下游传导
+    doc["variables"].append({"id": "var_sine", "key": "sine_val", "label": "正弦量", "type": "number",
+                             "datasourceId": "ds_mock",
+                             "mock": {"kind": "sine", "min": 0, "max": 100, "periodMs": 30000}})
+    doc["variables"].append({"id": "var_chain", "key": "chain_val", "label": "链式量", "type": "number",
+                             "datasourceId": "virtual", "expr": "sine_val + 1"})
+    hub_mod.hub.set_doc(PID, doc)
+    try:
+        now = int(time.time() * 1000)
+        hub_mod.hub.ingest(PID, hub_mod.hub.variable(PID, "sine_val"), 10, now)
+        pool = hub_mod.hub.pool(PID)
+        assert pool["chain_val"]["v"] == 11 and pool["chain_val"]["q"] == "good"
+        hub_mod.hub.sweep_stale(PID, now_ms=now + 120_000)
+        pool = hub_mod.hub.pool(PID)
+        assert pool["sine_val"]["q"] == "stale"
+        assert pool["chain_val"]["q"] == "bad"
+        # hold 型 mock 是常量语义：不参与 stale 计时，依赖它的虚拟变量也不该被拖坏
+        assert pool["hold_val"]["q"] == "good"
+        assert pool["virtual_val"]["q"] == "good"
+    finally:
+        hub_mod.hub.set_doc(PID, seed_doc(str(PID)))
+
+
+def test_hub_touch_keeps_subscription_value_fresh(mini):
+    """订阅型源无数据变化时，连接健康探测应推进新鲜度（OPC UA 用）。"""
+    doc = seed_doc(str(PID))
+    doc["variables"].append({"id": "var_sine", "key": "sine_val", "label": "正弦量", "type": "number",
+                             "datasourceId": "ds_mock",
+                             "mock": {"kind": "sine", "min": 0, "max": 100, "periodMs": 30000}})
+    hub_mod.hub.set_doc(PID, doc)
+    try:
+        now = int(time.time() * 1000)
+        var = hub_mod.hub.variable(PID, "sine_val")
+        hub_mod.hub.ingest(PID, var, 10, now)
+        hub_mod.hub.touch(PID, var, now + 60_000)
+        hub_mod.hub.sweep_stale(PID, now_ms=now + 100_000)  # 距 touch 40s < 90s 阈值
+        assert hub_mod.hub.pool(PID)["sine_val"]["q"] == "good"
+    finally:
+        hub_mod.hub.set_doc(PID, seed_doc(str(PID)))
+
+
 def test_hub_stale_flip(mini):
-    now = int(time.time() * 1000)
-    hub_mod.hub.ingest(PID, hub_mod.hub.variable(PID, "hold_val"), 1, now)
-    flipped = hub_mod.hub.sweep_stale(PID, now_ms=now + 60_000)
-    assert flipped >= 1
-    entry = hub_mod.hub.pool(PID)["hold_val"]
-    assert entry["q"] == "stale" and entry["v"] == 1  # 值保留、质量翻转
+    doc = seed_doc(str(PID))
+    doc["variables"].append({"id": "var_sine", "key": "sine_val", "label": "正弦量", "type": "number",
+                             "datasourceId": "ds_mock",
+                             "mock": {"kind": "sine", "min": 0, "max": 100, "periodMs": 30000}})
+    hub_mod.hub.set_doc(PID, doc)
+    try:
+        now = int(time.time() * 1000)
+        hub_mod.hub.ingest(PID, hub_mod.hub.variable(PID, "sine_val"), 1, now)
+        flipped = hub_mod.hub.sweep_stale(PID, now_ms=now + 120_000)
+        assert flipped >= 1
+        entry = hub_mod.hub.pool(PID)["sine_val"]
+        assert entry["q"] == "stale" and entry["v"] == 1  # 值保留、质量翻转
+        assert hub_mod.hub.pool(PID)["hold_val"]["q"] == "good"  # hold 常量不参与 stale
+    finally:
+        hub_mod.hub.set_doc(PID, seed_doc(str(PID)))
 
 
 # ---------------- write → writeAck 全 code ----------------

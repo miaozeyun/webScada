@@ -62,7 +62,8 @@ class Historian:
     """定窗采样缓冲器（进程内单例，get_historian 取用）。"""
 
     def __init__(self) -> None:
-        self._pending: dict[tuple[str, str], dict] = {}  # (pid,key) -> 行（last-write-wins）
+        # (pid,key) -> 行：同窗口按【样本时间最大】保留，而非按到达顺序（乱序/重发不倒退）
+        self._pending: dict[tuple[str, str], dict] = {}
         self._task: asyncio.Task | None = None
         self._stopping = False
         self._bg_tasks: set[asyncio.Task] = set()
@@ -84,7 +85,12 @@ class Historian:
             ts_dt = _to_dt(ts)
         except (TypeError, ValueError, OSError, OverflowError):
             return
-        self._pending[(str(pid), str(key))] = {
+        pending_key = (str(pid), str(key))
+        prev = self._pending.get(pending_key)
+        if prev is not None and ts_dt < prev["ts"]:
+            # 乱序旧帧：保留窗口内较新的样本，避免历史时间轴倒退
+            return
+        self._pending[pending_key] = {
             "project_id": pid,
             "variable_key": str(key),
             "ts": ts_dt,

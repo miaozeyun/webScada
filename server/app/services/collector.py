@@ -53,25 +53,48 @@ def _payload_str(value: Any) -> str:
     return str(value)
 
 
-def _frame_ts(data: Any, ts_path: str | None) -> int:
-    """载荷时间戳提取（G26）：数值（>1e11 视为毫秒，否则秒）/ISO 字符串；失败回落当前时间。"""
+_TS_SKEW_WARNED: set[str] = set()
+
+
+def _frame_ts(data: Any, ts_path: str | None, *, scope: str = "") -> int:
+    """载荷时间戳提取（G26）：数值（>1e11 视为毫秒，否则秒）/ISO 字符串；
+    无 tsPath、解析失败、或与本地时钟偏差 >±FRAME_TS_MAX_SKEW_MS（默认 300s）时回落当前时间。
+    偏差回落覆盖两类真实故障：上游 PLC/网关时钟未对时，以及 MQTT retained 旧消息把
+    「上次的值」伪装成「现在的新值」；否则历史与报警统计会被系统性污染。
+    """
+    now = _now_ms()
     if data is not None and ts_path:
         v = convert.get_by_path(data, ts_path)
         if v is not MISSING and v is not None and not isinstance(v, bool):
+            parsed: int | None = None
             try:
                 if isinstance(v, (int, float)):
-                    return int(v if v > 1e11 else v * 1000)
-                s = str(v).strip()
-                if s.replace(".", "", 1).isdigit():
-                    num = float(s)
-                    return int(num if num > 1e11 else num * 1000)
-                dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                return int(dt.timestamp() * 1000)
+                    parsed = int(v if v > 1e11 else v * 1000)
+                else:
+                    s = str(v).strip()
+                    if s.replace(".", "", 1).isdigit():
+                        num = float(s)
+                        parsed = int(num if num > 1e11 else num * 1000)
+                    else:
+                        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        parsed = int(dt.timestamp() * 1000)
             except (ValueError, OverflowError, OSError):
-                pass
-    return _now_ms()
+                parsed = None
+            if parsed is not None:
+                if abs(parsed - now) > settings.FRAME_TS_MAX_SKEW_MS:
+                    warn_key = f"{scope}|{ts_path}"
+                    if warn_key not in _TS_SKEW_WARNED:
+                        _TS_SKEW_WARNED.add(warn_key)
+                        logger.warning(
+                            f"载荷时间戳偏差过大（scope={scope or '-'} ts={parsed} now={now} "
+                            f"阈值±{settings.FRAME_TS_MAX_SKEW_MS}ms），已回落当前时间 tsPath={ts_path}"
+                            "（每源同类告警仅记一次）"
+                        )
+                    return now
+                return parsed
+    return now
 
 
 def _decrypt_credential(value: str | None) -> str | None:
@@ -106,6 +129,12 @@ class BaseSource:
         self.ds = ds
         self.variables = variables
         self._task: asyncio.Task | None = None
+        # 通讯健康状况（comm_monitor 消费）：state=starting|ok|error；last_ok_ms 为最近一次
+        # 成功连接/收发时刻（无消息的长连接由心跳/健康探测推进）
+        self.state: str = "starting"
+        self.last_ok_ms: int | None = None
+        self.started_ms: int = _now_ms()
+        self.last_error: str | None = None
 
     # -- 生命周期 --
 
@@ -128,9 +157,31 @@ class BaseSource:
         try:
             await self.run()
         except asyncio.CancelledError:
+            self.state = "stopped"
             raise
-        except Exception:  # noqa: BLE001 - 源意外退出不拖垮进程（sync 重建可恢复）
+        except Exception as exc:  # noqa: BLE001 - 源意外退出不拖垮进程（sync 重建可恢复）
+            self._mark_error(exc)
             logger.exception(f"采集源异常退出 project={self.project_id} ds={self.ds.id} type={self.ds.type}")
+
+    def _mark_ok(self) -> None:
+        self.state = "ok"
+        self.last_ok_ms = _now_ms()
+        self.last_error = None
+
+    def _mark_error(self, exc: BaseException | str) -> None:
+        self.state = "error"
+        self.last_error = str(exc)[:300]
+
+    def _alive_ticker(self, interval_sec: float = 30.0) -> asyncio.Task:
+        """长连接存活标记：无消息的空闲连接也推进 last_ok_ms（连接真死由库的
+        keepalive/ping 探测并退出上下文，本任务随 finally 取消）。"""
+
+        async def _beat() -> None:
+            while True:
+                await asyncio.sleep(interval_sec)
+                self._mark_ok()
+
+        return asyncio.create_task(_beat())
 
     # -- 子类接口 --
 
@@ -172,6 +223,7 @@ class MockSource(BaseSource):
                 continue
             interval = spec.intervalMs if spec.kind == "random" else max(100, spec.periodMs / 24)
             next_due[var.key] = loop.time() + interval / 1000
+        self._mark_ok()
         while True:
             now_loop = loop.time()
             for var in self.variables:
@@ -183,6 +235,7 @@ class MockSource(BaseSource):
                     self._ingest(var, self._mock_raw(spec, _now_ms() - t0))
                     interval = spec.intervalMs if spec.kind == "random" else max(100, spec.periodMs / 24)
                     next_due[var.key] = now_loop + interval / 1000
+            self._mark_ok()
             sleeps = [max(0.01, d - now_loop) for d in next_due.values()]
             await asyncio.sleep(max(min(sleeps) if sleeps else 0.5, 0.01))
 
@@ -235,17 +288,25 @@ class RestSource(BaseSource):
                             data = resp.json()
                         except ValueError:
                             data = None
-                        ts = _frame_ts(data, cfg.tsPath)
+                        # 200 + 非 JSON（反代登录页/错误页）不算通讯正常：先判内容再标 ok
+                        if data is None:
+                            self._mark_error("响应不是合法 JSON")
+                        else:
+                            self._mark_ok()
+                        ts = _frame_ts(data, cfg.tsPath, scope=f"{self.project_id}:{self.ds.id}")
                         for var in self.variables:
                             if data is None:
                                 self._ingest(var, None, ts)  # 解析失败=bad
                                 continue
                             raw = convert.pick_value(data, var)
                             self._ingest(var, None if raw is MISSING else raw, ts)
+                    else:
+                        self._mark_error(f"HTTP {resp.status_code}")
                     delay = interval
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001
+                    self._mark_error(exc)
                     logger.debug(f"rest 轮询失败 project={self.project_id} ds={self.ds.id}：{type(exc).__name__} {exc}")
                     delay = backoff
                 elapsed = (_now_ms() - started) / 1000
@@ -297,18 +358,22 @@ class UpstreamWsSource(BaseSource):
             kwargs[key] = headers
         while True:
             heartbeat_task: asyncio.Task | None = None
+            alive_task: asyncio.Task | None = None
             try:
                 async with websockets.connect(cfg.url, open_timeout=settings.COLLECTOR_CONNECT_TIMEOUT_MS / 1000, **kwargs) as upstream:
                     self._upstream = upstream
+                    self._mark_ok()
+                    alive_task = self._alive_ticker()
                     delay = lo
                     if cfg.subscribeFrame:
                         await upstream.send(cfg.subscribeFrame)
                     if cfg.heartbeatSec:
                         heartbeat_task = asyncio.create_task(self._heartbeat(upstream, cfg.heartbeatSec))
                     async for message in upstream:
+                        self._mark_ok()
                         ts = _now_ms()
                         data = self._parse(message)
-                        frame_ts = _frame_ts(data, cfg.tsPath)
+                        frame_ts = _frame_ts(data, cfg.tsPath, scope=f"{self.project_id}:{self.ds.id}")
                         for var in self.variables:
                             if data is None:
                                 self._ingest(var, None, ts)  # 解析失败=bad
@@ -318,15 +383,17 @@ class UpstreamWsSource(BaseSource):
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
+                self._mark_error(exc)
                 logger.debug(f"上游 WS 断开 project={self.project_id} ds={self.ds.id}：{type(exc).__name__} {exc}")
             finally:
                 self._upstream = None
-                if heartbeat_task is not None:
-                    heartbeat_task.cancel()
-                    try:
-                        await heartbeat_task
-                    except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                        pass
+                for task in (heartbeat_task, alive_task):
+                    if task is not None:
+                        task.cancel()
+                        try:
+                            await task
+                        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                            pass
             await asyncio.sleep(delay)
             delay = min(delay * 2, hi)
 
@@ -412,6 +479,7 @@ class MqttSource(BaseSource):
         password = _decrypt_credential(cfg.password)
         client_id = f"webscada-{str(self.project_id)[:8]}-{_nanoid8()}"
         while True:
+            alive_task: asyncio.Task | None = None
             try:
                 kwargs: dict[str, Any] = {
                     "identifier": client_id,
@@ -425,20 +493,30 @@ class MqttSource(BaseSource):
                     kwargs["tls_params"] = aiomqtt.TLSParameters()
                 async with aiomqtt.Client(host, port, **kwargs) as client:
                     self._client = client
+                    self._mark_ok()
+                    alive_task = self._alive_ticker()
                     delay = lo
                     qos = cfg.qos if cfg.qos is not None else 0
                     for topic in cfg.topics:
                         await client.subscribe(topic, qos=qos)
                     logger.info(f"mqtt 已连接 project={self.project_id} ds={self.ds.id} broker={host}:{port}")
                     async for message in client.messages:
+                        self._mark_ok()
                         topic = str(message.topic)
                         self._dispatch(topic, message.payload, cfg.tsPath)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
+                self._mark_error(exc)
                 logger.debug(f"mqtt 断开 project={self.project_id} ds={self.ds.id}：{type(exc).__name__} {exc}")
             finally:
                 self._client = None
+                if alive_task is not None:
+                    alive_task.cancel()
+                    try:
+                        await alive_task
+                    except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                        pass
             await asyncio.sleep(delay)
             delay = min(delay * 2, hi)
 
@@ -447,7 +525,7 @@ class MqttSource(BaseSource):
             data = json.loads(payload if isinstance(payload, str) else bytes(payload).decode("utf-8"))
         except (ValueError, UnicodeDecodeError):
             data = None
-        ts = _frame_ts(data, ts_path)
+        ts = _frame_ts(data, ts_path, scope=f"{self.project_id}:{self.ds.id}")
         for var in self.variables:
             # 变量 address 即订阅 topic（支持 +/# 通配，订阅送达的具体 topic 由此匹配）；同 topic 多变量各自经 jsonPath 取值（与前端一致）
             if var.address and not mqtt_topic_matches(var.address, topic):
@@ -501,6 +579,7 @@ class _OpcUaDataChangeHandler:
                 self._by_node.setdefault(var.address.strip(), []).append(var)
 
     def datachange_notification(self, node: Any, val: Any, data: Any) -> None:
+        self._source._mark_ok()
         try:
             # 质量位沿管线：StatusCode != Good(0) → raw=None（hub 判 bad）
             monitored = getattr(data, "monitored_item", None)
@@ -573,13 +652,20 @@ class OpcUaSource(BaseSource):
                     f"opcua 已连接 project={self.project_id} ds={self.ds.id} "
                     f"订阅变量={ok_count}/{len(self.variables)} intervalMs={cfg.publishIntervalMs}"
                 )
+                self._mark_ok()
                 # 断线探测：check_connection 在连接死亡时抛 ConnectionError → 走退避重连
                 while True:
                     await asyncio.sleep(self._HEALTH_POLL_SEC)
                     await client.check_connection()
+                    self._mark_ok()  # 无数据变化的订阅也靠健康探测推进存活时间
+                    # 订阅只在值变化时推帧：连接健康即值仍然有效，推进变量新鲜度防误判 stale
+                    now_ms = _now_ms()
+                    for var in self.variables:
+                        self._hub.touch(self.project_id, var, now_ms)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
+                self._mark_error(exc)
                 logger.debug(f"opcua 断开 project={self.project_id} ds={self.ds.id}：{type(exc).__name__} {exc}")
             finally:
                 self._client = None
@@ -750,11 +836,17 @@ class ModbusSource(BaseSource):
                         await client.connect()
                     for var in bad_vars:
                         self._ingest(var, None)  # 地址非法 = bad（换算流水保持上一有效值语义）
+                    cycle_ok = True
                     for group in groups:
-                        await self._poll_group(client, group)
+                        cycle_ok = await self._poll_group(client, group) and cycle_ok
+                    if cycle_ok:
+                        self._mark_ok()
+                    else:
+                        self._mark_error("Modbus 读取失败")
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001
+                    self._mark_error(exc)
                     logger.debug(
                         f"modbus 轮询失败 project={self.project_id} ds={self.ds.id}：{type(exc).__name__} {exc}"
                     )
@@ -763,8 +855,8 @@ class ModbusSource(BaseSource):
         finally:
             client.close()
 
-    async def _poll_group(self, client: Any, group: ModbusReadGroup) -> None:
-        """单组一次读 + 组内按变量 offset 切片解码入池；读失败整组标 bad。"""
+    async def _poll_group(self, client: Any, group: ModbusReadGroup) -> bool:
+        """单组一次读 + 组内按变量 offset 切片解码入池；读失败整组标 bad 并返回 False。"""
         if group.area == "holding":
             rr = await client.read_holding_registers(group.start, count=group.count, device_id=group.unit_id)
         elif group.area == "input":
@@ -776,7 +868,7 @@ class ModbusSource(BaseSource):
         if rr.isError():
             for var, _offset, _width in group.items:
                 self._ingest(var, None)
-            return
+            return False
         for var, offset, width in group.items:
             i = offset - group.start  # 绝对 offset → 组内切片起点
             if group.area in _MODBUS_BIT_AREAS:
@@ -791,6 +883,7 @@ class ModbusSource(BaseSource):
                 self._ingest(var, None)  # 应答字数不足等解码失败 = 该变量 bad（不拖垮同组其余变量）
                 continue
             self._ingest(var, value)
+        return True
 
     async def write(self, variable: VariableDef, value: Any) -> None:
         from pymodbus.client import AsyncModbusTcpClient
@@ -923,6 +1016,36 @@ class Collector:
 
     async def reset(self) -> None:
         await self.remove_all()
+
+    # ---- 通讯健康（comm_monitor 消费）----
+
+    def status_all(self) -> dict[uuidlib.UUID, list[dict]]:
+        """全部在跑数据源的健康快照（只读，不做 await）。"""
+        return {
+            pid: [self._status_entry(ds_id, entry) for ds_id, entry in entries.items()]
+            for pid, entries in self._projects.items()
+        }
+
+    def status(self, project_id: uuidlib.UUID) -> list[dict]:
+        entries = self._projects.get(project_id) or {}
+        return [self._status_entry(ds_id, entry) for ds_id, entry in entries.items()]
+
+    @staticmethod
+    def _status_entry(ds_id: str, entry: "_Entry") -> dict:
+        source = entry.source
+        cfg = getattr(source.ds, "config", None)
+        return {
+            "dsId": ds_id,
+            "name": getattr(source.ds, "name", ds_id),
+            "type": getattr(source.ds, "type", "?"),
+            "state": getattr(source, "state", "starting"),
+            "lastOkMs": getattr(source, "last_ok_ms", None),
+            "startedMs": getattr(source, "started_ms", None),
+            "lastError": getattr(source, "last_error", None),
+            "variableCount": len(getattr(source, "variables", [])),
+            "intervalMs": getattr(cfg, "intervalMs", None),
+            "heartbeatSec": getattr(cfg, "heartbeatSec", None),
+        }
 
 
 def _parse_doc(doc: dict):

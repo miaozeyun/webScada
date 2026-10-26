@@ -544,7 +544,7 @@ function removeEvent(evId: string, actIdx: number): void {
                 <el-select v-model="bindForm.prop" size="small">
                   <el-option v-for="o in PROP_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
                 </el-select>
-                <el-select v-model="bindForm.variableId" size="small" placeholder="选择变量">
+                <el-select v-model="bindForm.variableId" size="small" placeholder="选择变量" filterable>
                   <el-option v-for="v in variables" :key="v.id" :label="`${v.label}（${v.key}）`" :value="v.id" />
                 </el-select>
                 <el-select v-model="bindForm.mode" size="small" style="width: 110px">

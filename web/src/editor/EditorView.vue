@@ -220,6 +220,7 @@ const saveStatus = computed(() => {
   if (editor.saving) return { text: '保存中…', cls: 'saving' }
   if (editor.saveError === 'conflict') return { text: '版本冲突', cls: 'error' }
   if (editor.saveError === 'network') return { text: '保存失败（断网），本地未丢失', cls: 'error' }
+  if (editor.saveError === 'server') return { text: '保存被服务端拒绝（见提示）', cls: 'error' }
   if (editor.dirty) return { text: '未保存（自动保存中）', cls: 'dirty' }
   return { text: '已保存', cls: 'ok' }
 })

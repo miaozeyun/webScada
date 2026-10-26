@@ -9,10 +9,13 @@ import asyncio
 
 from loguru import logger
 
-from app.services import alarm_service, historian, rules_engine
+from app.services import alarm_service, comm_monitor, historian, notify, rules_engine
 from app.services.historian import get_historian
 
 _daily_task: asyncio.Task | None = None
+_outbox_task: asyncio.Task | None = None
+_comm_task: asyncio.Task | None = None
+_COMM_CHECK_INTERVAL_SEC = 5.0
 
 
 def _locate_hub(app):
@@ -58,11 +61,12 @@ async def run_maintenance(initial: bool = False) -> None:
             swept = await alarm_service.sweep_on_startup(db) if initial else 0
             alarm_deleted = await alarm_service.cleanup_expired(db)
             hist_deleted = await historian.cleanup_history(db)
+            outbox_deleted = await notify.cleanup_outbox(db)
             active = await alarm_service.count_active(db)
             alarm_service.set_active_hint(active)
         logger.info(
-            "后台维护完成：启动收口 {} 条；报警清理 {} 条；历史清理 {} 条；当前活动报警 {}",
-            swept, alarm_deleted, hist_deleted, active,
+            "后台维护完成：启动收口 {} 条；报警清理 {} 条；历史清理 {} 条；通知归档 {} 条；当前活动报警 {}",
+            swept, alarm_deleted, hist_deleted, outbox_deleted, active,
         )
     except Exception as exc:
         logger.warning("后台维护失败（不阻断启动）：{}", exc)
@@ -92,23 +96,51 @@ async def _daily_loop() -> None:
         await run_maintenance(initial=False)
 
 
+async def _outbox_loop() -> None:
+    """通知补发：3s 轮询到期的失败渠道（断网恢复后 ≤5min 补发）。"""
+    while True:
+        await asyncio.sleep(3)
+        try:
+            await notify.process_outbox()
+        except Exception:  # noqa: BLE001
+            logger.exception("通知补发轮询异常")
+
+
+async def _comm_loop() -> None:
+    """通讯中断扫描：5s 一轮；断线出一等报警、恢复出恢复通知。"""
+    from app.db.base import SessionLocal  # 惰性：测试可整体替换
+
+    while True:
+        await asyncio.sleep(_COMM_CHECK_INTERVAL_SEC)
+        try:
+            async with SessionLocal() as db:
+                await comm_monitor.comm_monitor.check_once(db)
+        except Exception:  # noqa: BLE001
+            logger.exception("通讯中断扫描异常")
+
+
 async def startup(app) -> None:
     """lifespan 启动（契约 §6.2）：先收口清理，再挂监听，启动 historian 定窗冲刷，最后起 24h 循环。"""
     await run_maintenance(initial=True)
     await _attach_listeners(app)
     await get_historian().start(app)  # push 缓冲的定时落库循环（不启动则仅 500 条批量阈值兜底）
-    global _daily_task
+    global _daily_task, _outbox_task, _comm_task
     _daily_task = asyncio.create_task(_daily_loop())
+    _outbox_task = asyncio.create_task(_outbox_loop())
+    _comm_task = asyncio.create_task(_comm_loop())
 
 
 async def shutdown(app) -> None:
     """lifespan 关闭（逆序）：停 24h 循环 → historian 最终冲刷。"""
-    global _daily_task
-    if _daily_task is not None:
-        _daily_task.cancel()
-        try:
-            await _daily_task
-        except asyncio.CancelledError:
-            pass
-        _daily_task = None
+    global _daily_task, _outbox_task, _comm_task
+    for task in (_daily_task, _outbox_task, _comm_task):
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+    _daily_task = None
+    _outbox_task = None
+    _comm_task = None
     await get_historian().stop(app)

@@ -204,3 +204,37 @@ class RefreshToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)      # 7 天
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # 非 NULL=已吊销/已轮换
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class NotificationOutbox(Base):
+    """通知补发队列（阶段三：断网/渠道故障期间的通知不丢）。
+
+    - 触发/恢复外发先走即时发送；失败渠道落一行 pending，由后台 worker 指数退避重试
+    - channel/payload 为发送时快照：工程后续改渠道/删规则不影响在途补发
+    - status: pending → sending → sent | dead（重试超上限）；sent/dead 保留供排查
+    """
+
+    __tablename__ = "notification_outbox"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','sending','sent','dead')", name="ck_outbox_status"),
+        Index("idx_outbox_due", "status", "next_at"),
+        Index("idx_outbox_project", "project_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer().with_variant(BigInteger(), "postgresql"), primary_key=True, autoincrement=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    alarm_id: Mapped[int | None] = mapped_column(
+        Integer().with_variant(BigInteger(), "postgresql"), nullable=True
+    )
+    event: Mapped[str] = mapped_column(Text, nullable=False)          # trigger | recovery
+    channel_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    channel_json: Mapped[dict] = mapped_column(JSONVariant, nullable=False)
+    payload_json: Mapped[dict] = mapped_column(JSONVariant, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

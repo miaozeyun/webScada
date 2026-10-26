@@ -6,13 +6,15 @@
  */
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Upload } from '@element-plus/icons-vue'
+import { Download, Plus, Upload } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { newId } from '@/utils/nanoid'
-import { parsePointCsv, POINT_CSV_COLUMNS } from '@/utils/pointCsv'
+import { buildPointCsv, parsePointCsv, POINT_CSV_COLUMNS } from '@/utils/pointCsv'
+import { findVariableUsage, variablesOfDatasource } from '@/utils/usage'
 import type { PointCsvError, PointCsvRow } from '@/utils/pointCsv'
 import { VIRTUAL_DATASOURCE_ID } from '@/types/doc'
-import { testDatasource } from '@/api/datasources'
+import { browseOpcUa, testDatasource } from '@/api/datasources'
+import type { OpcUaNode } from '@/api/datasources'
 import type {
   AlarmLevel,
   AlarmOp,
@@ -36,11 +38,25 @@ const variables = computed<VariableDef[]>(() => editor.doc?.variables ?? [])
 const alarms = computed<AlarmRule[]>(() => editor.doc?.alarmRules ?? [])
 const channels = computed<NotifyChannel[]>(() => editor.doc?.settings?.notify?.channels ?? [])
 
+/** 变量表搜索（key/名称/地址/单位），200+ 点工程的日常入口 */
+const varKeyword = ref('')
+const filteredVariables = computed<VariableDef[]>(() => {
+  const k = varKeyword.value.trim().toLowerCase()
+  if (!k) return variables.value
+  return variables.value.filter((v) =>
+    v.key.toLowerCase().includes(k)
+    || v.label.toLowerCase().includes(k)
+    || (v.address ?? '').toLowerCase().includes(k)
+    || (v.expr ?? '').toLowerCase().includes(k)
+    || (v.unit ?? '').toLowerCase().includes(k),
+  )
+})
+
 function markDirty(): void {
   editor._markDirty()
 }
 
-const TYPE_LABEL: Record<string, string> = { mock: '模拟', websocket: 'WebSocket', rest: 'REST', mqtt: 'MQTT', modbus: 'Modbus TCP' }
+const TYPE_LABEL: Record<string, string> = { mock: '模拟', websocket: 'WebSocket', rest: 'REST', mqtt: 'MQTT', modbus: 'Modbus TCP', opcua: 'OPC UA' }
 
 // ================= 数据源 =================
 
@@ -62,6 +78,13 @@ const dsForm = reactive({
   // Modbus TCP（M8）：host 复用 url 字段
   mbPort: 502,
   mbUnitId: 1,
+  // OPC UA（阶段二 Task 8）：endpointUrl 复用 url 字段；密码留空 = 保留库内密文
+  ocUsername: '',
+  ocPassword: '',
+  ocPublishMs: 1000,
+  // MQTT 账号（EMQX 已禁用匿名）：密码留空 = 保留库内密文
+  mqUsername: '',
+  mqPassword: '',
 })
 
 function openDs(ds?: DataSource): void {
@@ -71,7 +94,10 @@ function openDs(ds?: DataSource): void {
     dsForm.name = ds.name
     dsForm.type = ds.type
     dsForm.enabled = ds.enabled !== false
-    dsForm.url = ds.type === 'mqtt' ? ds.config.brokerUrl : ds.type === 'modbus' ? ds.config.host : ds.type === 'rest' || ds.type === 'websocket' ? ds.config.url : ''
+    dsForm.url = ds.type === 'mqtt' ? ds.config.brokerUrl
+      : ds.type === 'modbus' ? ds.config.host
+        : ds.type === 'opcua' ? ds.config.endpointUrl
+          : ds.type === 'rest' || ds.type === 'websocket' ? ds.config.url : ''
     dsForm.topics = ds.type === 'mqtt' ? (ds.config.topics ?? []).join(', ') : ''
     dsForm.intervalMs = (ds.type === 'rest' || ds.type === 'modbus') ? (ds.config.intervalMs ?? 1000) : 1000
     dsForm.writeUrl = ds.type === 'rest' ? (ds.config.writeUrl ?? '') : ''
@@ -83,8 +109,14 @@ function openDs(ds?: DataSource): void {
       dsForm.mbPort = ds.config.port ?? 502
       dsForm.mbUnitId = ds.config.unitId ?? 1
     }
+    dsForm.ocUsername = ds.type === 'opcua' ? (ds.config.username ?? '') : ''
+    // 密码出口恒脱敏：留空提交 = 服务端保留库内密文（K11）
+    dsForm.ocPassword = ''
+    dsForm.ocPublishMs = ds.type === 'opcua' ? (ds.config.publishIntervalMs ?? 1000) : 1000
+    dsForm.mqUsername = ds.type === 'mqtt' ? (ds.config.username ?? '') : ''
+    dsForm.mqPassword = ''
   } else {
-    Object.assign(dsForm, { id: '', name: '', type: 'mock', enabled: true, url: '', topics: '', intervalMs: 1000, writeUrl: '', writeMethod: 'POST' as const, writeBodyTemplate: '', writeFrameTemplate: '', writeQos: 0 as const, mbPort: 502, mbUnitId: 1 })
+    Object.assign(dsForm, { id: '', name: '', type: 'mock', enabled: true, url: '', topics: '', intervalMs: 1000, writeUrl: '', writeMethod: 'POST' as const, writeBodyTemplate: '', writeFrameTemplate: '', writeQos: 0 as const, mbPort: 502, mbUnitId: 1, ocUsername: '', ocPassword: '', ocPublishMs: 1000, mqUsername: '', mqPassword: '' })
   }
 }
 
@@ -106,7 +138,25 @@ function buildConfig(): DataSource['config'] {
         brokerUrl: dsForm.url,
         topics: dsForm.topics.split(/[,\n]/).map((s) => s.trim()).filter(Boolean),
         writeQos: dsForm.writeQos,
-        password: '',
+        // EMQX 禁匿名后必须有账号；密码留空 = 服务端合并库内密文（K11）
+        username: dsForm.mqUsername.trim() || null,
+        password: dsForm.mqPassword,
+      }
+    case 'modbus':
+      return {
+        host: dsForm.url.trim(),
+        port: dsForm.mbPort,
+        unitId: dsForm.mbUnitId,
+        intervalMs: dsForm.intervalMs,
+      }
+    case 'opcua':
+      return {
+        endpointUrl: dsForm.url.trim(),
+        securityMode: 'none',
+        username: dsForm.ocUsername.trim() || null,
+        // 留空 = 服务端合并库内密文（K11）；显式填写才覆盖
+        password: dsForm.ocPassword,
+        publishIntervalMs: dsForm.ocPublishMs,
       }
     default:
       return {}
@@ -119,11 +169,16 @@ function saveDs(): void {
     return
   }
   const doc = editor.doc!
+  const built = buildConfig()
+  const prev = dsForm.id ? doc.datasources.find((d) => d.id === dsForm.id) : undefined
+  // 同类型编辑：保留表单未覆盖的配置项（timeoutMs / staleTimeoutMs / reconnect* 等），
+  // 避免「保存一次丢一批隐藏字段」；换类型则整份替换，防止旧类型字段串入。
+  const config = prev && prev.type === dsForm.type ? ({ ...prev.config, ...built } as DataSource['config']) : built
   if (dsForm.id) {
     const idx = doc.datasources.findIndex((d) => d.id === dsForm.id)
-    doc.datasources[idx] = { id: dsForm.id, name: dsForm.name.trim(), type: dsForm.type, enabled: dsForm.enabled, config: buildConfig() } as DataSource
+    doc.datasources[idx] = { id: dsForm.id, name: dsForm.name.trim(), type: dsForm.type, enabled: dsForm.enabled, config } as DataSource
   } else {
-    doc.datasources.push({ id: newId('ds'), name: dsForm.name.trim(), type: dsForm.type, enabled: dsForm.enabled, config: buildConfig() } as DataSource)
+    doc.datasources.push({ id: newId('ds'), name: dsForm.name.trim(), type: dsForm.type, enabled: dsForm.enabled, config } as DataSource)
   }
   dsVisible.value = false
   markDirty()
@@ -136,7 +191,14 @@ const testing = ref(false)
 async function doTest(): Promise<void> {
   testing.value = true
   try {
-    const r = await testDatasource({ type: dsForm.type, config: buildConfig() as Record<string, unknown> })
+    const r = await testDatasource({
+      type: dsForm.type,
+      config: buildConfig() as Record<string, unknown>,
+      // 编辑已有源时带上 id：服务端按「空串=保留」注回库内凭证，
+      // 否则带鉴权的 MQTT/OPC UA 源在这里会被当成匿名连接而误报失败。
+      projectId: dsForm.id ? editor.doc?.project.id : undefined,
+      datasourceId: dsForm.id || undefined,
+    })
     ElMessage({ type: r.ok ? 'success' : 'error', message: r.ok ? `${r.message}（${r.latencyMs}ms）` : r.message })
   } catch {
     /* 错误信封已由 http 拦截器提示 */
@@ -160,13 +222,20 @@ async function doTestRow(ds: DataSource): Promise<void> {
 }
 
 async function removeDs(ds: DataSource): Promise<void> {
-  const used = variables.value.filter((v) => v.datasourceId === ds.id).length
-  try {
-    await ElMessageBox.confirm(
-      used ? `该数据源下有 ${used} 个变量，删除后变量将失效。确定删除？` : `确定删除数据源「${ds.name}」？`,
-      '删除数据源',
+  const used = variablesOfDatasource(editor.doc!, ds.id)
+  if (used.length) {
+    // 直接删除会让 doc 进入「每次保存 422」的永久脏态，且报错路径被误读为断网；
+    // 必须先把变量迁走或删掉。
+    const names = used.slice(0, 5).map((v) => v.label || v.key).join('、')
+    await ElMessageBox.alert(
+      `该数据源仍被 ${used.length} 个变量引用：${names}${used.length > 5 ? ' 等' : ''}。\n请先删除或改绑这些变量，再删除数据源。`,
+      '无法删除数据源',
       { type: 'warning' },
     )
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确定删除数据源「${ds.name}」？`, '删除数据源', { type: 'warning' })
   } catch {
     return
   }
@@ -203,6 +272,73 @@ const varForm = reactive({
 })
 
 const isVirtual = computed(() => varForm.datasourceId === VIRTUAL_DATASOURCE_ID)
+const selectedDsType = computed(() => datasources.value.find((d) => d.id === varForm.datasourceId)?.type)
+
+// ---- OPC UA 节点浏览（选节点即填地址，不用手抄 ns=2;s=...） ----
+const browseVisible = ref(false)
+const browseLoading = ref(false)
+const browseMessage = ref('')
+const browseNodes = ref<OpcUaNode[]>([])
+const browseStack = ref<{ nodeId?: string; label: string }[]>([{ label: 'Objects' }])
+
+function opcuaDs() {
+  const ds = datasources.value.find((d) => d.id === varForm.datasourceId)
+  return ds?.type === 'opcua' ? ds : undefined
+}
+
+async function loadBrowse(nodeId?: string): Promise<boolean> {
+  const ds = opcuaDs()
+  if (!ds) return false
+  browseLoading.value = true
+  browseMessage.value = ''
+  try {
+    const r = await browseOpcUa({
+      endpoint: ds.config.endpointUrl,
+      username: ds.config.username ?? null,
+      password: null, // 服务端按端点一致注回库内密文
+      nodeId: nodeId ?? null,
+      projectId: editor.doc?.project.id,
+      datasourceId: ds.id,
+    })
+    // 失败时保留上一级列表，避免「面包屑在子节点、表格还是父节点」的错位
+    if (r.ok) browseNodes.value = r.nodes
+    browseMessage.value = r.message
+    return r.ok
+  } catch {
+    browseMessage.value = '浏览失败（详见提示），请检查 Endpoint/凭证'
+    return false
+  } finally {
+    browseLoading.value = false
+  }
+}
+
+async function openOpcUaBrowse(): Promise<void> {
+  if (!opcuaDs()) {
+    ElMessage.warning('请先选择 OPC UA 数据源')
+    return
+  }
+  browseStack.value = [{ label: 'Objects' }]
+  browseNodes.value = []
+  browseVisible.value = true
+  await loadBrowse(undefined)
+}
+
+async function browseInto(node: OpcUaNode): Promise<void> {
+  browseStack.value.push({ nodeId: node.nodeId, label: node.browseName || node.nodeId })
+  if (!(await loadBrowse(node.nodeId))) browseStack.value.pop()
+}
+
+async function browseUp(): Promise<void> {
+  if (browseStack.value.length <= 1) return
+  browseStack.value.pop()
+  const parent = browseStack.value[browseStack.value.length - 1]
+  await loadBrowse(parent.nodeId)
+}
+
+function browsePick(node: OpcUaNode): void {
+  varForm.address = node.nodeId
+  browseVisible.value = false
+}
 
 function openVar(v?: VariableDef): void {
   varVisible.value = true
@@ -260,7 +396,20 @@ function saveVar(): void {
   }
   const doc = editor.doc!
   const def = varForm.defaultValue === '' ? null : varForm.type === 'number' ? Number(varForm.defaultValue) : varForm.type === 'boolean' ? varForm.defaultValue === 'true' : varForm.defaultValue
+  // 编辑已有变量时按「合并写入」而非整对象替换：表单未覆盖的字段
+  // （bitIndex / modbusDataType / modbusByteOrder / unitId / range / description）
+  // 必须原样保留，否则改个名称就会把 32 位/字节序/从站号清空，历史与报警静默错值。
+  const existing = varForm.id ? doc.variables.find((v) => v.id === varForm.id) : undefined
+  const targetDs = datasources.value.find((d) => d.id === varForm.datasourceId)
+  const modbusFields = targetDs?.type === 'modbus'
+    ? {}
+    : { modbusDataType: null, modbusByteOrder: null, unitId: null }
+  // 位提取变量（仅 CSV 可建）与 scale/offset/precision 在服务端强互斥；
+  // 表单不展示 bitIndex，编辑时必须按「有 bitIndex 就清换算三件套」处理，否则保存必 422。
+  // boolean/number 都允许 bitIndex（服务端只禁 string）
+  const effectiveBitIndex = varForm.type !== 'string' && !isVirtual.value ? (existing?.bitIndex ?? null) : null
   const item: VariableDef = {
+    ...(existing ?? {}),
     id: varForm.id || newId('var'),
     key: varForm.key.trim(),
     label: varForm.label.trim(),
@@ -274,10 +423,12 @@ function saveVar(): void {
     expr: isVirtual.value ? varForm.expr.trim() : null,
     writable: !isVirtual.value && varForm.writable,
     writeAddress: varForm.writeAddress.trim() || null,
-    scale: varForm.scale !== 1 ? varForm.scale : null,
-    offset: varForm.offset !== 0 ? varForm.offset : null,
-    precision: varForm.type === 'number' ? varForm.precision : null,
+    scale: effectiveBitIndex == null && varForm.scale !== 1 ? varForm.scale : null,
+    offset: effectiveBitIndex == null && varForm.offset !== 0 ? varForm.offset : null,
+    precision: varForm.type === 'number' && effectiveBitIndex == null ? varForm.precision : null,
+    bitIndex: effectiveBitIndex,
     mock: isVirtual.value ? null : buildMock(),
+    ...modbusFields,
   }
   if (varForm.id) {
     const idx = doc.variables.findIndex((v) => v.id === varForm.id)
@@ -290,10 +441,24 @@ function saveVar(): void {
 }
 
 async function removeVar(v: VariableDef): Promise<void> {
-  const bound = JSON.stringify(editor.doc).includes(`"variableId":"${v.id}"`)
+  const usages = findVariableUsage(editor.doc!, v)
+  const hard = usages.filter((u) => u.kind !== 'expr')
+  if (hard.length) {
+    // 绑定/事件/报警规则是硬引用：删了服务端引用校验必 422，工程进入永久脏态
+    const detail = hard.slice(0, 6).map((u) => `· ${u.where}`).join('\n')
+    await ElMessageBox.alert(
+      `变量「${v.label}」仍被 ${hard.length} 处引用：\n${detail}${hard.length > 6 ? '\n…' : ''}\n请先解除这些引用。`,
+      '无法删除变量',
+      { type: 'warning' },
+    )
+    return
+  }
+  const exprRefs = usages.filter((u) => u.kind === 'expr')
   try {
     await ElMessageBox.confirm(
-      bound ? `变量「${v.label}」已被组件绑定，删除后相关绑定失效。确定删除？` : `确定删除变量「${v.label}」？`,
+      exprRefs.length
+        ? `变量「${v.label}」被 ${exprRefs.length} 个虚拟变量的表达式引用，删除后这些表达式会求值失败（工程仍可保存）。确定删除？`
+        : `确定删除变量「${v.label}」？`,
       '删除变量',
       { type: 'warning' },
     )
@@ -319,6 +484,19 @@ function openCsvPicker(): void {
   csvFileInput.value?.click()
 }
 
+/** 变量表导出为点位 CSV（与导入同格式；带 BOM 便于 Excel 直接打开中文） */
+function exportCsv(): void {
+  const csv = buildPointCsv(variables.value)
+  const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `point_table_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success(`已导出 ${variables.value.filter((v) => !v.expr).length} 个点位`)
+}
+
 function onCsvFileChange(e: Event): void {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
@@ -337,19 +515,40 @@ function onCsvFileChange(e: Event): void {
   reader.readAsText(file)
 }
 
-/** 与工程已有 key 重复的行（key 唯一且不可改 → 跳过并计数，不报错） */
-const csvDupKeys = computed(() => {
-  const existing = new Set(variables.value.map((v) => v.key))
-  return new Set(csvRows.value.filter((r) => existing.has(r.key)).map((r) => r.key))
-})
+/** 已有变量索引：同 key = 更新（upsert，适合业主改版点表后重导），而不是简单跳过 */
+const csvExistingByKey = computed(() => new Map(variables.value.map((v) => [v.key, v])))
+/** 虚拟变量 key 冲突：CSV 没有 expr 列，覆盖会把虚拟变量改成物理变量 → 跳过并提示 */
+const csvVirtualConflicts = computed(() =>
+  csvRows.value.filter((r) => csvExistingByKey.value.get(r.key)?.expr != null).map((r) => r.key),
+)
+const csvUpdateRows = computed(() =>
+  csvRows.value.filter((r) => {
+    const old = csvExistingByKey.value.get(r.key)
+    return old != null && old.expr == null
+  }),
+)
+const csvNewRows = computed(() => csvRows.value.filter((r) => !csvExistingByKey.value.has(r.key)))
+/** 已有变量与所选目标源不同：导入时保持原源，不强制改绑 */
+const csvCrossDsUpdates = computed(() =>
+  csvUpdateRows.value.filter((r) => csvExistingByKey.value.get(r.key)?.datasourceId !== csvDsId.value).length,
+)
 
-/** 行内携带 Modbus 字段而目标数据源非 modbus：服务端跨检会整体 422，导入前置拦截 */
+/** 行内携带 Modbus 字段但该行最终落点不是 modbus：服务端跨检会整体 422，导入前置拦截。
+ *  已有变量保持原数据源，所以按「该行实际落点」判定，而不是按所选目标源统一判定。 */
 const csvModbusConflict = computed(() => {
-  if (datasources.value.find((d) => d.id === csvDsId.value)?.type === 'modbus') return 0
-  return csvRows.value.filter((r) => r.modbusDataType != null || r.modbusByteOrder != null || r.unitId != null).length
+  const targetType = datasources.value.find((d) => d.id === csvDsId.value)?.type
+  return csvRows.value.filter((r) => {
+    if (csvVirtualConflicts.value.includes(r.key)) return false  // 已跳过，不参与冲突判定
+    if (r.modbusDataType == null && r.modbusByteOrder == null && r.unitId == null) return false
+    const old = csvExistingByKey.value.get(r.key)
+    const rowType = old
+      ? datasources.value.find((d) => d.id === old.datasourceId)?.type
+      : targetType
+    return rowType !== 'modbus'
+  }).length
 })
 
-const csvImportable = computed(() => csvRows.value.filter((r) => !csvDupKeys.value.has(r.key)))
+const csvImportable = computed(() => csvRows.value.filter((r) => !csvVirtualConflicts.value.includes(r.key)))
 
 const csvCanImport = computed(
   () => !!csvDsId.value && csvErrors.value.length === 0 && csvImportable.value.length > 0 && csvModbusConflict.value === 0,
@@ -358,36 +557,77 @@ const csvCanImport = computed(
 /** 逐行构造 VariableDef（字段映射与 saveVar 同构）后追加，doc 级数据变更不入 undo 栈 */
 function confirmCsvImport(): void {
   const doc = editor.doc!
-  const isMock = datasources.value.find((d) => d.id === csvDsId.value)?.type === 'mock'
+  const targetType = datasources.value.find((d) => d.id === csvDsId.value)?.type
+  const isMock = targetType === 'mock'
+  const defaultMock: MockSpec = { kind: 'sine', min: 0, max: 100, periodMs: 30000 }
+  let added = 0
+  let updated = 0
+
   for (const r of csvImportable.value) {
-    doc.variables.push({
-      id: newId('var'),
-      key: r.key,
+    const old = csvExistingByKey.value.get(r.key)
+    // 已有变量保持原数据源：CSV 没有数据源列，若按「导入目标」强制改绑，
+    // 一次全表导入会把所有变量搬到同一个源（还会清掉 Modbus 字段），属于灾难性误操作。
+    const rowDsType = old
+      ? datasources.value.find((d) => d.id === old.datasourceId)?.type
+      : targetType
+    const rowIsMock = rowDsType === 'mock'
+    const rowIsModbus = rowDsType === 'modbus'
+    // 位提取与换算三件套跨行合并后仍须互斥（CSV 只做了行内校验）：
+    // 本行显式给了任一换算列 → 视为业主改回模拟量，不再继承旧 bitIndex；string 恒不保留
+    const rowHasTransform = r.scale != null || r.offset != null || r.precision != null
+    const bitIndex = r.type === 'string'
+      ? null
+      : r.bitIndex != null
+        ? r.bitIndex
+        : rowHasTransform
+          ? null
+          : (old?.bitIndex ?? null)
+    const fields = {
       label: r.label,
       type: r.type,
-      unit: r.unit || null,
-      defaultValue: null,
-      datasourceId: csvDsId.value,
+      // CSV 省略的列（undefined）保留旧值：业主只改地址的补丁式点表不会误清量程/换算
+      unit: r.unit ?? old?.unit ?? null,
+      datasourceId: old?.datasourceId ?? csvDsId.value,
       address: r.address,
-      jsonPath: r.jsonPath || null,
-      expr: null,
-      writable: r.writable === true,
-      writeAddress: r.writeAddress || null,
-      // 换算缺省语义与 saveVar 同构：scale=1/offset=0 归一为 null；precision 缺省 2（bitIndex 互斥时为 null）
-      scale: r.scale != null && r.scale !== 1 ? r.scale : null,
-      offset: r.offset != null && r.offset !== 0 ? r.offset : null,
-      precision: r.type === 'number' && r.bitIndex == null ? (r.precision ?? 2) : null,
-      bitIndex: r.bitIndex ?? null,
-      mock: isMock ? { kind: 'sine', min: 0, max: 100, periodMs: 30000 } : null,
-      range: r.range ?? null,
-      modbusDataType: r.modbusDataType ?? null,
-      modbusByteOrder: r.modbusByteOrder ?? null,
-      unitId: r.unitId ?? null,
-    })
+      jsonPath: r.jsonPath ?? old?.jsonPath ?? null,
+      writable: r.writable ?? old?.writable ?? false,
+      writeAddress: r.writeAddress ?? old?.writeAddress ?? null,
+      // 换算缺省语义与 saveVar 同构：scale=1/offset=0 归一为 null；precision 缺省 2
+      scale: bitIndex != null ? null : (r.scale != null ? (r.scale !== 1 ? r.scale : null) : (old?.scale ?? null)),
+      offset: bitIndex != null ? null : (r.offset != null ? (r.offset !== 0 ? r.offset : null) : (old?.offset ?? null)),
+      precision: bitIndex == null && r.type === 'number' ? (r.precision ?? old?.precision ?? 2) : null,
+      bitIndex,
+      range: r.range !== undefined ? r.range : (old?.range ?? null),
+      modbusDataType: rowIsModbus ? (r.modbusDataType ?? old?.modbusDataType ?? null) : null,
+      modbusByteOrder: rowIsModbus ? (r.modbusByteOrder ?? old?.modbusByteOrder ?? null) : null,
+      unitId: rowIsModbus ? (r.unitId ?? old?.unitId ?? null) : null,
+    }
+    if (old) {
+      doc.variables[doc.variables.findIndex((v) => v.id === old.id)] = {
+        ...old,
+        ...fields,
+        // mock 波形属于原数据源的本地配置，CSV 不携带：原源是 mock 就保留
+        mock: rowIsMock ? (old.mock ?? defaultMock) : null,
+      }
+      updated += 1
+    } else {
+      doc.variables.push({
+        id: newId('var'),
+        key: r.key,
+        ...fields,
+        defaultValue: null,
+        expr: null,
+        mock: isMock ? defaultMock : null,
+      })
+      added += 1
+    }
   }
-  const skipped = csvRows.value.length - csvImportable.value.length
+
+  const skipped = csvVirtualConflicts.value.length
   csvVisible.value = false
-  ElMessage.success(skipped ? `已导入 ${csvImportable.value.length} 个变量，跳过已有 key ${skipped} 个` : `已导入 ${csvImportable.value.length} 个变量`)
+  const parts = [`新增 ${added} 个`, `更新 ${updated} 个`]
+  if (skipped) parts.push(`跳过虚拟变量冲突 ${skipped} 个`)
+  ElMessage.success(`点位导入完成：${parts.join('，')}`)
   markDirty()
 }
 
@@ -404,6 +644,7 @@ const almForm = reactive({
   message: '{label} = {value}（阈值 {threshold}）',
   enabled: true,
   hysteresis: 0,
+  durationMs: 0,
   sound: true,
 })
 
@@ -414,12 +655,13 @@ function openAlm(r?: AlarmRule): void {
   if (r) {
     Object.assign(almForm, {
       id: r.id, name: r.name, variableId: r.variableId, op: r.op, threshold: r.threshold,
-      level: r.level, message: r.message, enabled: r.enabled, hysteresis: r.hysteresis ?? 0, sound: r.sound ?? true,
+      level: r.level, message: r.message, enabled: r.enabled, hysteresis: r.hysteresis ?? 0,
+      durationMs: r.durationMs ?? 0, sound: r.sound ?? true,
     })
   } else {
     Object.assign(almForm, {
       id: '', name: '', variableId: variables.value[0]?.id ?? '', op: '>', threshold: 90,
-      level: 'warn', message: '{label} = {value}（阈值 {threshold}）', enabled: true, hysteresis: 0, sound: true,
+      level: 'warn', message: '{label} = {value}（阈值 {threshold}）', enabled: true, hysteresis: 0, durationMs: 0, sound: true,
     })
   }
 }
@@ -440,6 +682,7 @@ function saveAlm(): void {
     message: almForm.message || '{label} = {value}',
     enabled: almForm.enabled,
     hysteresis: almForm.hysteresis || null,
+    durationMs: almForm.durationMs || null,
     sound: almForm.sound,
   }
   if (almForm.id) {
@@ -572,7 +815,7 @@ function channelTarget(ch: NotifyChannel): string {
 </script>
 
 <template>
-  <el-drawer :model-value="true" title="工程数据（数据源 / 变量 / 报警 / 通知）" size="620px" @close="emit('close')">
+  <el-drawer :model-value="true" title="工程数据（数据源 / 变量 / 报警 / 通知）" size="780px" @close="emit('close')">
     <el-tabs v-model="tab">
       <!-- 数据源 -->
       <el-tab-pane label="数据源" name="sources">
@@ -611,11 +854,33 @@ function channelTarget(ch: NotifyChannel): string {
             <el-button size="small" plain :icon="Upload" :disabled="!datasources.length" @click="openCsvPicker">
               导入 CSV
             </el-button>
+            <el-button size="small" plain :icon="Download" :disabled="!variables.length" @click="exportCsv">
+              导出 CSV
+            </el-button>
+            <el-input
+              v-model="varKeyword"
+              size="small"
+              clearable
+              placeholder="搜索 key / 名称 / 地址 / 单位"
+              class="var-search"
+            />
           </div>
-          <el-table :data="variables" size="small" empty-text="暂无变量">
-            <el-table-column prop="key" label="key" min-width="100" />
+          <el-table :data="filteredVariables" size="small" empty-text="暂无变量">
+            <el-table-column prop="key" label="key" min-width="110" />
             <el-table-column prop="label" label="名称" min-width="90" />
             <el-table-column prop="type" label="类型" width="70" />
+            <el-table-column label="地址 / 表达式" min-width="140">
+              <template #default="{ row }">
+                <span v-if="row.expr" class="cell-mono">{{ row.expr }}</span>
+                <span v-else class="cell-mono">{{ row.address || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="单位" width="64">
+              <template #default="{ row }">{{ row.unit || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="量程" width="100">
+              <template #default="{ row }">{{ row.range ? `${row.range.min}~${row.range.max}` : '—' }}</template>
+            </el-table-column>
             <el-table-column label="数据源" width="110">
               <template #default="{ row }">
                 <el-tag v-if="row.expr" type="warning" size="small">虚拟</el-tag>
@@ -712,11 +977,12 @@ function channelTarget(ch: NotifyChannel): string {
             <el-option label="REST 轮询" value="rest" />
             <el-option label="MQTT over WS" value="mqtt" />
             <el-option label="Modbus TCP" value="modbus" />
+            <el-option label="OPC UA" value="opcua" />
           </el-select>
         </el-form-item>
         <template v-if="dsForm.type !== 'mock'">
-          <el-form-item :label="dsForm.type === 'mqtt' ? 'Broker 地址' : dsForm.type === 'modbus' ? 'PLC/网关 IP' : 'URL'" required>
-            <el-input v-model="dsForm.url" :placeholder="dsForm.type === 'mqtt' ? 'ws://localhost:8083/mqtt' : dsForm.type === 'modbus' ? '192.168.1.10' : 'https://…'" />
+          <el-form-item :label="dsForm.type === 'mqtt' ? 'Broker 地址' : dsForm.type === 'modbus' ? 'PLC/网关 IP' : dsForm.type === 'opcua' ? 'Endpoint' : 'URL'" required>
+            <el-input v-model="dsForm.url" :placeholder="dsForm.type === 'mqtt' ? 'ws://localhost:8083/mqtt' : dsForm.type === 'modbus' ? '192.168.1.10' : dsForm.type === 'opcua' ? 'opc.tcp://192.168.1.10:4840' : 'https://…'" />
           </el-form-item>
         </template>
         <template v-if="dsForm.type === 'modbus'">
@@ -731,6 +997,30 @@ function channelTarget(ch: NotifyChannel): string {
               <el-option v-for="ms in [500, 1000, 2000, 5000]" :key="ms" :label="`${ms} ms`" :value="ms" />
             </el-select>
           </el-form-item>
+        </template>
+        <template v-if="dsForm.type === 'opcua'">
+          <div class="form-row2">
+            <el-form-item label="用户名">
+              <el-input v-model="dsForm.ocUsername" placeholder="匿名留空" />
+            </el-form-item>
+            <el-form-item label="密码">
+              <el-input v-model="dsForm.ocPassword" type="password" show-password placeholder="留空=保留已存密码" />
+            </el-form-item>
+          </div>
+          <el-form-item label="发布周期">
+            <el-input-number v-model="dsForm.ocPublishMs" :min="200" :step="100" controls-position="right" />
+            <span class="form-hint">ms（订阅 publishInterval，下限 200）</span>
+          </el-form-item>
+        </template>
+        <template v-if="dsForm.type === 'mqtt'">
+          <div class="form-row2">
+            <el-form-item label="用户名">
+              <el-input v-model="dsForm.mqUsername" placeholder="EMQX 账号，如 webscada_mqtt" />
+            </el-form-item>
+            <el-form-item label="密码">
+              <el-input v-model="dsForm.mqPassword" type="password" show-password placeholder="留空=保留已存密码" />
+            </el-form-item>
+          </div>
         </template>
         <el-form-item v-if="dsForm.type === 'mqtt'" label="订阅 Topic">
           <el-input v-model="dsForm.topics" type="textarea" :rows="2" placeholder="逗号或换行分隔，如 plant1/temperature" />
@@ -817,12 +1107,16 @@ function channelTarget(ch: NotifyChannel): string {
         </el-form-item>
         <div class="form-row2">
           <el-form-item label="取数地址">
-            <el-input v-model="varForm.address" :disabled="isVirtual" placeholder="mqtt=topic / ws·rest=字段名" />
+            <el-input v-model="varForm.address" :disabled="isVirtual" placeholder="mqtt=topic / ws·rest=字段名 / opcua=nodeId" />
           </el-form-item>
           <el-form-item label="jsonPath">
             <el-input v-model="varForm.jsonPath" :disabled="isVirtual" placeholder="data.items[0].v" />
           </el-form-item>
         </div>
+        <el-form-item v-if="selectedDsType === 'opcua'" label="节点浏览">
+          <el-button size="small" @click="openOpcUaBrowse">浏览 OPC UA 地址空间</el-button>
+          <span class="form-hint">选中节点后自动填入取数地址</span>
+        </el-form-item>
         <!-- M7：反控可写配置 -->
         <template v-if="!isVirtual">
           <el-divider content-position="left">反控（写通道）</el-divider>
@@ -884,12 +1178,37 @@ function channelTarget(ch: NotifyChannel): string {
       </template>
     </el-dialog>
 
+    <!-- OPC UA 节点浏览（阶段三）：一层子节点，可下钻/返回/选中 -->
+    <el-dialog v-model="browseVisible" title="OPC UA 节点浏览" width="620px" append-to-body>
+      <div class="browse-bar">
+        <el-button size="small" :disabled="browseStack.length <= 1" @click="browseUp">← 上级</el-button>
+        <el-breadcrumb separator="/">
+          <el-breadcrumb-item v-for="(s, i) in browseStack" :key="i">{{ s.label }}</el-breadcrumb-item>
+        </el-breadcrumb>
+      </div>
+      <el-alert v-if="browseMessage && !browseNodes.length" :title="browseMessage" type="info" :closable="false" show-icon />
+      <el-table v-loading="browseLoading" :data="browseNodes" size="small" max-height="360" empty-text="没有子节点">
+        <el-table-column prop="browseName" label="名称" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="nodeId" label="NodeId" min-width="220" show-overflow-tooltip />
+        <el-table-column label="操作" width="130" align="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="browsePick(row)">选择</el-button>
+            <el-button link size="small" @click="browseInto(row)">进入</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="form-hint">「选择」= 用该节点做变量地址；「进入」= 查看它的子节点。最多列 100 个。</div>
+      <template #footer><el-button @click="browseVisible = false">关闭</el-button></template>
+    </el-dialog>
+
     <!-- CSV 批量导入预览（工厂可用阶段一 Task 6） -->
     <el-dialog v-model="csvVisible" title="导入点位 CSV" width="760px" append-to-body>
       <div class="csv-summary">
         <span>{{ csvFileName }}</span>
         <span>解析成功 {{ csvRows.length }} 行</span>
-        <span v-if="csvDupKeys.size">将跳过已有 key {{ csvDupKeys.size }} 个</span>
+        <span v-if="csvNewRows.length">新增 {{ csvNewRows.length }} 个</span>
+        <span v-if="csvUpdateRows.length">更新已有 {{ csvUpdateRows.length }} 个</span>
+        <span v-if="csvVirtualConflicts.length" class="csv-err">虚拟变量 key 冲突 {{ csvVirtualConflicts.length }} 个（跳过）</span>
         <span v-if="csvErrors.length" class="csv-err">错误 {{ csvErrors.length }} 条</span>
       </div>
       <div class="form-hint csv-header-hint">
@@ -902,6 +1221,9 @@ function channelTarget(ch: NotifyChannel): string {
           </el-select>
           <span class="form-hint">CSV 不设凭证列，凭证在数据源表单配置</span>
         </el-form-item>
+        <div v-if="csvCrossDsUpdates" class="form-hint">
+          已有变量保持各自原数据源（{{ csvCrossDsUpdates }} 个与所选不同），所选源只用于新增变量。
+        </div>
       </el-form>
       <el-alert
         v-if="csvModbusConflict"
@@ -935,7 +1257,9 @@ function channelTarget(ch: NotifyChannel): string {
         </el-table-column>
         <el-table-column label="状态" width="70">
           <template #default="{ row }">
-            <el-tag v-if="csvDupKeys.has(row.key)" type="info" size="small">跳过</el-tag>
+            <el-tag v-if="csvVirtualConflicts.includes(row.key)" type="info" size="small">跳过（虚拟变量）</el-tag>
+            <el-tag v-else-if="csvUpdateRows.some((r) => r.key === row.key)" type="warning" size="small">更新</el-tag>
+            <el-tag v-else type="success" size="small">新增</el-tag>
           </template>
         </el-table-column>
       </el-table>
@@ -956,8 +1280,8 @@ function channelTarget(ch: NotifyChannel): string {
       <el-form label-width="92px" size="small">
         <el-form-item label="名称" required><el-input v-model="almForm.name" /></el-form-item>
         <el-form-item label="变量" required>
-          <el-select v-model="almForm.variableId">
-            <el-option v-for="v in variables" :key="v.id" :label="v.label" :value="v.id" />
+          <el-select v-model="almForm.variableId" filterable>
+            <el-option v-for="v in variables" :key="v.id" :label="`${v.label}（${v.key}）`" :value="v.id" />
           </el-select>
         </el-form-item>
         <div class="form-row2">
@@ -984,9 +1308,14 @@ function channelTarget(ch: NotifyChannel): string {
           <el-form-item label="迟滞">
             <el-input-number v-model="almForm.hysteresis" :min="0" :step="1" controls-position="right" />
           </el-form-item>
-          <el-form-item label="提示音"><el-switch v-model="almForm.sound" /></el-form-item>
+          <el-form-item label="持续(ms)">
+            <el-input-number v-model="almForm.durationMs" :min="0" :step="1000" controls-position="right" />
+          </el-form-item>
         </div>
-        <el-form-item label="启用"><el-switch v-model="almForm.enabled" /></el-form-item>
+        <div class="form-row2">
+          <el-form-item label="提示音"><el-switch v-model="almForm.sound" /></el-form-item>
+          <el-form-item label="启用"><el-switch v-model="almForm.enabled" /></el-form-item>
+        </div>
       </el-form>
       <template #footer>
         <el-button @click="almVisible = false">取消</el-button>
@@ -1058,11 +1387,30 @@ function channelTarget(ch: NotifyChannel): string {
   align-self: flex-start;
 }
 
-/* 工具条（变量 tab：新增 / 导入 CSV） */
+/* 工具条（变量 tab：新增 / 导入 CSV / 搜索） */
 .toolbar {
   display: flex;
   gap: 8px;
-  align-self: flex-start;
+  align-self: stretch;
+  align-items: center;
+}
+
+.var-search {
+  width: 220px;
+  margin-left: auto;
+}
+
+.cell-mono {
+  font-family: var(--ws-font-mono, monospace);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.browse-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
 .hidden-file {

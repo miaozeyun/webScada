@@ -53,6 +53,44 @@ async def create_project(db: AsyncSession, owner: User, name: str, description: 
     return project
 
 
+async def clone_project(db: AsyncSession, source: Project, owner: User, name: str) -> Project:
+    """按模板克隆新工程（阶段三）：新 id + 新名称 + 新 revision，doc 其余内容原样复制。
+
+    - 数据源配置/凭证密文一并复制（同一 DATASOURCE_SECRET 可解，克隆后无需重填）
+    - 缩略图不复制（新工程首次保存时重新生成）
+    - 变量 key 不改名：新工程是独立命名空间，OEM「一模板 N 台设备」正是这个语义
+    """
+    doc = copy.deepcopy(source.doc if isinstance(source.doc, dict) else {})
+    new_id = uuidlib.uuid4()
+    now = _now_utc().isoformat().replace("+00:00", "Z")
+    meta = doc.setdefault("project", {})
+    meta["id"] = str(new_id)
+    meta["name"] = name
+    meta["author"] = owner.username
+    meta["createdAt"] = now
+    meta["updatedAt"] = now
+    meta.pop("thumbnail", None)
+
+    doc_service.check_schema_version(doc)
+    doc_service.check_size(doc)
+    model = doc_service.validate_structure(doc)
+    doc_service.validate_references(model)
+    _encrypt_doc_credentials(doc)
+
+    project = Project(
+        id=new_id,
+        name=name,
+        description=source.description,
+        doc=doc,
+        revision=1,
+        owner_id=owner.id,
+    )
+    db.add(project)
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
 async def list_projects(
     db: AsyncSession, keyword: str | None, page: int, size: int
 ) -> tuple[int, list[Project]]:

@@ -19,6 +19,11 @@ class ProjectUpdate(BaseModel):
     baseRevision: int = Field(ge=1)  # 乐观锁（G2）
 
 
+class ProjectClone(BaseModel):
+    """模板克隆：只改名，doc 内容与凭证原样复制。"""
+    name: str = Field(min_length=1, max_length=128)
+
+
 class ImportBody(BaseModel):
     doc: dict  # 导出文件内容原样（前端 FileReader 读文件后 POST JSON）
 

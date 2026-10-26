@@ -86,6 +86,20 @@ async def test_window_last_write_wins(env, seam):
     assert len(rows) == 1 and rows[0].value == 3.0
 
 
+async def test_window_out_of_order_keeps_newest(env, seam):
+    """同一窗口内乱序到达：保留样本时间最大的值，历史时间轴不倒退。"""
+    h = Historian()
+    pid = uuidlib.uuid4()
+    h.push(pid, "temp", T0_MS + 5000, 5.0)
+    h.push(pid, "temp", T0_MS + 1000, 1.0)  # 迟到的旧帧
+    assert h.pending_count() == 1
+    assert await h.flush() == 1
+    rows = await rows_of(env)
+    assert len(rows) == 1 and rows[0].value == 5.0
+    ts0 = rows[0].ts.replace(tzinfo=UTCD) if rows[0].ts.tzinfo is None else rows[0].ts
+    assert int(ts0.timestamp() * 1000) == T0_MS + 5000
+
+
 async def test_push_skips_invalid(env, seam):
     h = Historian()
     h.push("not-a-uuid", "k", T0_MS, 1.0)  # 非法工程 id

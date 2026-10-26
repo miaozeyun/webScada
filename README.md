@@ -19,12 +19,17 @@ Web 原生、轻量、低代码拖拽组态的实时监控大屏（开源核心 
 | 工程 CRUD + 乐观锁（409 冲突检测）+ 导入导出（凭证脱敏） | ✅ 已实现 |
 | 多画面 + 编辑/运行分离 + 分享快照发布 | ✅ 已实现 |
 | 反控写指令（开关/多档/输入框，变量显式 writable，分享页恒只读） | ✅ 已实现（M7） |
-| 数据源接入：服务端常驻采集 MQTT / REST 轮询 / WebSocket / Mock / **Modbus TCP**（UTF-8 JSON 载荷） | ✅ 已实现（M8，浏览器直连仅保留编辑器连接测试） |
+| 数据源接入：服务端常驻采集 MQTT / REST 轮询 / WebSocket / Mock / **Modbus TCP** / **OPC UA**（订阅推送 + 节点浏览；JSON 载荷） | ✅ 已实现（M8 / 阶段二） |
 | 报警：阈值/回差/持续时间规则、**服务端 7x24 判定**、单行状态机 ack 流转、Webhook/邮件外发 | ✅ 已实现（M8） |
+| 通讯中断一等报警：设备断线超阈值自动产生 critical 报警，恢复自动清除并外发恢复通知 | ✅ 已实现（阶段三） |
+| 通知补发队列：渠道失败落 outbox 指数退避重试（上限转死信），断网恢复后自动补发 | ✅ 已实现（阶段三） |
 | 历史趋势：服务端 historian（`history_values` 5s 采样 / 30 天保留 / 区间聚合查询）；浏览器 localStorage 桶降级为离线兜底 | ✅ 已实现（M8） |
 | 带鉴权数据源运行态连接（凭证 Fernet 加密 + 测试注回通道） | ✅ 已实现（M8） |
 | 服务端 7x24 采集 / 报警判定 / 历史入库 / WS 合帧推送 | ✅ 已交付（M8 服务端监控闭环，2026-10-20） |
 | RBAC 用户管理（admin/operator/viewer）/ 八类操作审计 | ✅ 已实现（M8） |
+| 工程模板克隆（复制工程：画面/绑定/报警/数据源/凭证原样复制，OEM 一模板 N 台设备） | ✅ 已实现（阶段三） |
+| 点位 CSV 导入/导出/同 key upsert + 删除前引用阻断 | ✅ 已实现（阶段三） |
+| 离线一体机交付包（镜像导出/离线安装/升级回滚/systemd 自启） | ✅ 脚本已落地（`deploy/appliance/`，未在真实气隙硬件长跑） |
 | 全站 TLS / EMQX 强制鉴权 / 备份恢复 / CI | ✅ 止血包已落地（本轮） |
 | 迁移三件套（migrateDoc / schemaVersion N-1 窗口 / 迁移前备份指引） | ✅ 机制已落地并有测试（`CURRENT_SCHEMA_VERSION` 冻结为 1，尚无实际 v2 迁移用例） |
 | RTSP 转码视频 / 主备冗余 / 白标 OEM / License 机制 | 🗺 企业版规划（License 骨架已就绪，见 [NOTICE.md](NOTICE.md)） |
@@ -98,8 +103,8 @@ EMQX 已**禁用匿名连接**（`EMQX_MQTT__ALLOW_ANONYMOUS=false`，写死无�
    **生产务必在 `.env` 覆盖**）。
 2. 管理台仅本机可访问：`http://localhost:18083`，用 `EMQX_DASHBOARD_USER/PASSWORD`
    （默认 `admin/public`）登录，**首次登录立即改密**。
-3. 浏览器端 MQTT 数据源请在数据源面板填入上述 MQTT 账号（当前凭证注回通道未落地，
-   运行态可能仍无法自动取用——见「已知限制」第 1 条）。
+3. 在工程的数据源面板填写上述 MQTT 账号即可：运行态由服务端 collector 采集，
+   凭证保存时 Fernet 加密入库，出口一律脱敏；编辑器里的「测试连接」也会按空值保留规则注回库内凭证。
 4. 需要更多 MQTT 客户端账号时，在管理台「访问控制 → 客户端认证」中按最小权限创建，
    不要复用采集账号。
 
@@ -165,12 +170,16 @@ EMQX 已**禁用匿名连接**（`EMQX_MQTT__ALLOW_ANONYMOUS=false`，写死无�
 > RBAC 三级角色 + 用户管理 + 八类审计、schemaVersion 迁移通道（migrateDoc + N-1 窗口）、
 > AGPL-3.0 LICENSE 与 CI 门禁。以下为当前真实边界：
 
-1. **OPC UA / PLC 直连未实现**（P2 预留 collector driver 接口位）；Modbus TCP 已于 M8 落地
-   （4 区位地址解析 + 读轮询/写线圈反控，`server/tests/test_modbus.py` 集成测试覆盖），
-   当前数据源类型为 MQTT / REST / WebSocket / Mock / Modbus TCP。
+1. **PLC 原生协议（S7 / 三菱 MC / 欧姆龙 FINS / IEC 104 等）未实现**，P2 预留 driver 接口位。
+   已支持 MQTT / REST / WebSocket / Mock / Modbus TCP / **OPC UA**：Modbus TCP 于 M8 落地
+   （4 区位地址解析 + 读轮询/写线圈反控），OPC UA 于工厂可用阶段二落地
+   （asyncua 订阅推送 + 断线重建订阅 + 编辑器节点浏览，首版仅 `securityMode=none`）。
 2. **单实例架构**：限流计数、JWT 黑名单（jti）、WS 并发计数均在进程内存——多 worker/多副本
    部署时退化为单实例粒度；Redis 后端为 P1 预留。重启会使全部登录会话失效（≤2h 窗口）。
 3. **通知外发需配置**：`ALARM_WEBHOOK_URL` / `NOTIFY_SMTP_*` 未配置时报警仅站内（toast/横幅/列表）。
+   失败渠道会进 `notification_outbox` 补发（30s 起指数退避，8 次后转死信）；补发上限约 4 小时。
+   通讯中断判定默认：轮询源 3×采集周期（≥15s）、OPC UA 30s、MQTT/WS 90s，可用
+   `COMM_TIMEOUT_*` 调整。
 4. **EMQX 收口**：内置库鉴权已启用（`emqx-authn-init` 自动建 `webscada_mqtt` 账号），
    存量工程的 MQTT 数据源需把凭证改为该账号（或在 EMQX dashboard 增配自备账号）后才能继续采集。
 5. **历史表未分区**：`history_values` 按 (project_id, variable_key, ts) 索引；超大规模建议
@@ -215,7 +224,7 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"    # Windows
 # 前端（vite dev server，/api 代理到 localhost:8000）
 cd web
 npm install
-npm run dev      # http://localhost:5173
+npm run dev      # http://localhost:5199（strictPort，本地 5173 被占）
 ```
 
 CI（GitHub Actions）对每个 PR 执行：server job（PostgreSQL 16 service + alembic 迁移冒烟 +

@@ -89,6 +89,7 @@ def _stub_notify(monkeypatch):
         return None
 
     monkeypatch.setattr(notify_mod, "send_alarm", _noop)
+    monkeypatch.setattr(notify_mod, "send_recovery", _noop)
 
 
 def var_def(**over) -> dict:

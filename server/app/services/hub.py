@@ -138,20 +138,33 @@ class Hub:
         self._topo[project_id] = ordered
 
         # 虚拟变量初始化求值（对齐前端 recomputeAllVirtuals）：Kahn 序逐个求值；
-        # 求值失败（依赖缺失/环）回落池内现值或 0，环不死循环（ordered 已含环上节点兜底序）
+        # 求值失败（依赖缺失/环）= bad，不能以 good 写 0 或旧值：启动时数据源还没连上，
+        # 报「0 且正常」比报「不可用」危险得多（历史会按 good 采样入库）。
         now = _now_ms()
         for key in ordered:
             var = vars_by_key[key]
             value = self._eval_virtual(project_id, var)
             if value is _EVAL_FAILED:
                 old = self._pools.get(project_id, {}).get(key)
-                value = old["v"] if old is not None and old.get("v") is not None else 0.0
+                self._apply(project_id, var, old["v"] if old is not None else None, QUALITY_BAD, now)
+                continue
             self._apply(project_id, var, value, QUALITY_GOOD, now)
 
     @staticmethod
     def _effective_stale_ms(var: VariableDef, ds: Any) -> int:
-        """stale 判定超时（02 §1.7）：显式 staleTimeoutMs 优先；缺省 3×采集周期、下限 STALE_MIN。"""
+        """stale 判定超时（02 §1.7）：显式 staleTimeoutMs 优先；缺省 3×采集周期、下限 STALE_MIN。
+
+        两类变量不参与 stale 计时（返回 0 = 永不超时）：
+        - 虚拟变量：值由依赖驱动重算，是否可信由依赖质量决定（坏值传导已覆盖），
+          按时间判 stale 会让「依赖不变」的正常计算点无故失效。
+        - mock hold：语义就是常量/反控回环，本来就不会周期性来帧。
+        """
         from app.core.config import settings
+
+        if var.expr:
+            return 0
+        if var.mock is not None and getattr(var.mock, "kind", None) == "hold":
+            return 0
 
         cfg = getattr(ds, "config", None)
         explicit = getattr(cfg, "staleTimeoutMs", None)
@@ -248,14 +261,27 @@ class Hub:
                     continue
                 value = self._eval_virtual(project_id, var)
                 if value is _EVAL_FAILED:
-                    continue  # 回落上一值：不入池、不广播
+                    # 依赖坏值/缺失时，虚拟变量必须跟着变 bad；否则它会带着上一轮 GOOD
+                    # 继续显示「停更旧值算出的正常值」——比单点坏值更隐蔽。
+                    old = self._pools.get(project_id, {}).get(vk)
+                    if old is not None and old.get("q") == QUALITY_BAD:
+                        continue  # 已是 bad，不重复广播
+                    self._apply(project_id, var, old["v"] if old is not None else None, QUALITY_BAD, ts)
+                    queue.append(vk)  # 坏值继续向下游传导：依赖它的虚拟变量同样转 bad
+                    continue
                 self._apply(project_id, var, value, QUALITY_GOOD, ts)
                 queue.append(vk)
 
     def _eval_virtual(self, project_id: uuidlib.UUID, var: VariableDef) -> Any:
-        """虚拟变量求值：scope 取池内全部非 None 工程值（与前端 scope 构建同构）。"""
+        """虚拟变量求值：scope 只取【good 且非 None】的工程值（与前端 scope 同构）。
+
+        坏值/停更值不得参与计算：宁可求值失败转 bad，也不能拿旧值算出看似正常的数。
+        """
         pool = self._pools.get(project_id, {})
-        scope: dict[str, Value] = {k: e["v"] for k, e in pool.items() if e.get("v") is not None}
+        scope: dict[str, Value] = {
+            k: e["v"] for k, e in pool.items()
+            if e.get("q") == QUALITY_GOOD and e.get("v") is not None
+        }
         try:
             result = eval_expr(var.expr or "0", scope)
         except Exception as exc:  # noqa: BLE001
@@ -272,6 +298,15 @@ class Hub:
 
     # ---- stale ----
 
+    def touch(self, project_id: uuidlib.UUID, variable: VariableDef, ts: int) -> None:
+        """推进单点新鲜度但不改值（订阅型源用）：连接健康且值未变化 ≠ 数据停更。
+
+        仅对当前 good 的条目生效；bad/stale 不因 touch 复活。
+        """
+        entry = self._pools.get(project_id, {}).get(variable.key)
+        if entry is not None and entry.get("q") == QUALITY_GOOD:
+            entry["t"] = ts
+
     def sweep_stale(self, project_id: uuidlib.UUID, now_ms: int | None = None) -> int:
         """单工程 stale 扫描：good 且超时 → stale（值保留）。返回翻转条数。仅 q 翻转时 mark_dirty。"""
         now = now_ms if now_ms is not None else _now_ms()
@@ -280,17 +315,22 @@ class Hub:
         if not pool:
             return 0
         flipped = 0
+        flipped_keys: list[str] = []
         for key, entry in pool.items():
             timeout = stale_ms.get(key, 0)
             if entry["q"] == QUALITY_GOOD and timeout and now - entry["t"] > timeout:
                 entry["q"] = QUALITY_STALE
                 flipped += 1
+                flipped_keys.append(key)
                 try:
                     from app.services import ws_manager
 
                     ws_manager.manager.mark_dirty(project_id, key, dict(entry))
                 except Exception:  # noqa: BLE001
                     pass
+        # 停更同样要向下游传导：依赖它的虚拟变量转 bad，而不是继续用 stale 值计算
+        for key in flipped_keys:
+            self._propagate(project_id, key, now)
         return flipped
 
     def sweep_stale_all(self) -> int:

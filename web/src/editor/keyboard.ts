@@ -55,6 +55,12 @@ export function installKeyboard(store: EditorStore, isBlocked: () => boolean = (
     // 复制/剪切/粘贴/直接复制/组合/拆分/全选（快捷键集合参照 visual-drag-demo）
     if (mod) {
       const k = e.key.toLowerCase()
+      if (k === 's') {
+        // 状态栏/按钮文案一直宣称 Ctrl+S；此前落到浏览器「另存网页」
+        e.preventDefault()
+        void store.save()
+        return
+      }
       if (k === 'a') {
         e.preventDefault()
         // 组编辑上下文中全选组内成员，否则选顶层

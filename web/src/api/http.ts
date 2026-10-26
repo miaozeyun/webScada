@@ -70,7 +70,15 @@ instance.interceptors.response.use(
     const resp = err.response
     const config = err.config as RetriableConfig | undefined
     if (resp) {
-      const { code, message } = (resp.data || {}) as { code?: string; message?: string }
+      const { code, message, errors } = (resp.data || {}) as {
+        code?: string
+        message?: string
+        errors?: { path?: string; message?: string }[]
+      }
+      // 422 信封带 errors[].path：把第一条具体路径拼进提示，避免「保存失败」而无从下手
+      const detail = Array.isArray(errors) && errors.length
+        ? `${message || '请求失败'}：${errors.slice(0, 2).map((e) => `${e.path ?? '?'} ${e.message ?? ''}`.trim()).join('；')}${errors.length > 2 ? ` 等 ${errors.length} 项` : ''}`
+        : message
       if (resp.status === 401) {
         // 有 refresh 且未重放过 → 单飞刷新成功则重放原请求一次（新 token 由请求拦截器注入）
         if (config && !config._retried && config.url !== '/auth/login' && localStorage.getItem(REFRESH_KEY)) {
@@ -85,7 +93,7 @@ instance.interceptors.response.use(
         // 409 冲突转用户提示（G2/K2）
         ElMessage.error(message || '工程已被他人修改，请刷新后重试')
       } else {
-        ElMessage.error(message || `请求失败（${resp.status}）`)
+        ElMessage.error(detail || message || `请求失败（${resp.status}）`)
       }
     } else {
       ElMessage.error('网络错误，请检查连接')

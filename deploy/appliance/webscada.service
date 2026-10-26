@@ -1,0 +1,17 @@
+[Unit]
+Description=webScada 一体机（docker compose）
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/webscada
+# 断电/重启后确保整套容器被拉起（容器自身 restart: unless-stopped 负责单容器守护）
+ExecStart=/usr/bin/docker compose --no-build up -d
+ExecStop=/usr/bin/docker compose stop
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

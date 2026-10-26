@@ -24,6 +24,7 @@ from app.db.base import get_db
 from app.db.models import Project, User
 from app.schemas.project import (
     ImportBody,
+    ProjectClone,
     ProjectCreate,
     ProjectListItem,
     ProjectListOut,
@@ -85,6 +86,28 @@ async def create_project(
     await audit_service.audit(
         request, user, "project_save", target_type="project", target_id=str(project.id),
         detail={"op": "create", "name": project.name},
+    )
+    return _to_out(project, with_doc=False)
+
+
+@router.post("/{project_id}/clone", response_model=ProjectOut, status_code=201)
+async def clone_project(
+    project_id: str,
+    body: ProjectClone,
+    request: Request,
+    user: User = Depends(require_operator),
+    db: AsyncSession = Depends(get_db),
+) -> ProjectOut:
+    """按模板克隆工程（阶段三）：新工程 id/名称，doc（含凭证密文）原样复制。
+
+    OEM「一套模板 → N 台设备」的最小闭环：第 2 台起不再重做画面/绑定/报警。
+    """
+    require_project_view(user, project_id)
+    source = await project_service.get_project(db, project_id)
+    project = await project_service.clone_project(db, source, user, body.name)
+    await audit_service.audit(
+        request, user, "project_save", target_type="project", target_id=str(project.id),
+        detail={"op": "clone", "sourceId": str(source.id), "name": project.name},
     )
     return _to_out(project, with_doc=False)
 

@@ -2,11 +2,12 @@
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, Delete, Download, Grid, Menu, Plus, Search, Upload } from '@element-plus/icons-vue'
+import { ArrowDown, CopyDocument, Delete, Download, Grid, Menu, Plus, Search, Upload } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { meApi } from '@/api/auth'
 import type { UserInfo } from '@/api/auth'
 import {
+  cloneProject,
   createProject,
   deleteProject,
   exportProject,
@@ -177,10 +178,42 @@ function onTool(cmd: string): void {
   else if (cmd === 'stress') doStress()
 }
 
-/** 卡片「更多」下拉：导出 / 删除（与表格行操作同源） */
+/** 卡片「更多」下拉：复制 / 导出 / 删除（与表格行操作同源） */
 function onCardMore(cmd: string, row: ProjectListItem): void {
-  if (cmd === 'export') void doExport(row)
+  if (cmd === 'clone') openClone(row)
+  else if (cmd === 'export') void doExport(row)
   else if (cmd === 'delete') void doDelete(row)
+}
+
+// ---- 克隆（模板 → 新工程；OEM 一模板 N 台设备的最小闭环） ----
+const cloneVisible = ref(false)
+const cloneSaving = ref(false)
+const cloneName = ref('')
+const cloneSource = ref<ProjectListItem | null>(null)
+
+function openClone(row: ProjectListItem): void {
+  cloneSource.value = row
+  cloneName.value = `${row.name} 副本`
+  cloneVisible.value = true
+}
+
+async function confirmClone(): Promise<void> {
+  const src = cloneSource.value
+  const name = cloneName.value.trim()
+  if (!src) return
+  if (!name) {
+    ElMessage.warning('请填写工程名称')
+    return
+  }
+  cloneSaving.value = true
+  try {
+    await cloneProject(src.id, name)
+    cloneVisible.value = false
+    ElMessage.success('已复制工程')
+    await refresh()
+  } finally {
+    cloneSaving.value = false
+  }
 }
 
 // ---- 删除（服务端级联 share_links / alarm_records） ----
@@ -355,6 +388,7 @@ function fmtTime(iso: string): string {
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
+                    <el-dropdown-item command="clone" :icon="CopyDocument">复制工程</el-dropdown-item>
                     <el-dropdown-item command="export" :icon="Download">导出 JSON</el-dropdown-item>
                     <el-dropdown-item command="delete" :icon="Delete" divided>删除</el-dropdown-item>
                   </el-dropdown-menu>
@@ -415,6 +449,7 @@ function fmtTime(iso: string): string {
                   </el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
+                      <el-dropdown-item command="clone">复制工程</el-dropdown-item>
                       <el-dropdown-item command="export">导出</el-dropdown-item>
                       <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                     </el-dropdown-menu>
@@ -483,6 +518,22 @@ function fmtTime(iso: string): string {
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
         <el-button type="primary" :disabled="!createForm.name.trim()" @click="doCreate">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="cloneVisible" title="复制工程（模板 → 新设备）" width="440px">
+      <el-form label-position="top">
+        <el-form-item label="源工程">
+          <el-input :model-value="cloneSource?.name" disabled />
+        </el-form-item>
+        <el-form-item label="新工程名称" required>
+          <el-input v-model="cloneName" maxlength="128" placeholder="如：2号机组监控" @keyup.enter="confirmClone" />
+        </el-form-item>
+        <p class="clone-hint">画面、绑定、报警规则、数据源配置全部复制；新工程独立 revision，改源工程不影响副本。</p>
+      </el-form>
+      <template #footer>
+        <el-button @click="cloneVisible = false">取消</el-button>
+        <el-button type="primary" :loading="cloneSaving" :disabled="!cloneName.trim()" @click="confirmClone">复制</el-button>
       </template>
     </el-dialog>
   </div>
@@ -1045,5 +1096,12 @@ function fmtTime(iso: string): string {
   .user-name {
     display: none;
   }
+}
+
+.clone-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ws-text-2);
 }
 </style>

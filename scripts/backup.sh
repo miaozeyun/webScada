@@ -32,10 +32,19 @@ docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES
 docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT doc::text FROM projects ORDER BY id"' \
   > "$OUT/webscada-docs-$TS.json"
 
+# 2b) 附件与 MQTT 账号数据：不在 pg_dump 里，漏备会导致「恢复后图片没了 / MQTT 采集连不上」
+docker compose exec -T server sh -c 'tar czf - -C /app/uploads .' > "$OUT/webscada-uploads-$TS.tar.gz" 2>/dev/null \
+  || { echo "[backup] 警告：uploads 归档失败（server 未运行？），本次备份缺图片资产" >&2; rm -f "$OUT/webscada-uploads-$TS.tar.gz"; }
+docker compose exec -T emqx sh -c 'tar czf - -C /opt/emqx/data .' > "$OUT/webscada-emqx-$TS.tar.gz" 2>/dev/null \
+  || { echo "[backup] 警告：EMQX data 归档失败（emqx 未运行？），本次备份缺 MQTT 账号/会话" >&2; rm -f "$OUT/webscada-emqx-$TS.tar.gz"; }
+
 # 3) 过期清理（默认保留 14 天，可用环境变量 BACKUP_KEEP_DAYS 覆盖）
 find "$OUT" -name 'webscada-db-*.dump' -mtime "+$KEEP_DAYS" -delete
 find "$OUT" -name 'webscada-docs-*.json' -mtime "+$KEEP_DAYS" -delete
+find "$OUT" -name 'webscada-uploads-*.tar.gz' -mtime "+$KEEP_DAYS" -delete
+find "$OUT" -name 'webscada-emqx-*.tar.gz' -mtime "+$KEEP_DAYS" -delete
 
 echo "[backup] 完成（保留 $KEEP_DAYS 天）："
 ls -lh "$OUT/webscada-db-$TS.dump" "$OUT/webscada-docs-$TS.json"
+ls -lh "$OUT"/webscada-uploads-"$TS".tar.gz "$OUT"/webscada-emqx-"$TS".tar.gz 2>/dev/null || true
 echo "[backup] 建议：将 $OUT 同步至异机/对象存储（rclone / scp 均可），本机备份不构成灾备"
