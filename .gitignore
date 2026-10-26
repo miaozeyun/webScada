@@ -43,3 +43,6 @@ backups/
 
 # 内部商业文档（评估/策略/压测结论，不随开源发布）
 docs/private/
+
+# 内部开发计划与规格（superpowers 工作流产物，不随开源发布）
+docs/superpowers/
