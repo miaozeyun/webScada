@@ -36,6 +36,7 @@ skills-lock.json
 # 备份与 TLS 私钥（本地生成，严禁入库）
 backup/
 deploy/certs/
+deploy/acme/
 backups/
 
 # 第三方系统侦察记录（含他人凭证，严禁入库；历史亦须剥离，见 docs/operations/opensource-checklist.md）

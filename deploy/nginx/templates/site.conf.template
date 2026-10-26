@@ -1,0 +1,77 @@
+# 官网静态站（website/）：与产品站共用本容器的 80/443，按 Host 精确分流。
+#
+# 本文件是 nginx 官方 entrypoint 的 envsubst 模板：容器启动时
+#   /etc/nginx/templates/*.template → /etc/nginx/conf.d/*.conf
+# 因此改完本文件需重启 nginx 容器（docker compose restart nginx）；
+# `nginx -s reload` 只在容器内重载配置，不会重新渲染模板。
+# 注入变量（compose environment）：
+#   SITE_DOMAIN           官网域名，多个用空格分隔；未配置时回落 webscada-site.invalid
+#                         （不命中任何真实域名，等同于关闭）
+#   SITE_CERT / SITE_KEY  证书文件名，相对 /etc/nginx/certs（宿主机 deploy/certs）
+#
+# 路由优先级：default.conf 的 server_name _ 是默认 server，精确域名命中本文件，
+# 所以 SITE_DOMAIN 不能与产品域名相同。
+# 证书文件缺失会让 nginx 启动失败（产品站一并不可用）——换证书前先确认文件已就位。
+
+# HTTP → HTTPS。自签证书过渡期若需直服，可临时注释本块（正式上线保持 301）
+server {
+    listen 80;
+    server_name ${SITE_DOMAIN};
+
+    # Let's Encrypt HTTP-01 校验：certbot --webroot -w deploy/acme。
+    # 独立 location 必须放在 301 之前（server 级 return 会先于 location 执行，故不用 return）
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/acme;
+        default_type text/plain;
+        access_log off;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${SITE_DOMAIN};
+
+    ssl_certificate     /etc/nginx/certs/${SITE_CERT};
+    ssl_certificate_key /etc/nginx/certs/${SITE_KEY};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    root /usr/share/nginx/site;
+    index index.html;
+
+    gzip on;
+    # text/html 默认已在 gzip 范围，显式列出会触发 duplicate MIME type 告警
+    gzip_types text/css application/javascript application/xml image/svg+xml text/plain;
+
+    # GEO / 收录类文件不缓存：事实或链接更新后搜索引擎与 AI 爬虫立即拿到新内容
+    location = /llms.txt    { add_header Cache-Control "no-cache"; }
+    location = /robots.txt  { add_header Cache-Control "no-cache"; }
+    location = /sitemap.xml { add_header Cache-Control "no-cache"; }
+
+    # 资源无内容哈希：用 1h 短缓存 + 协商缓存，避免改版后旧 CSS/JS 长期滞留
+    # （expires 已同时输出 Expires 与 Cache-Control: max-age，不要再 add_header 重复声明）
+    location ~* \.(css|js|svg|png|jpe?g|webp|ico|woff2?)$ {
+        expires 1h;
+        access_log off;
+    }
+
+    # 静态多页站：不做 SPA 回落，未命中直接 404（保留真实 404 语义给搜索引擎）
+    location / {
+        add_header X-Content-Type-Options nosniff;
+        add_header Referrer-Policy strict-origin-when-cross-origin;
+        add_header X-Frame-Options SAMEORIGIN;
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/ =404;
+    }
+
+    error_page 404 /404.html;
+}

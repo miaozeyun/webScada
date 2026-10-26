@@ -52,6 +52,8 @@ cp -r deploy "$OUT/deploy"
 rm -rf "$OUT/deploy/certs"
 mkdir -p "$OUT/deploy/certs"
 cp -r scripts "$OUT/scripts"
+# 官网静态站：nginx 挂载 ./website 需要目录存在（内网一体机不配 SITE_DOMAIN 时该块不生效）
+cp -r website "$OUT/website"
 cp .env.example "$OUT/.env.example"
 cp deploy/appliance/install.sh deploy/appliance/upgrade.sh deploy/appliance/rollback.sh "$OUT/"
 cp deploy/appliance/webscada.service "$OUT/"

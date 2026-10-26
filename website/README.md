@@ -2,6 +2,8 @@
 
 纯静态 HTML/CSS/JS，无构建依赖。「夜班控制室」暗色主题：信号青（实时数据）+ 琥珀（告警）双色，等宽字体仅用于数据读数，Hero 为纯 CSS 动画的遥测面板。
 
+文案面向采购与业务负责人：先讲「解决什么问题」，技术口径收在 features.html 的「技术细节（给工程师看）」折叠区。
+
 ## 本地预览
 
 ```bash
@@ -9,6 +11,19 @@ cd website
 python -m http.server 8090
 # 浏览器打开 http://localhost:8090
 ```
+
+## 产品截图
+
+`assets/img/shots/` 下是产品真实运行界面截图（1600×900，JPEG）。重新生成需本地起 compose（8088）与 vite dev（5199），然后：
+
+```bash
+cd e2e
+node shots.mjs   # 台账 / 编辑器 / 运行大屏 / 报警中心 / 仿真台
+node shots2.mjs  # 卡片台账 / 分享管理
+node shots4.mjs  # 分享管理（token 已脱敏）/ 数据源面板
+```
+
+新增截图时注意：不要把真实分享 token、账号信息截进图里；分享对话框截图前脚本会把 `.token` 文本替换为「演示链接」。
 
 ## SEO（搜索引擎优化）
 
@@ -45,7 +60,60 @@ python -m http.server 8090
 
 联系方式（18835132457@163.com / 微信 miaozeyun2020）已按仓库 README 填入，如有变更同步更新 about.html、index.html 与 llms.txt。
 
-## Nginx 部署示例
+## 域名与入口
+
+| 站点 | 地址 | 说明 |
+|---|---|---|
+| 官网 | `https://www.zggkzy.cn` | 本目录，静态站 |
+| 产品（试用） | `https://scada.zggkzy.cn` | 官网导航栏与首页 Hero 的「立即试用」按钮指向此处 |
+
+两个域名指向同一台服务器的 nginx 容器，按 Host 精确分流：`www` 命中官网块，
+`scada` 与 IP 访问命中产品默认块。DNS 需添加两条 A 记录。
+
+「立即试用」按钮地址变更时全站替换：
+
+```bash
+grep -rl 'https://scada.zggkzy.cn/' website --include='*.html' \
+  | xargs sed -i 's|https://scada.zggkzy.cn/|https://新地址/|g'
+```
+
+## 部署
+
+### 方式一：与 webScada 同机（Docker compose，推荐）
+
+官网已接入产品编排：`docker-compose.yml` 的 nginx 容器按域名精确分流，`website/`
+只读挂载到容器 `/usr/share/nginx/site`，独立 server 块由
+[deploy/nginx/templates/site.conf.template](../deploy/nginx/templates/site.conf.template) 渲染。
+
+```bash
+# 1) 一张证书同时覆盖官网与产品子域名（DNS 解析已生效、80 端口可达）
+apt install -y certbot && mkdir -p deploy/acme
+certbot certonly --webroot -w "$PWD/deploy/acme" \
+  -d www.zggkzy.cn -d scada.zggkzy.cn \
+  --agree-tos -m 你的邮箱@example.com --no-eff-email
+
+# 2) 放入部署目录。产品 443 块写死 selfsigned.crt，复制同名即可共用同一张证书
+cp /etc/letsencrypt/live/www.zggkzy.cn/fullchain.pem deploy/certs/site.crt
+cp /etc/letsencrypt/live/www.zggkzy.cn/privkey.pem   deploy/certs/site.key
+cp deploy/certs/site.crt deploy/certs/selfsigned.crt
+cp deploy/certs/site.key deploy/certs/selfsigned.key
+chmod 600 deploy/certs/*.key
+
+# 3) 配置并重建 nginx（环境变量变化必须 up -d；restart 不会更新环境变量）
+set_env() { grep -q "^$1=" .env && sed -i "s|^$1=.*|$1=$2|" .env || echo "$1=$2" >> .env; }
+set_env SITE_DOMAIN www.zggkzy.cn
+set_env SITE_CERT site.crt
+set_env SITE_KEY site.key
+docker compose up -d nginx
+```
+
+内容更新不需要重启：`git pull` 后 nginx 直接读取挂载目录的新文件。
+`SITE_DOMAIN` 不能与产品域名相同；留空时官网块回落到 `.invalid` 占位域名，等同关闭。
+
+证书续期（90 天）配置 deploy hook 自动同步并重启，见
+[docs/operations/deploy-runbook.md](../docs/operations/deploy-runbook.md) 5.4 节。
+
+### 方式二：独立 nginx（其他静态托管）
 
 ```nginx
 server {
@@ -55,19 +123,30 @@ server {
     index index.html;
 
     gzip on;
-    gzip_types text/html text/css application/javascript application/xml image/svg+xml text/plain;
+    # text/html 默认已包含，显式列出会触发 duplicate MIME type 告警
+    gzip_types text/css application/javascript application/xml image/svg+xml text/plain;
 
-    # llms.txt / robots.txt 不缓存，便于事实更新
-    location = /llms.txt { add_header Cache-Control "no-cache"; }
+    # GEO / 收录类文件不缓存
+    location = /llms.txt    { add_header Cache-Control "no-cache"; }
+    location = /robots.txt  { add_header Cache-Control "no-cache"; }
+    location = /sitemap.xml { add_header Cache-Control "no-cache"; }
 
-    location ~* \.(css|js|svg)$ {
-        expires 30d;
-        add_header Cache-Control "public, immutable";
+    # 资源文件名无内容哈希：用短缓存，改版后才能及时生效（不要设 immutable/30d）
+    # expires 已同时输出 Expires 与 Cache-Control: max-age，勿再 add_header 重复声明
+    location ~* \.(css|js|svg|png|jpe?g|webp|ico|woff2?)$ {
+        expires 1h;
+    }
+
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/ =404;
     }
 
     error_page 404 /404.html;
 }
 ```
+
+同步上线：`rsync -avz --delete website/ user@server:/var/www/webscada-site/`。
 
 ## 收录提交
 

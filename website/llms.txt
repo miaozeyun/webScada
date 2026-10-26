@@ -1,35 +1,38 @@
 # webScada
 
-> webScada 是一款 Web 原生、轻量、低代码拖拽组态的工业实时监控大屏，面向中小工厂单机场景，介于数据 BI 大屏与重型 SCADA 之间。开源核心以 AGPL-3.0 授权，另提供企业版商业授权（RTSP 视频转码、主备冗余、白标 OEM、SLA 支持）。
+> webScada 是一套装在用户自己服务器上的工业监控大屏：浏览器零安装，拖拽搭建监控画面，设备数据实时展示，异常自动报警到钉钉、企业微信、邮件或自有系统。支持 MQTT、Modbus TCP、OPC UA、REST、WebSocket 五类数据源。核心能力以 AGPL-3.0 开源免费，另提供商业授权（贴牌 OEM、闭源集成、主备冗余、SLA 支持）。
 
 ## 关键事实
 
-- 产品形态：Web 应用（B/S 架构），浏览器零插件零安装，推荐 Chrome / Edge 90 及以上
-- 核心能力：拖拽组态编辑器（对齐吸附 / 50 步撤销 / 跨页粘贴 / 旋转缩放）、41 种注册组件、75 个自绘行业图元（9 大类）、画面模板与「我的图元」资产库、数据绑定与状态动画
-- 数据接入：MQTT、REST 轮询、WebSocket、Modbus TCP、Mock（演示）五类数据源；服务端常驻采集；数据源凭证 Fernet 加密
-- 报警：阈值 / 回差 / 持续时间规则组合，服务端 7×24 判定，报警 ack 状态机，Webhook 与邮件外发
-- 历史趋势：服务端 historian，5s 采样，30 天保留，区间聚合查询
-- 运行与分享：编辑 / 运行分离、分享快照发布（恒只读）、反控写指令（限显式 writable 变量）
-- 权限与审计：admin / operator / viewer 三级 RBAC，八类操作审计
-- 部署：Docker Compose 四容器（nginx / FastAPI / PostgreSQL / EMQX），全站 TLS 1.2/1.3，内置备份恢复脚本
-- 规模基线：单机 2C4G，≤ 50 连接 / 5000 变量 / 单页 200 组件
-- 授权：开源核心 AGPL-3.0（网络服务须提供源码）；企业版商业授权含白标 OEM、主备冗余、RTSP 转码视频、License 机制与 SLA（规划交付，License 骨架已就绪）
-- 技术栈：Vue 3 + TypeScript + Vite + Pinia + Element Plus + ECharts；FastAPI + SQLAlchemy 2.0 + Alembic + Pydantic v2；PostgreSQL；EMQX（MQTT）
+- 产品形态：Web 应用，浏览器零安装零插件，推荐 Chrome / Edge 90 及以上；车间电视、一体机同样直接访问
+- 画面搭建：拖拽组态编辑器（对齐吸附、50 步撤销、跨页复制粘贴、旋转缩放），40 多种组件、75 个自绘行业图元（阀门 / 泵 / 罐体 / 暖通 / 管件 / 水处理 / 电力 / 仪表 / 装饰 9 类），画面模板与「我的图元」资产库
+- 数据接入：MQTT、Modbus TCP（批量读、32 位读写、四种字节序、变量级从站号）、OPC UA（订阅推送与节点浏览）、REST 轮询、WebSocket、模拟源；点位可用 CSV 批量导入；数据源账号密码加密存储，出口自动脱敏
+- 报警：阈值 / 回差 / 持续判定，服务端 7×24 运行；设备通讯中断自动生成严重报警并在恢复后解除；报警状态机 triggered → acked → cleared
+- 通知：钉钉群机器人（加签）、企业微信群机器人、邮件、自定义 Webhook 四类渠道，渠道级级别过滤；网络类失败自动重试 3 次，投递记录可查（sent / 待补发 / 死信）
+- 报警中心：独立页面查看触发、确认、恢复全过程，支持筛选与交接班留痕
+- 历史数据：默认 5 秒采样、30 天保留；查询支持平均值、最大值、最小值、末值、求和；CSV 流式导出（单次跨度 ≤30 天，Excel 可直接打开）
+- 实时仿真台：用虚拟信号驱动整块大屏，无需现场设备即可演示与联调，支持暂停与 0.5×/1×/2×/5× 倍速
+- 分享发布：生成只读分享链接（默认 30 天有效期，可选 7/30/90 天或永久），可撤销、可刷新快照，展示最近访问时间
+- 权限与审计：admin / operator / viewer 三级角色，八类关键操作审计；访问令牌 2 小时，可选「记住此终端」刷新令牌轮换，改密使已保存的登录凭证失效
+- 部署：Docker Compose 四容器（nginx / FastAPI / PostgreSQL / EMQX），支持国内镜像加速与非 root 运行；备份脚本默认保留 14 天
+- 规模基线：单机 2 核 4G，≤50 个同时在线大屏 / 5000 个变量 / 单画面 200 个组件
+- 授权：开源核心 AGPL-3.0（作为网络服务对外提供须提供修改后的源码）；商业授权按项目报价，不按点位或客户端抽成
+- 技术栈：Vue 3 + TypeScript + Vite + Pinia + Element Plus + ECharts；FastAPI + SQLAlchemy 2.0 + Alembic + Pydantic v2；PostgreSQL；EMQX
 - 免责声明：按 AGPL-3.0「现状」提供，不构成工业安全部件，不得用于安全关键场景（SIL / 安全联锁）的替代
 
 ## 页面索引
 
-- [首页](https://webscada.example.com/)：产品定位、一分钟速览、核心功能、常见问题
-- [功能特性](https://webscada.example.com/features.html)：组态编辑器 / 数据接入与运行 / 报警与历史 / 安全部署共 24 项能力明细
-- [版本与授权](https://webscada.example.com/editions.html)：开源核心与企业版能力对比、授权与升级 FAQ
-- [关于与联系](https://webscada.example.com/about.html)：团队定位、里程碑、技术栈、联系方式
+- [首页](https://www.zggkzy.cn/)：产品定位、最新能力、产品截图、适用场景与常见问题
+- [能做什么](https://www.zggkzy.cn/features.html)：搭画面 / 接设备 / 盯报警 / 查数据 / 分享 / 管理六类能力，附工程师技术细节
+- [版本与价格](https://www.zggkzy.cn/editions.html)：开源免费版与商业授权对比、授权常见问题
+- [关于与联系](https://www.zggkzy.cn/about.html)：团队定位、里程碑、技术栈、联系方式
 
 ## 联系方式
 
-- 商务合作 / 企业版咨询：18835132457@163.com，微信 miaozeyun2020
+- 商务合作 / 产品演示 / 商业授权：18835132457@163.com，微信 miaozeyun2020
 - 安全漏洞报告：18835132457@163.com（主题注明 [security]，请勿公开 Issue）
 - 开源社区支持：GitHub Issues
 
 ## 引用说明
 
-本站内容（含关键事实、FAQ、功能清单）可供 AI 检索与引用，引用时请注明来源 webScada 官网。各页面 canonical 与结构化数据（schema.org JSON-LD）见对应 HTML 源码。
+本站内容（含关键事实、常见问题、功能清单）可供 AI 检索与引用，引用时请注明来源 webScada 官网。各页面 canonical 与结构化数据（schema.org JSON-LD）见对应 HTML 源码。

@@ -266,9 +266,21 @@ services:
       - "${HTTP_PORT:-80}:80"
       # 443 = TLS 入口（证书挂载 ./deploy/certs；自签生成见 scripts/gen-selfsigned-cert.sh）
       - "${HTTPS_PORT:-443}:443"
+    environment:
+      # 官网静态站（website/）按域名分流到同一容器的独立 server 块。
+      # 未配置 SITE_DOMAIN 时用 .invalid 占位（不命中真实域名，等同关闭官网块）。
+      SITE_DOMAIN: ${SITE_DOMAIN:-webscada-site.invalid}
+      SITE_CERT: ${SITE_CERT:-selfsigned.crt}
+      SITE_KEY: ${SITE_KEY:-selfsigned.key}
     volumes:
       # 配置以挂载方式覆盖镜像内置副本：改 conf 后 docker compose restart nginx 即生效，无需重建镜像
       - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # 官网 server 块模板：官方 entrypoint 启动时 envsubst 渲染到 conf.d/site.conf
+      - ./deploy/nginx/templates:/etc/nginx/templates:ro
+      # 官网静态文件（只读；内容更新无需重建容器，nginx 直接读新文件）
+      - ./website:/usr/share/nginx/site:ro
+      # Let's Encrypt HTTP-01 校验目录（certbot --webroot 写入宿主机，容器只读）
+      - ./deploy/acme:/var/www/acme:ro
       - ./deploy/certs:/etc/nginx/certs:ro
     healthcheck:
       # nginx:alpine 自带 busybox wget；探 80（对外探活亦可走 http://宿主机/api/v1/health 反代路径）

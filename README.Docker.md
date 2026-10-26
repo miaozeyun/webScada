@@ -28,6 +28,29 @@ REG_PREFIX=dockerpull.com/
 
 ## 3. 快速启动
 
+### 3.1 一键部署脚本（推荐）
+
+适用 Ubuntu / Debian，Docker 已就绪、代码已在服务器的场景：
+
+```bash
+sudo ./deploy/deploy.sh                 # 首次部署：自动生成 .env 随机密钥并构建启动
+sudo ./deploy/deploy.sh --pull          # 升级：先 git pull --ff-only 再构建启动
+sudo ./deploy/deploy.sh -p 8088         # 指定对外 HTTP 端口
+```
+
+脚本流程：环境校验 →（可选）拉代码 → 生成/校验 `.env` → 升级前备份 + 镜像快照 →
+构建 → 启动 → 健康校验；**健康检查不通过时自动回滚到部署前镜像**（数据库迁移不回滚）。
+首次部署会在输出中显示一次管理员初始密码。`--help` 查看全部选项。
+
+> 仓库未跟踪文件执行位（`core.filemode=false`），clone 后若 `Permission denied`，
+> 改用 `sudo bash deploy/deploy.sh`，或先 `chmod +x deploy/deploy.sh`。
+
+脚本不负责：安装 Docker、配置防火墙、签发证书、配置 crontab——分别见 §1、§6 与
+[scripts/backup.sh](scripts/backup.sh) 头部注释。气隙环境的离线交付包见
+[deploy/appliance/README.md](deploy/appliance/README.md)。
+
+### 3.2 手动步骤
+
 ```bash
 cp .env.example .env          # 然后编辑：至少填 JWT_SECRET / DATASOURCE_SECRET / ADMIN_PASSWORD
 docker compose up -d --build  # 首次构建约 3-5 分钟（含前端编译与 Python 依赖）
@@ -39,6 +62,7 @@ docker compose ps             # 期望 postgres/emqx/server/nginx 全部 healthy
 | 入口 | 地址 | 说明 |
 |------|------|------|
 | Web 控制台 | `http://localhost/` 或 `https://localhost/`（自签证书） | 唯一对外入口（80/443） |
+| 官网静态站 | `https://<SITE_DOMAIN>/` | 与产品共用 80/443，按域名精确分流；配置与上线步骤见 [website/README.md](website/README.md) |
 | MQTT over WS | `127.0.0.1:8083` | 仅本机回环，浏览器 mqtt 数据源直连 |
 | EMQX 管理台 | `127.0.0.1:18083` | 仅本机回环 |
 

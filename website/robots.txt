@@ -35,4 +35,4 @@ User-agent: Amazonbot
 Allow: /
 
 # TODO: 替换为正式域名
-Sitemap: https://webscada.example.com/sitemap.xml
+Sitemap: https://www.zggkzy.cn/sitemap.xml

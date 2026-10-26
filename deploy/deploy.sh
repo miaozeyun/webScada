@@ -287,6 +287,10 @@ EOF
   env_set EMQX_DASHBOARD_PASSWORD "$(gen_hex 12)"
   env_set EMQX_DEFAULT_USERNAME webscada_mqtt
   env_set EMQX_DEFAULT_PASSWORD "$(gen_hex 12)"
+  # 官网静态站（website/）：留空 = 官网域名块不生效，配置说明见 website/README.md
+  env_set SITE_DOMAIN ""
+  env_set SITE_CERT ""
+  env_set SITE_KEY ""
   chmod 600 "$ENV_FILE"
   ok ".env 已生成（chmod 600）"
 else
@@ -343,12 +347,16 @@ else
   log "未检测到已有数据卷，按首次部署处理（跳过备份）"
 fi
 
-if [ "$UPGRADE" -eq 1 ] && [ "$NO_BACKUP" -eq 0 ]; then
-  log "调用 scripts/backup.sh 备份数据库 / 上传文件 / EMQX 数据…"
-  if ./scripts/backup.sh; then
-    ok "部署前备份完成（backups/）"
+if [ "$UPGRADE" -eq 1 ]; then
+  if [ "$NO_BACKUP" -eq 0 ]; then
+    log "调用 scripts/backup.sh 备份数据库 / 上传文件 / EMQX 数据…"
+    if ./scripts/backup.sh; then
+      ok "部署前备份完成（backups/）"
+    else
+      die "备份失败，已中止部署。确认无需备份可加 --no-backup 跳过"
+    fi
   else
-    die "备份失败，已中止部署。确认无需备份可加 --no-backup 跳过"
+    warn "已跳过部署前备份（--no-backup）"
   fi
 fi
 
