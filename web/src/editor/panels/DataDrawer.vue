@@ -5,8 +5,9 @@
  * doc 级数据不入页面级 undo 栈（历史为页面快照，语义不含本面板）。
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, Plus, Upload } from '@element-plus/icons-vue'
+import { Bell, Download, Plus, Upload } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { newId } from '@/utils/nanoid'
 import { buildPointCsv, parsePointCsv, POINT_CSV_COLUMNS } from '@/utils/pointCsv'
@@ -33,7 +34,15 @@ import type {
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const editor = useEditorStore()
+const router = useRouter()
 const tab = ref<'sources' | 'variables' | 'alarms' | 'notify'>('sources')
+
+/** 跳到报警中心（历史/确认在独立页面，本抽屉只管规则配置）；有脏改动先落库 */
+async function openAlarmCenter(): Promise<void> {
+  if (!editor.projectId) return
+  if (editor.dirty) await editor.save()
+  void router.push(`/projects/${editor.projectId}/alarms`)
+}
 
 const datasources = computed<DataSource[]>(() => editor.doc?.datasources ?? [])
 const variables = computed<VariableDef[]>(() => editor.doc?.variables ?? [])
@@ -1133,9 +1142,12 @@ function channelTarget(ch: NotifyChannel): string {
       <!-- 报警规则 -->
       <el-tab-pane :label="`报警（${alarms.length}）`" name="alarms">
         <div class="pane">
-          <el-button size="small" type="primary" plain :icon="Plus" :disabled="!variables.length" @click="openAlm()">
-            新增规则
-          </el-button>
+          <div class="toolbar">
+            <el-button size="small" type="primary" plain :icon="Plus" :disabled="!variables.length" @click="openAlm()">
+              新增规则
+            </el-button>
+            <el-button size="small" :icon="Bell" @click="openAlarmCenter">报警中心</el-button>
+          </div>
           <el-table :data="alarms" size="small" empty-text="暂无报警规则">
             <el-table-column prop="name" label="名称" min-width="100" />
             <el-table-column label="条件" min-width="120">

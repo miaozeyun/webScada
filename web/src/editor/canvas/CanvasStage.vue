@@ -9,7 +9,6 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { FullScreen, Minus, Plus } from '@element-plus/icons-vue'
-import html2canvas from 'html2canvas'
 import type { ComponentNode } from '@/types/doc'
 import { useEditorStore } from '@/stores/editor'
 import { registry } from '@/widgets/registry'
@@ -37,6 +36,8 @@ async function captureThumbnail(): Promise<string | null> {
   if (!el || !p || p.components.length === 0) return null
   el.classList.add('capturing')
   try {
+    // 按需加载：html2canvas 体积大，只有「保存时生成缩略图」用得到，不应计入编辑器首屏包
+    const { default: html2canvas } = await import('html2canvas')
     const canvas = await html2canvas(el, {
       width: p.screen.designWidth,
       height: p.screen.designHeight,

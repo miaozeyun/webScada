@@ -2,8 +2,7 @@
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, CopyDocument, Delete, Download, Grid, Menu, Plus, Search, Upload, VideoPlay } from '@element-plus/icons-vue'
-import { useAuthStore } from '@/stores/auth'
+import { ArrowDown, CopyDocument, Delete, Download, Grid, Menu, MoreFilled, Plus, Search, Upload, VideoPlay } from '@element-plus/icons-vue'
 import { meApi } from '@/api/auth'
 import type { UserInfo } from '@/api/auth'
 import {
@@ -20,11 +19,10 @@ import { buildStressDoc } from '@/utils/stressDoc'
 import { DEMO_CASES, seedCaseHistory } from '@/utils/demos'
 import { downloadJson, fileTimestamp } from '@/utils/download'
 import type { ProjectDoc } from '@/types/doc'
-import ThemePicker from '@/components/ThemePicker.vue'
+import AppBar from '@/components/AppBar.vue'
 
 const router = useRouter()
 const route = useRoute()
-const auth = useAuthStore()
 
 /** 开发者工具（压测工程生成）默认隐藏：面向最终用户的菜单不出现开发功能；?dev=1 显式开启 */
 const devTools = ref(route.query.dev === '1')
@@ -299,11 +297,6 @@ async function onFileChange(e: Event): Promise<void> {
   input.value = ''
 }
 
-async function onLogout(): Promise<void> {
-  await auth.logout()
-  router.push('/login')
-}
-
 function fmtTime(iso: string): string {
   return new Date(iso).toLocaleString('zh-CN', { hour12: false })
 }
@@ -311,19 +304,10 @@ function fmtTime(iso: string): string {
 
 <template>
   <div class="projects-page">
-    <header class="app-bar">
-      <div class="bar-brand">
-        <svg class="bar-mark" viewBox="0 0 32 32" aria-hidden="true">
-          <rect x="0.75" y="0.75" width="30.5" height="30.5" />
-          <path d="M5 21 H11 L14 12 L18 24 L21 16 H27" />
-        </svg>
-        <span class="bar-name">webScada</span>
-        <span class="bar-divider" aria-hidden="true"></span>
-        <span class="bar-scope">工程台账</span>
-      </div>
-      <div class="bar-user">
+    <AppBar scope="工程台账">
+      <template #nav>
         <el-dropdown v-if="isAdmin" trigger="click" @command="onAdminNav">
-          <button class="bar-action ws-ghost-btn" type="button">
+          <button class="ws-ghost-btn" type="button">
             系统管理<el-icon class="bar-caret"><ArrowDown /></el-icon>
           </button>
           <template #dropdown>
@@ -333,11 +317,8 @@ function fmtTime(iso: string): string {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <ThemePicker />
-        <span class="user-name">{{ auth.username }}</span>
-        <button class="bar-action ws-ghost-btn" type="button" @click="onLogout">退出登录</button>
-      </div>
-    </header>
+      </template>
+    </AppBar>
 
     <main class="workspace">
       <div class="page-head">
@@ -414,7 +395,7 @@ function fmtTime(iso: string): string {
                 <span class="project-name" :title="row.name">{{ row.name }}</span>
                 <!-- 悬停缩略图预览：画面缩略图（无图显示线稿占位），不占行高 -->
                 <span class="hover-preview">
-                  <img v-if="row.thumbnail" :src="row.thumbnail" alt="" />
+                  <img v-if="row.thumbnail" :src="row.thumbnail" alt="" loading="lazy" decoding="async" />
                   <svg v-else class="preview-placeholder" viewBox="0 0 48 48" aria-hidden="true">
                     <rect x="5.5" y="9.5" width="37" height="29" />
                     <path d="M5.5 17.5 H42.5 M11.5 13.5 H13 M15.5 13.5 H17" />
@@ -440,8 +421,8 @@ function fmtTime(iso: string): string {
             <template #default="{ row }">
               <el-button link type="primary" size="small" @click="router.push(`/editor/${row.id}`)">编辑</el-button>
               <el-dropdown trigger="click" @command="(cmd: string) => onCardMore(cmd, row)">
-                <el-button link size="small" class="more-btn" @click.stop>
-                  ⋯<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                <el-button link size="small" class="more-btn" title="更多操作" @click.stop>
+                  <el-icon><MoreFilled /></el-icon>
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
@@ -482,7 +463,7 @@ function fmtTime(iso: string): string {
             @dblclick="router.push(`/editor/${row.id}`)"
           >
             <div class="card-thumb" :class="{ 'is-empty': !row.thumbnail }">
-              <img v-if="row.thumbnail" :src="row.thumbnail" :alt="`${row.name} 首页画面`" loading="lazy" />
+              <img v-if="row.thumbnail" :src="row.thumbnail" :alt="`${row.name} 首页画面`" loading="lazy" decoding="async" />
               <template v-else>
                 <svg class="thumb-placeholder" viewBox="0 0 48 48" aria-hidden="true">
                   <rect x="5.5" y="9.5" width="37" height="29" />
@@ -606,67 +587,7 @@ function fmtTime(iso: string): string {
   flex-direction: column;
 }
 
-/* ---- 控制台顶栏 ---- */
-.app-bar {
-  height: 48px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-  background: var(--ws-ink);
-  color: var(--ws-text-inverse);
-}
-
-.bar-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.bar-mark {
-  width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: var(--ws-signal-bright);
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-
-.bar-name {
-  font-family: var(--ws-font-tech);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-}
-
-.bar-divider {
-  width: 1px;
-  height: 16px;
-  background: var(--ws-inv-line);
-}
-
-.bar-scope {
-  font-size: 13px;
-  color: var(--ws-inv-75);
-}
-
-.bar-user {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.user-name {
-  font-family: var(--ws-font-tech);
-  font-size: 12px;
-  letter-spacing: 0.03em;
-  color: var(--ws-inv-75);
-}
-
-/* bar-action 外观走全局 .ws-ghost-btn */
-
+/* 顶栏本体在 components/AppBar.vue；此处只保留管理入口下拉的箭头微调 */
 .bar-caret {
   margin-left: 2px;
 }
@@ -1138,21 +1059,6 @@ function fmtTime(iso: string): string {
   }
 
   .spacer {
-    display: none;
-  }
-}
-
-@media (max-width: 480px) {
-  .app-bar {
-    padding: 0 14px;
-  }
-
-  .bar-brand {
-    gap: 8px;
-  }
-
-  .bar-scope,
-  .user-name {
     display: none;
   }
 }

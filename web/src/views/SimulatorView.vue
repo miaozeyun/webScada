@@ -16,7 +16,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import type { EChartsCoreOption } from 'echarts/core'
-import { useAuthStore } from '@/stores/auth'
 import { useEditorStore } from '@/stores/editor'
 import { getProject, listProjects, type ProjectListItem } from '@/api/projects'
 import { useRuntimeStore } from '@/runtime/store'
@@ -25,11 +24,10 @@ import { buildSimDoc, formatSimValue, simulateValue, type SimSignal } from '@/ut
 import type { ProjectDoc } from '@/types/doc'
 import RuntimeStage from '@/editor/RuntimeStage.vue'
 import EchartsBase from '@/widgets/EchartsBase.vue'
-import ThemePicker from '@/components/ThemePicker.vue'
+import AppBar from '@/components/AppBar.vue'
 
 const route = useRoute()
 const router = useRouter()
-const auth = useAuthStore()
 const runtime = useRuntimeStore()
 const editor = useEditorStore()
 
@@ -39,21 +37,45 @@ const projects = ref<ProjectListItem[]>([])
 const projectId = ref('')
 const previewTitle = ref('仿真预览')
 const loadingProject = ref(false)
+const searchingProjects = ref(false)
 const loadError = ref('')
+/** 当前工程条目：远程搜索换关键字时保证选中项不丢（否则下拉只剩原始 id） */
+const currentProjectItem = ref<ProjectListItem | null>(null)
 
 const simDoc = ref<ProjectDoc | null>(null)
 const signals = ref<SimSignal[]>([])
 
-async function loadProjects(): Promise<void> {
+/** 拉取工程下拉选项（最多 100 条/页；更多靠工程名远程搜索） */
+async function fetchProjectOptions(keyword = ''): Promise<void> {
   try {
-    const data = await listProjects({ page: 1, size: 100 })
-    projects.value = data.items
-    const fromQuery = typeof route.query.project === 'string' ? route.query.project : ''
-    const pick = fromQuery || data.items[0]?.id || ''
-    if (pick) await loadProject(pick)
+    const data = await listProjects({ page: 1, size: 100, keyword: keyword || undefined })
+    const items = data.items
+    const cur = currentProjectItem.value
+    if (cur && !items.some((p) => p.id === cur.id)) items.unshift(cur)
+    projects.value = items
   } catch {
     /* 拦截器已提示 */
   }
+}
+
+async function loadProjects(): Promise<void> {
+  await fetchProjectOptions()
+  const fromQuery = typeof route.query.project === 'string' ? route.query.project : ''
+  const pick = fromQuery || projects.value[0]?.id || ''
+  if (pick) await loadProject(pick)
+}
+
+/** 远程搜索（250ms 防抖）：工程台账可能远超单页 100 条 */
+let projectSearchTimer: number | null = null
+function onSearchProjects(query: string): void {
+  if (projectSearchTimer !== null) clearTimeout(projectSearchTimer)
+  projectSearchTimer = window.setTimeout(() => {
+    projectSearchTimer = null
+    searchingProjects.value = true
+    void fetchProjectOptions(query.trim()).finally(() => {
+      searchingProjects.value = false
+    })
+  }, 250)
 }
 
 async function loadProject(id: string): Promise<void> {
@@ -68,6 +90,8 @@ async function loadProject(id: string): Promise<void> {
     signals.value = built.signals
     previewTitle.value = `${detail.name} · 仿真预览`
     projectId.value = id
+    currentProjectItem.value = detail
+    if (!projects.value.some((p) => p.id === id)) projects.value = [detail, ...projects.value]
     resetClock()
     running.value = true
     // 记住选择：刷新页面 / 从编辑器跳转都回到同一工程
@@ -98,6 +122,11 @@ const TREND_EVERY_TICKS = 4
 const TREND_MAX = 180
 /** 趋势图最多同时绘制 8 条线（再多就不可读） */
 const TREND_SERIES_LIMIT = 8
+/**
+ * 单屏最多渲染的信号行。大工程（上千变量）全量渲染会让 4Hz 的读数刷新变成主线程灾难；
+ * 超出部分靠搜索缩小范围（全开/全关仍作用于全部信号，不只是可见行）。
+ */
+const MAX_ROWS = 200
 const SPEED_OPTIONS = [0.5, 1, 2, 5] as const
 
 const running = ref(true)
@@ -121,10 +150,13 @@ function resetClock(): void {
   tickCount = 0
   elapsedText.value = '00:00'
   trend.value = {}
+  sparkPaths.value = {}
 }
 
 function tick(): void {
   if (!running.value || !simDoc.value) return
+  // 标签页在后台时不推进仿真（省 CPU/电），回来继续原时钟
+  if (document.visibilityState === 'hidden') return
   const eng = currentEngine()
   if (!eng) return
   elapsedMs += TICK_MS * speed.value
@@ -157,12 +189,14 @@ function resetSim(): void {
 // ---------------- 趋势 ----------------
 
 const trend = ref<Record<string, [number, number][]>>({})
+/** 行内迷你趋势的 SVG points 字符串（1Hz 预计算；渲染期只做查表，避免 4Hz 重渲染时反复拼字符串） */
+const sparkPaths = ref<Record<string, string>>({})
 
 function recordTrend(): void {
   const now = Date.now()
+  // 主趋势只记图表实际绘制的 ≤8 条：此前「全开」数百信号会每秒复制数百个 180 点数组
   const next: Record<string, [number, number][]> = { ...trend.value }
-  for (const s of signals.value) {
-    if (!s.enabled || s.type === 'string') continue
+  for (const s of chartSignals.value) {
     const raw = runtime.values.get(s.variableId)
     if (typeof raw !== 'number' && typeof raw !== 'boolean') continue
     const num = typeof raw === 'number' ? raw : raw ? 1 : 0
@@ -171,6 +205,34 @@ function recordTrend(): void {
     next[s.variableId] = arr
   }
   trend.value = next
+
+  const eng = currentEngine()
+  if (!eng) return
+  const paths: Record<string, string> = {}
+  for (const s of visibleSignals.value) {
+    if (!s.enabled || s.type === 'string') continue
+    const h = eng.historyOf(s.variableId)
+    if (h.length > 1) paths[s.variableId] = pathOf(h.slice(-40))
+  }
+  sparkPaths.value = paths
+}
+
+/** 采样序列 → 100×30 viewBox 内的归一化折线 points */
+function pathOf(vals: number[]): string {
+  let lo = vals[0]
+  let hi = vals[0]
+  for (const v of vals) {
+    if (v < lo) lo = v
+    if (v > hi) hi = v
+  }
+  const span = hi - lo || 1
+  let out = ''
+  for (let i = 0; i < vals.length; i++) {
+    const x = ((i / (vals.length - 1)) * 100).toFixed(2)
+    const y = (28 - ((vals[i] - lo) / span) * 26).toFixed(2)
+    out += i ? ` ${x},${y}` : `${x},${y}`
+  }
+  return out
 }
 
 const CHART_COLORS = ['#0f766e', '#b45309', '#1d4ed8', '#b91c1c', '#6d28d9', '#047857', '#c2410c', '#0e7490']
@@ -204,18 +266,9 @@ const chartOption = computed<EChartsCoreOption>(() => ({
   })),
 }))
 
-/** 行内迷你趋势：最近 40 个采样点归一化到 100×30 视图 */
+/** 行内迷你趋势：1Hz 预计算的 points（见 recordTrend） */
 function sparkPoints(s: SimSignal): string {
-  const arr = trend.value[s.variableId] ?? []
-  if (arr.length < 2) return ''
-  const recent = arr.slice(-40)
-  const vals = recent.map((p) => p[1])
-  const lo = Math.min(...vals)
-  const hi = Math.max(...vals)
-  const span = hi - lo || 1
-  return recent
-    .map((p, i) => `${((i / (recent.length - 1)) * 100).toFixed(2)},${(28 - ((p[1] - lo) / span) * 26).toFixed(2)}`)
-    .join(' ')
+  return sparkPaths.value[s.variableId] ?? ''
 }
 
 // ---------------- 信号面板 ----------------
@@ -228,12 +281,19 @@ const filteredSignals = computed(() => {
   return signals.value.filter((s) => s.label.toLowerCase().includes(q) || s.key.toLowerCase().includes(q))
 })
 
+const visibleSignals = computed(() => filteredSignals.value.slice(0, MAX_ROWS))
+const hiddenCount = computed(() => Math.max(0, filteredSignals.value.length - visibleSignals.value.length))
+
 const baseCount = computed(() => signals.value.filter((s) => !s.virtual).length)
 const enabledCount = computed(() => signals.value.filter((s) => !s.virtual && s.enabled).length)
 const virtualCount = computed(() => signals.value.filter((s) => s.virtual).length)
 
 function setAllEnabled(v: boolean): void {
   for (const s of signals.value) if (!s.virtual) s.enabled = v
+  const n = enabledCount.value
+  if (v && n > 200) {
+    ElMessage.warning(`已启用 ${n} 个信号，数量较多时画面刷新会变慢（可搜索后逐个关闭）`)
+  }
 }
 
 function displayValue(s: SimSignal): string {
@@ -269,6 +329,32 @@ function injectNow(s: SimSignal): void {
   recordTrend()
 }
 
+// ---------------- 快捷键与导航 ----------------
+
+/** 输入类元素里的按键不劫持（选中输入框时空格是字符/展开下拉） */
+function isTypingTarget(e: KeyboardEvent): boolean {
+  const el = e.target as HTMLElement | null
+  if (!el) return false
+  const tag = el.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || el.isContentEditable
+}
+
+/** 值班/联调常用：空格暂停继续，R 重置（不抢输入框与按钮的原生键盘行为） */
+function onKeydown(e: KeyboardEvent): void {
+  if (e.defaultPrevented || isTypingTarget(e) || e.ctrlKey || e.metaKey || e.altKey) return
+  if (e.code === 'Space') {
+    if (!simDoc.value) return
+    e.preventDefault()
+    running.value = !running.value
+  } else if (e.key === 'r' || e.key === 'R') {
+    if (simDoc.value) resetSim()
+  }
+}
+
+function openEditor(): void {
+  if (projectId.value) router.push(`/editor/${projectId.value}`)
+}
+
 // ---------------- 生命周期 ----------------
 
 onMounted(() => {
@@ -277,6 +363,7 @@ onMounted(() => {
   editor.projectId = ''
   void loadProjects()
   timer = window.setInterval(tick, TICK_MS)
+  window.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
@@ -284,33 +371,20 @@ onBeforeUnmount(() => {
     clearInterval(timer)
     timer = null
   }
+  window.removeEventListener('keydown', onKeydown)
+  if (projectSearchTimer !== null) clearTimeout(projectSearchTimer)
 })
 
-async function onLogout(): Promise<void> {
-  await auth.logout()
-  router.push('/login')
-}
 </script>
 
 <template>
   <div class="sim-page">
-    <header class="app-bar">
-      <div class="bar-brand">
-        <svg class="bar-mark" viewBox="0 0 32 32" aria-hidden="true">
-          <rect x="0.75" y="0.75" width="30.5" height="30.5" />
-          <path d="M5 21 H11 L14 12 L18 24 L21 16 H27" />
-        </svg>
-        <span class="bar-name">webScada</span>
-        <span class="bar-divider" aria-hidden="true"></span>
-        <span class="bar-scope">实时数据仿真台</span>
-      </div>
-      <div class="bar-user">
+    <AppBar scope="实时数据仿真台">
+      <template #actions>
         <button class="ws-ghost-btn" type="button" @click="router.push('/projects')">返回台账</button>
-        <ThemePicker />
-        <span class="user-name">{{ auth.username }}</span>
-        <button class="ws-ghost-btn" type="button" @click="onLogout">退出登录</button>
-      </div>
-    </header>
+        <button class="ws-ghost-btn" type="button" :disabled="!projectId" @click="openEditor">在编辑器中打开</button>
+      </template>
+    </AppBar>
 
     <div class="sim-toolbar">
       <div class="tb-left">
@@ -319,8 +393,10 @@ async function onLogout(): Promise<void> {
           v-model="projectId"
           class="project-select"
           filterable
-          placeholder="选择工程"
-          :loading="loadingProject"
+          remote
+          :remote-method="onSearchProjects"
+          placeholder="搜索 / 选择工程"
+          :loading="loadingProject || searchingProjects"
           @change="onProjectChange"
         >
           <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
@@ -334,14 +410,22 @@ async function onLogout(): Promise<void> {
         <span v-if="runtime.activeAlarmCount" class="alarm-chip" title="当前激活报警数">⚠ {{ runtime.activeAlarmCount }} 条报警</span>
       </div>
       <div class="tb-right">
-        <el-button size="small" :icon="running ? VideoPause : VideoPlay" :disabled="!simDoc" @click="running = !running">
+        <el-button
+          size="small"
+          :icon="running ? VideoPause : VideoPlay"
+          :disabled="!simDoc"
+          title="暂停 / 继续仿真时钟（快捷键：空格）"
+          @click="running = !running"
+        >
           {{ running ? '暂停' : '继续' }}
         </el-button>
         <span class="tb-label">倍速</span>
         <el-select v-model="speed" size="small" class="speed-select">
           <el-option v-for="v in SPEED_OPTIONS" :key="v" :label="`${v}×`" :value="v" />
         </el-select>
-        <el-button size="small" :icon="Refresh" :disabled="!simDoc" @click="resetSim">重置</el-button>
+        <el-button size="small" :icon="Refresh" :disabled="!simDoc" title="重置仿真时钟与画面（快捷键：R）" @click="resetSim">
+          重置
+        </el-button>
       </div>
     </div>
 
@@ -361,7 +445,7 @@ async function onLogout(): Promise<void> {
           <el-input v-model="search" size="small" clearable placeholder="搜索变量名 / key" :prefix-icon="Search" />
         </div>
         <div class="signal-list">
-          <article v-for="s in filteredSignals" :key="s.variableId" class="signal-row" :class="{ 'is-off': !s.enabled && !s.virtual }">
+          <article v-for="s in visibleSignals" :key="s.variableId" class="signal-row" :class="{ 'is-off': !s.enabled && !s.virtual }">
             <div class="row-head">
               <el-checkbox v-model="s.enabled" size="small" :disabled="s.virtual" />
               <span class="row-label" :title="`${s.label}（${s.key}）`">{{ s.label }}</span>
@@ -371,7 +455,14 @@ async function onLogout(): Promise<void> {
             </div>
 
             <div v-if="s.enabled && !s.virtual" class="row-controls">
-              <el-select v-model="s.wave" size="small" class="wave-select" @change="onWaveChange(s)">
+              <el-select
+                v-model="s.wave"
+                size="small"
+                class="wave-select"
+                :disabled="s.type === 'string'"
+                :title="s.type === 'string' ? '文本量只支持手动注入' : '仿真波形'"
+                @change="onWaveChange(s)"
+              >
                 <el-option label="正弦" value="sine" />
                 <el-option label="斜坡" value="ramp" />
                 <el-option label="随机" value="random" />
@@ -404,12 +495,19 @@ async function onLogout(): Promise<void> {
           <p v-if="!filteredSignals.length" class="panel-empty">
             {{ simDoc ? '没有匹配的信号' : '选择工程后显示变量列表' }}
           </p>
+          <p v-else-if="hiddenCount" class="panel-more">
+            另有 {{ hiddenCount }} 条未显示（单屏最多 {{ MAX_ROWS }} 条），输入关键字缩小范围
+          </p>
         </div>
       </aside>
 
       <section class="workspace">
         <div class="preview-box">
-          <RuntimeStage v-if="simDoc" ref="stageRef" :doc="simDoc" :title="previewTitle" docked />
+          <RuntimeStage v-if="simDoc" ref="stageRef" :doc="simDoc" :title="previewTitle" docked quiet />
+          <div v-if="loadingProject" class="preview-loading">
+            <span class="ws-spinner" role="status" aria-label="加载中" />
+            <span>正在载入工程…</span>
+          </div>
           <div v-else class="preview-empty">
             <svg viewBox="0 0 48 48" aria-hidden="true">
               <rect x="5.5" y="9.5" width="37" height="29" />
@@ -440,65 +538,6 @@ async function onLogout(): Promise<void> {
   flex-direction: column;
   background: var(--ws-canvas);
   overflow: hidden;
-}
-
-/* ---- 顶栏（与控制台同款） ---- */
-.app-bar {
-  height: 48px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-  background: var(--ws-ink);
-  color: var(--ws-text-inverse);
-}
-
-.bar-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.bar-mark {
-  width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: var(--ws-signal-bright);
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-
-.bar-name {
-  font-family: var(--ws-font-tech);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-}
-
-.bar-divider {
-  width: 1px;
-  height: 16px;
-  background: var(--ws-inv-line);
-}
-
-.bar-scope {
-  font-size: 13px;
-  color: var(--ws-inv-75);
-}
-
-.bar-user {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.user-name {
-  font-family: var(--ws-font-tech);
-  font-size: 12px;
-  letter-spacing: 0.03em;
-  color: var(--ws-inv-75);
 }
 
 /* ---- 工具条 ---- */
@@ -761,6 +800,16 @@ async function onLogout(): Promise<void> {
   color: var(--ws-text-3);
 }
 
+.panel-more {
+  margin: 0;
+  padding: 10px 12px 14px;
+  border-top: 1px dashed var(--ws-steel-2);
+  text-align: center;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ws-text-3);
+}
+
 /* ---- 预览 + 趋势 ---- */
 .workspace {
   flex: 1;
@@ -779,6 +828,19 @@ async function onLogout(): Promise<void> {
   border: 1px solid var(--ws-steel-3);
   background: #0d1823;
   box-shadow: var(--ws-shadow-panel);
+}
+
+.preview-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(13, 24, 35, 0.55);
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 13px;
 }
 
 .preview-empty {

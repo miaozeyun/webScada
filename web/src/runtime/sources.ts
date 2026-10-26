@@ -3,7 +3,7 @@
  * M8 起：值流/报警/写通道权威在服务端（/api/v1/ws/runtime），startServerChannel 为运行态主通道；
  * 浏览器直连适配器（mock/websocket/rest/mqtt）仅保留为编辑器「数据源连接测试」专用（02 §7.1 修订）。
  */
-import mqtt from 'mqtt'
+import type { MqttClient } from 'mqtt'
 import type {
   DataSource,
   VariableDef,
@@ -230,40 +230,64 @@ function startRest(ds: Extract<DataSource, { type: 'rest' }>, vars: VariableDef[
 // ---- mqtt：MQTT over WebSocket（mqtt.js，brokerUrl 形如 ws://host:8083/mqtt） ----
 
 function startMqtt(ds: Extract<DataSource, { type: 'mqtt' }>, vars: VariableDef[], onRaw: RawCallback): SourceHandle {
-  const client = mqtt.connect(ds.config.brokerUrl, {
-    username: ds.config.username || undefined,
-    password: ds.config.password || undefined,
-    reconnectPeriod: ds.config.reconnectMinMs ?? 1000,
-    clean: ds.config.cleanSession ?? true,
-    protocolVersion: 4,
-  })
-  const topics = ds.config.topics ?? []
-  if (topics.length) client.subscribe(topics, { qos: ds.config.qos ?? 0 })
+  let client: MqttClient | null = null
+  let stopped = false
 
-  client.on('message', (_topic, payload) => {
-    let data: unknown
-    try {
-      data = JSON.parse(payload.toString())
-    } catch {
-      data = payload.toString()
-    }
-    for (const v of vars) {
-      // 变量 address 即订阅 topic；同 topic 多变量各自经 jsonPath 取值
-      if (v.address && v.address !== _topic) continue
-      const raw = getByPath(data, v.jsonPath)
-      if (raw !== undefined) onRaw(v, raw)
-    }
-  })
+  // mqtt.js 体积大且只有浏览器直连 MQTT 时用到；按需加载，避免编辑器/分享页首屏白白背上它
+  const connecting: Promise<MqttClient | null> = import('mqtt')
+    .then(({ default: mqtt }) => {
+      if (stopped) return null
+      const c = mqtt.connect(ds.config.brokerUrl, {
+        username: ds.config.username || undefined,
+        password: ds.config.password || undefined,
+        reconnectPeriod: ds.config.reconnectMinMs ?? 1000,
+        clean: ds.config.cleanSession ?? true,
+        protocolVersion: 4,
+      })
+      const topics = ds.config.topics ?? []
+      if (topics.length) c.subscribe(topics, { qos: ds.config.qos ?? 0 })
+
+      c.on('message', (_topic, payload) => {
+        let data: unknown
+        try {
+          data = JSON.parse(payload.toString())
+        } catch {
+          data = payload.toString()
+        }
+        for (const v of vars) {
+          // 变量 address 即订阅 topic；同 topic 多变量各自经 jsonPath 取值
+          if (v.address && v.address !== _topic) continue
+          const raw = getByPath(data, v.jsonPath)
+          if (raw !== undefined) onRaw(v, raw)
+        }
+      })
+      client = c
+      return c
+    })
+    .catch((err: Error) => {
+      // 动态加载失败（离线/部署缺 chunk）：保留可见告警，后续重连不阻断其它数据源
+      console.warn('[webScada] MQTT 客户端加载失败：', err.message)
+      return null
+    })
+
+  async function ensureClient(): Promise<MqttClient> {
+    const c = client ?? (await connecting)
+    if (!c) throw new Error('MQTT 客户端未就绪（加载失败或连接已停止）')
+    return c
+  }
 
   return {
     stop: () => {
-      client.end(true)
+      stopped = true
+      client?.end(true)
+      client = null
     },
     write: async (variable, value) => {
       const topic = variable.writeAddress || variable.address
       if (!topic) throw new Error(`变量 ${variable.key} 未配置写地址（writeAddress/address）`)
+      const c = await ensureClient()
       await new Promise<void>((resolve, reject) => {
-        client.publish(
+        c.publish(
           topic,
           typeof value === 'string' ? value : String(value),
           { qos: ds.config.writeQos ?? 0, retain: false },
@@ -291,21 +315,26 @@ export function testConnection(ds: DataSource): Promise<TestResult> {
     case 'opcua':
       return Promise.resolve({ ok: false, message: 'OPC UA 仅支持服务端采集，请用数据源面板「测试连接」' })
     case 'mqtt':
-      return new Promise((resolve) => {
-        const client = mqtt.connect(ds.config.brokerUrl, {
-          username: ds.config.username || undefined,
-          password: ds.config.password || undefined,
-          reconnectPeriod: 0,
-          connectTimeout: 5000,
-          protocolVersion: 4,
-        })
-        const done = (ok: boolean, message: string): void => {
-          resolve({ ok, message })
-          setTimeout(() => client.end(true), 200)
-        }
-        client.on('connect', () => done(true, `已连接 ${ds.config.brokerUrl}`))
-        client.on('error', (err: Error) => done(false, `连接失败：${err.message}`))
-      })
+      return import('mqtt')
+        .then(
+          ({ default: mqtt }) =>
+            new Promise<TestResult>((resolve) => {
+              const client = mqtt.connect(ds.config.brokerUrl, {
+                username: ds.config.username || undefined,
+                password: ds.config.password || undefined,
+                reconnectPeriod: 0,
+                connectTimeout: 5000,
+                protocolVersion: 4,
+              })
+              const done = (ok: boolean, message: string): void => {
+                resolve({ ok, message })
+                setTimeout(() => client.end(true), 200)
+              }
+              client.on('connect', () => done(true, `已连接 ${ds.config.brokerUrl}`))
+              client.on('error', (err: Error) => done(false, `连接失败：${err.message}`))
+            }),
+        )
+        .catch(() => ({ ok: false, message: 'MQTT 客户端加载失败，请检查网络后重试' }))
     case 'websocket':
       return new Promise((resolve) => {
         try {

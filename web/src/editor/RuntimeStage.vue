@@ -37,8 +37,10 @@ const props = withDefaults(
     chromeless?: boolean
     /** 嵌入容器（仿真台等）：absolute 铺满定位父级而非 fixed 全屏，层级降为普通内容层 */
     docked?: boolean
+    /** 静默报警提示：仿真台波形反复穿越阈值时，弹窗/提示音会糊住画面；横幅与徽标仍保留 */
+    quiet?: boolean
   }>(),
-  { closable: false, writable: true, embed: false, chromeless: false, docked: false },
+  { closable: false, writable: true, embed: false, chromeless: false, docked: false, quiet: false },
 )
 
 const emit = defineEmits<{
@@ -330,7 +332,7 @@ function beep(level: string): void {
  *  与 ack 解耦修复：确认后未确认计数下降，提醒自然停止。 */
 let remindTimer: number | null = null
 function remindTick(): void {
-  if (!audioActive.value || !audioUnlocked.value || unackedCount.value <= 0) return
+  if (props.quiet || !audioActive.value || !audioUnlocked.value || unackedCount.value <= 0) return
   let level = 'warn'
   for (const ev of runtime.activeAlarms.values()) {
     if (ev.status !== 'acked' && ev.status !== 'cleared' && ev.level === 'critical') {
@@ -345,16 +347,18 @@ function onAlarmEvent(
   ev: { id: string; type: 'active' | 'recovered'; level: string; message: string; value?: number | boolean | string },
   rule?: { variableId: string; sound?: boolean | null },
 ): void {
-  const title = ev.type === 'active' ? `报警：${ev.level}` : '报警恢复'
-  ElNotification({
-    title,
-    message: ev.message,
-    type: ev.type === 'active' ? (ev.level === 'critical' ? 'error' : 'warning') : 'success',
-    duration: 4500,
-    position: 'bottom-right', // 避开右上角标题栏的「退出」按钮
-  })
-  // 规则级提示音开关（DataDrawer 表单里的「提示音」）：false 时不响
-  if (ev.type === 'active' && rule?.sound !== false) beepThrottled(ev.level)
+  if (!props.quiet) {
+    const title = ev.type === 'active' ? `报警：${ev.level}` : '报警恢复'
+    ElNotification({
+      title,
+      message: ev.message,
+      type: ev.type === 'active' ? (ev.level === 'critical' ? 'error' : 'warning') : 'success',
+      duration: 4500,
+      position: 'bottom-right', // 避开右上角标题栏的「退出」按钮
+    })
+    // 规则级提示音开关（DataDrawer 表单里的「提示音」）：false 时不响
+    if (ev.type === 'active' && rule?.sound !== false) beepThrottled(ev.level)
+  }
   // server 模式不走旧前端上报：服务端 rules_engine 已入库（02 §7.7 修订）
   if (serverOpts.value) return
   if (props.reportProjectId && localStorage.getItem('webscada_token')) {
@@ -481,7 +485,7 @@ onBeforeUnmount(() => {
         <el-icon><Bell /></el-icon>{{ unackedCount }}
       </button>
       <button
-        v-if="soundEnabled"
+        v-if="soundEnabled && !quiet"
         class="sound-btn"
         :class="{ dim: !audioActive || !audioUnlocked }"
         type="button"

@@ -13,6 +13,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     AlarmBanner: typeof import('./src/components/alarm/AlarmBanner.vue')['default']
     AlarmPanel: typeof import('./src/components/alarm/AlarmPanel.vue')['default']
+    AppBar: typeof import('./src/components/AppBar.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElBreadcrumb: typeof import('element-plus/es')['ElBreadcrumb']
     ElBreadcrumbItem: typeof import('element-plus/es')['ElBreadcrumbItem']

@@ -8,7 +8,7 @@
  * - 存量兼容：未知 level 灰显标签 + 安全橙兜底强调色（契约 §11.8）。
  * 挂接：宿主置于运行画面上方（如 RuntimeStage 顶栏之下）；无活动报警时组件整体不渲染。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ArrowDown, ArrowUp, Close, Promotion } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRuntimeStore } from '@/runtime/store'
@@ -97,6 +97,23 @@ function dismiss(e: AlarmEventLike): void {
   refreshTick.value++
 }
 
+/** 报警恢复后从「本屏隐藏」集合里清掉，避免值班长跑时集合无界增长 */
+function pruneDismissed(): void {
+  if (!dismissed.size) return
+  for (const id of [...dismissed]) {
+    let stillActive = false
+    for (const key of runtime.activeAlarms.keys()) {
+      if (String(key) === String(id)) {
+        stillActive = true
+        break
+      }
+    }
+    if (!stillActive) dismissed.delete(id)
+  }
+}
+
+watch(() => runtime.activeAlarms.size, pruneDismissed)
+
 // ---- 角色与快捷确认 ----
 
 const role = ref<UserRole | null>(null)
@@ -141,7 +158,7 @@ function fmtTime(at?: number): string {
 </script>
 
 <template>
-  <div v-if="activeItems.length > 0" class="alarm-banner" :class="{ collapsed }">
+  <div v-if="activeItems.length > 0" class="alarm-banner" :class="{ collapsed }" role="status" aria-live="polite">
     <div class="summary">
       <span class="badge" :style="{ background: levelColor(activeItems[0].level ?? '') }">
         {{ activeItems.length }}
@@ -270,7 +287,7 @@ function fmtTime(at?: number): string {
 
 .time {
   flex-shrink: 0;
-  color: var(--ws-text-3);
+  color: var(--ws-inv-60);
   font-family: var(--ws-font-tech);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
@@ -297,7 +314,7 @@ function fmtTime(at?: number): string {
 }
 
 .rest {
-  color: var(--ws-text-3);
+  color: var(--ws-inv-60);
   font-size: 11px;
   padding-left: 11px;
 }

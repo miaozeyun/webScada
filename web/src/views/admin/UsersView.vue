@@ -10,7 +10,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
-import ThemePicker from '@/components/ThemePicker.vue'
+import AppBar from '@/components/AppBar.vue'
 import {
   createUser,
   deleteUser,
@@ -214,11 +214,6 @@ async function doDelete(row: UserOut): Promise<void> {
   }
 }
 
-async function onLogout(): Promise<void> {
-  await auth.logout()
-  router.push('/login')
-}
-
 function fmtTime(iso: string): string {
   return new Date(iso).toLocaleString('zh-CN', { hour12: false })
 }
@@ -226,27 +221,15 @@ function fmtTime(iso: string): string {
 
 <template>
   <div class="admin-page">
-    <header class="app-bar">
-      <div class="bar-brand">
-        <svg class="bar-mark" viewBox="0 0 32 32" aria-hidden="true">
-          <rect x="0.75" y="0.75" width="30.5" height="30.5" />
-          <path d="M5 21 H11 L14 12 L18 24 L21 16 H27" />
-        </svg>
-        <span class="bar-name">webScada</span>
-        <span class="bar-divider" aria-hidden="true"></span>
-        <span class="bar-scope">系统管理 · 用户管理</span>
-      </div>
-      <div class="bar-user">
+    <AppBar scope="系统管理 · 用户管理">
+      <template #nav>
         <nav class="bar-nav">
           <button class="bar-link is-active" type="button">用户管理</button>
           <button class="bar-link" type="button" @click="router.push('/admin/audit')">审计日志</button>
           <button class="bar-link" type="button" @click="router.push('/projects')">返回台账</button>
         </nav>
-        <ThemePicker />
-        <span class="user-name">{{ auth.username }}</span>
-        <button class="bar-action ws-ghost-btn" type="button" @click="onLogout">退出登录</button>
-      </div>
-    </header>
+      </template>
+    </AppBar>
 
     <main class="workspace">
       <div class="page-head">
@@ -395,58 +378,7 @@ function fmtTime(iso: string): string {
   flex-direction: column;
 }
 
-/* ---- 控制台顶栏（与工程台账同构） ---- */
-.app-bar {
-  height: 48px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 24px;
-  background: var(--ws-ink);
-  color: var(--ws-text-inverse);
-}
-
-.bar-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.bar-mark {
-  width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: var(--ws-signal-bright);
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-
-.bar-name {
-  font-family: var(--ws-font-tech);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-}
-
-.bar-divider {
-  width: 1px;
-  height: 16px;
-  background: var(--ws-inv-line);
-}
-
-.bar-scope {
-  font-size: 13px;
-  color: var(--ws-inv-75);
-}
-
-.bar-user {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
+/* ---- 顶栏导航（AppBar 的 nav 插槽内容） ---- */
 .bar-nav {
   display: flex;
   align-items: center;
@@ -473,15 +405,6 @@ function fmtTime(iso: string): string {
   background: var(--ws-signal-a18);
   color: #fff;
 }
-
-.user-name {
-  font-family: var(--ws-font-tech);
-  font-size: 12px;
-  letter-spacing: 0.03em;
-  color: var(--ws-inv-75);
-}
-
-/* bar-action 外观走全局 .ws-ghost-btn */
 
 /* ---- 工作区 ---- */
 .workspace {
@@ -653,17 +576,8 @@ function fmtTime(iso: string): string {
 }
 
 @media (max-width: 480px) {
-  .app-bar {
-    padding: 0 14px;
-  }
-
-  .bar-brand {
-    gap: 8px;
-  }
-
-  .bar-scope,
-  .bar-nav,
-  .user-name {
+  /* 顶栏品牌/用户名隐藏由 AppBar 负责；这里只收起导航，避免挤出操作区 */
+  .bar-nav {
     display: none;
   }
 }

@@ -236,6 +236,14 @@ body {
   background: var(--ws-signal-a18);
 }
 
+.ws-ghost-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--ws-inv-line);
+  background: transparent;
+  color: var(--ws-inv-42);
+}
+
 /* 组件空态（配置前/无数据共用）：画布内容不随界面主题，用固定中性色保证深浅画布均可读 */
 .ws-canvas-empty {
   width: 100%;

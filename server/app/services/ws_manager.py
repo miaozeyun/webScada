@@ -89,13 +89,15 @@ class Connection:
         per-conn 超时：单个停滞客户端不允许无限占住锁，把同工程广播、心跳与
         合帧循环一并拖到停摆——超时放弃本次发送并交由调用方摘除该连接。
         """
+        payload = json.dumps(frame, ensure_ascii=False, separators=(",", ":"))
+        return await self.send_payload(payload, str(frame.get("type", "unknown")))
+
+    async def send_payload(self, payload: str, frame_type: str = "unknown") -> bool:
+        """发送已序列化帧。广播场景由调用方只序列化一次，N 条连接复用同一字符串。"""
         try:
             async with self.lock:
-                await asyncio.wait_for(
-                    self.ws.send_text(json.dumps(frame, ensure_ascii=False, separators=(",", ":"))),
-                    timeout=self.send_timeout,
-                )
-            stats.inc(f"ws_frames_{frame.get('type', 'unknown')}_total")
+                await asyncio.wait_for(self.ws.send_text(payload), timeout=self.send_timeout)
+            stats.inc(f"ws_frames_{frame_type}_total")
             return True
         except Exception:  # noqa: BLE001 - 网络断开/已关闭/发送超时（停滞连接）
             return False
@@ -197,8 +199,24 @@ class WSManager:
         return ok
 
     async def _broadcast_project(self, project_id: uuidlib.UUID, frame: dict) -> None:
-        for conn in list(self._conns.get(project_id, [])):
-            await self.send_to(conn, frame)
+        """同工程广播：帧只序列化一次 + 各连接并发发送。
+
+        值班墙 N 个客户端时：序列化从 N 次降到 1 次；并发发送避免一个慢客户端
+        （发送缓冲写满，最长等 SEND_TIMEOUT_SEC）把同工程其他大屏一起拖慢。
+        per-conn 锁保证同一连接上的帧序不变。
+        """
+        conns = list(self._conns.get(project_id, []))
+        if not conns:
+            return
+        payload = json.dumps(frame, ensure_ascii=False, separators=(",", ":"))
+        frame_type = str(frame.get("type", "unknown"))
+        results = await asyncio.gather(
+            *(conn.send_payload(payload, frame_type) for conn in conns),
+            return_exceptions=True,
+        )
+        for conn, ok in zip(conns, results):
+            if ok is not True:
+                await self.unregister(conn)
 
     async def _close(self, conn: Connection, code: int = 4000) -> None:
         try:
@@ -225,13 +243,24 @@ class WSManager:
             if not self._dirty:
                 continue
             pending, self._dirty = self._dirty, {}
-            for project_id, data in pending.items():
-                if data:
-                    await self._broadcast_project(project_id, {"type": "values", "data": data})
+            # 工程间也并发：某个工程的慢客户端不应推迟其它工程的下一帧。
+            # return_exceptions：单工程广播异常不得让合帧循环停摆（否则全实例值流静默中断）
+            results = await asyncio.gather(
+                *(
+                    self._broadcast_project(project_id, {"type": "values", "data": data})
+                    for project_id, data in pending.items()
+                    if data
+                ),
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.warning(f"values 帧广播异常：{type(result).__name__} {result}")
 
     # ---- 心跳 ----
 
     async def _ping_loop(self) -> None:
+        ping_payload = json.dumps({"type": "ping"})
         while True:
             await asyncio.sleep(PING_INTERVAL_SEC)
             now = _now()
@@ -241,7 +270,7 @@ class WSManager:
                         # 判死：不发 error 帧（03 §3.5），客户端按网络级失败退避重连
                         await self.unregister(conn)
                         await self._close(conn)
-                    elif not await conn.send_json({"type": "ping"}):
+                    elif not await conn.send_payload(ping_payload, "ping"):
                         # 发送失败（含停滞超时）→ 摘除，防死连接常驻
                         await self.unregister(conn)
 
@@ -302,11 +331,13 @@ class WSManager:
     # ---- C 包 / 本包钩子 ----
 
     async def broadcast_reload(self, token: str) -> None:
-        """分享快照 refresh → 该 token 全部连接 reload（03 §3.4）。经 send_to：失败即摘除。"""
+        """分享快照 refresh → 该 token 全部连接 reload（03 §3.4）。失败即摘除。"""
+        payload = json.dumps({"type": "reload"})
         for conns in list(self._conns.values()):
             for conn in list(conns):
                 if conn.kind == "share" and conn.token == token:
-                    await self.send_to(conn, {"type": "reload"})
+                    if not await conn.send_payload(payload, "reload"):
+                        await self.unregister(conn)
 
     async def close_share_token(self, token: str, code: str, message: str) -> None:
         """分享撤销/过期 → 该 token 全部 share 连接 error 帧 + close(4000)（03 §2.6：撤权即时生效）。"""

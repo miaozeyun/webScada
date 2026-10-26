@@ -5,7 +5,7 @@
  * 一次；失败清双凭证跳登录。/auth/login 的 401 是凭证错误而非会话过期，不参与刷新。
  */
 import axios from 'axios'
-import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
+import type { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '@/router'
 import type { RefreshResp } from './auth'
@@ -28,6 +28,12 @@ instance.interceptors.request.use((config) => {
 /** 带"已重放"标记的请求配置：重放后的 401 不再刷新（每请求最多重放一次，防刷新风暴） */
 interface RetriableConfig extends InternalAxiosRequestConfig {
   _retried?: boolean
+  silent?: boolean
+}
+
+/** 业务请求配置：silent=true 时失败不弹全局提示（轮询类请求避免断网时每轮刷一条 toast） */
+export interface RequestOptions extends AxiosRequestConfig {
+  silent?: boolean
 }
 
 let refreshInflight: Promise<boolean> | null = null
@@ -69,6 +75,7 @@ instance.interceptors.response.use(
   async (err: AxiosError) => {
     const resp = err.response
     const config = err.config as RetriableConfig | undefined
+    const silent = config?.silent === true
     if (resp) {
       const { code, message, errors } = (resp.data || {}) as {
         code?: string
@@ -89,13 +96,15 @@ instance.interceptors.response.use(
         }
         // 无 refresh / 刷新失败 / 重放后仍 401：会话终结
         forceLogout(message)
-      } else if (code === 'REVISION_CONFLICT') {
-        // 409 冲突转用户提示（G2/K2）
-        ElMessage.error(message || '工程已被他人修改，请刷新后重试')
-      } else {
-        ElMessage.error(detail || message || `请求失败（${resp.status}）`)
+      } else if (!silent) {
+        if (code === 'REVISION_CONFLICT') {
+          // 409 冲突转用户提示（G2/K2）
+          ElMessage.error(message || '工程已被他人修改，请刷新后重试')
+        } else {
+          ElMessage.error(detail || message || `请求失败（${resp.status}）`)
+        }
       }
-    } else {
+    } else if (!silent) {
       ElMessage.error('网络错误，请检查连接')
     }
     return Promise.reject(err)
@@ -104,12 +113,12 @@ instance.interceptors.response.use(
 
 // 泛型包装（拦截器已解包 data）
 export const http = {
-  get: <T>(url: string, config?: Parameters<typeof instance.get>[1]) =>
+  get: <T>(url: string, config?: RequestOptions) =>
     instance.get(url, config) as unknown as Promise<T>,
-  post: <T>(url: string, data?: unknown, config?: Parameters<typeof instance.post>[2]) =>
+  post: <T>(url: string, data?: unknown, config?: RequestOptions) =>
     instance.post(url, data, config) as unknown as Promise<T>,
-  put: <T>(url: string, data?: unknown, config?: Parameters<typeof instance.put>[2]) =>
+  put: <T>(url: string, data?: unknown, config?: RequestOptions) =>
     instance.put(url, data, config) as unknown as Promise<T>,
-  delete: <T>(url: string, config?: Parameters<typeof instance.delete>[1]) =>
+  delete: <T>(url: string, config?: RequestOptions) =>
     instance.delete(url, config) as unknown as Promise<T>,
 }

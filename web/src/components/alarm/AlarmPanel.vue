@@ -22,13 +22,23 @@ import {
 } from '@/api/alarms'
 import { useRuntimeStore } from '@/runtime/store'
 
-const props = defineProps<{ projectId: string }>()
+const props = withDefaults(
+  defineProps<{
+    projectId: string
+    /** 轮询刷新间隔（秒）；0=关闭。独立报警中心没有运行态引擎，靠它保持列表新鲜 */
+    autoRefreshSec?: number
+  }>(),
+  { autoRefreshSec: 0 },
+)
 
 const runtime = useRuntimeStore()
 
 const rows = ref<AlarmOut[]>([])
 const total = ref(0)
 const loading = ref(false)
+const lastLoadedAt = ref('')
+/** 自动刷新失败标记：轮询请求静默（不弹 toast），由这里给出可见但克制的失败提示 */
+const lastError = ref(false)
 
 /** 系统级报警（通讯中断）变量 key 为 __comm__:<dsId>，列表里显示可读标签 */
 function keyText(key: string): string {
@@ -50,9 +60,17 @@ const rangeFilter = ref<[Date, Date] | null>(null)
 const page = ref(1)
 const size = ref(20)
 
-async function load(silent = false): Promise<void> {
+/** 请求序号：WS 帧 + 轮询 + 手动刷新可能并发，只允许最后发出的请求落表（防旧响应覆盖新结果） */
+let loadSeq = 0
+
+/**
+ * @param silent 不显示表格 loading 遮罩（后台刷新）
+ * @param quiet  请求失败不弹全局提示（默认随 silent；轮询失败不应每轮刷一条 toast）
+ */
+async function load(silent = false, quiet = silent): Promise<void> {
   if (!props.projectId) return
-  loading.value = !silent
+  const seq = ++loadSeq
+  if (!silent) loading.value = true
   try {
     const params: Parameters<typeof listAlarms>[1] = {
       status: statusFilter.value,
@@ -65,14 +83,27 @@ async function load(silent = false): Promise<void> {
       params.from = rangeFilter.value[0].toISOString()
       params.to = rangeFilter.value[1].toISOString()
     }
-    const resp = await listAlarms(props.projectId, params)
+    const resp = await listAlarms(props.projectId, params, { silent: quiet })
+    if (seq !== loadSeq) return // 已有更新的请求在途
     rows.value = resp.items ?? []
     total.value = resp.total ?? 0
+    lastLoadedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    lastError.value = false
   } catch {
-    /* 错误信封已由 http 拦截器统一提示 */
+    if (seq === loadSeq) lastError.value = true
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
+}
+
+/** 静默刷新合帧：报警风暴时 WS 每帧都会触发，直接调用会把 REST 打爆 */
+let silentTimer: ReturnType<typeof setTimeout> | null = null
+function scheduleSilentReload(): void {
+  if (silentTimer) clearTimeout(silentTimer)
+  silentTimer = setTimeout(() => {
+    silentTimer = null
+    void load(true)
+  }, 600)
 }
 
 // 过滤变化回第一页重查；变量 key 输入 300ms 防抖
@@ -130,23 +161,41 @@ async function onAck(row: AlarmOut): Promise<void> {
 let offAcked: (() => void) | null = null
 let stopEventsWatch: (() => void) | null = null
 let stopAckWatch: (() => void) | null = null
+let autoTimer: number | null = null
+
+/** 自动刷新定时器（独立报警中心无 WS 引擎，靠轮询兜底；切到后台时暂停请求） */
+function syncAutoTimer(): void {
+  if (autoTimer !== null) {
+    clearInterval(autoTimer)
+    autoTimer = null
+  }
+  if (props.autoRefreshSec > 0) {
+    autoTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load(true)
+    }, props.autoRefreshSec * 1000)
+  }
+}
 
 onMounted(async () => {
   role.value = await fetchMyRole()
   void load()
+  syncAutoTimer()
   // 同宿主其它组件（如报警横幅）REST ack 成功 → 静默刷新当前页
-  offAcked = onAlarmAcked(() => void load(true))
-  // WS alarm/alarmClear/alarmAck 帧经 runtime 事件流到达（A 包 server 模式写入）→ 静默刷新
-  stopEventsWatch = watch(() => runtime.alarmEvents.length, () => void load(true))
+  offAcked = onAlarmAcked(scheduleSilentReload)
+  // WS alarm/alarmClear/alarmAck 帧经 runtime 事件流到达（A 包 server 模式写入）→ 合帧后静默刷新
+  stopEventsWatch = watch(() => runtime.alarmEvents.length, scheduleSilentReload)
   // 远端 alarmAck 帧（他端确认）不经过 alarmEvents：经 serverAckedAlarmIds 登记后触发静默刷新，
   // 避免他端已确认、本端停留「未确认」
-  stopAckWatch = watch(() => runtime.serverAckedAlarmIds.size, () => void load(true))
+  stopAckWatch = watch(() => runtime.serverAckedAlarmIds.size, scheduleSilentReload)
 })
+watch(() => props.autoRefreshSec, syncAutoTimer)
 onBeforeUnmount(() => {
   offAcked?.()
   stopEventsWatch?.()
   stopAckWatch?.()
   if (keyDebounce) clearTimeout(keyDebounce)
+  if (silentTimer) clearTimeout(silentTimer)
+  if (autoTimer !== null) clearInterval(autoTimer)
 })
 
 // ---- 展示映射（未知值灰显兜底） ----
@@ -203,10 +252,20 @@ function fmtTime(iso?: string | null): string {
         end-placeholder="触发止"
         class="f-range"
       />
+      <span
+        v-if="autoRefreshSec > 0"
+        class="auto-hint"
+        :class="{ 'is-error': lastError }"
+        :title="lastError ? '上次自动刷新失败，稍后自动重试' : `每 ${autoRefreshSec} 秒自动刷新，切到后台时暂停`"
+      >
+        <span class="live-dot" aria-hidden="true" />
+        {{ lastError ? '自动刷新失败' : '自动刷新' }}
+        <span v-if="lastLoadedAt" class="auto-time ws-readout">· {{ lastLoadedAt }}</span>
+      </span>
       <el-button :icon="Refresh" :loading="loading" @click="load()">刷新</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="rows" size="small" class="table">
+    <el-table v-loading="loading" :data="rows" size="small" class="table" empty-text="当前筛选条件下没有报警记录">
       <el-table-column label="级别" width="84">
         <template #default="{ row }">
           <el-tag :type="levelMeta(row.level).type" :effect="LEVEL_META[row.level] ? 'light' : 'plain'" size="small">
@@ -283,7 +342,7 @@ function fmtTime(iso?: string | null): string {
 }
 
 .f-status {
-  width: 190px;
+  width: 230px;
 }
 
 .f-level {
@@ -296,6 +355,39 @@ function fmtTime(iso?: string | null): string {
 
 .f-range {
   max-width: 360px;
+}
+
+.auto-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding-right: 4px;
+  font-size: 11px;
+  color: var(--ws-text-3);
+  white-space: nowrap;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ws-signal);
+  box-shadow: 0 0 0 3px var(--ws-signal-a12);
+}
+
+.auto-hint.is-error {
+  color: var(--ws-alert);
+}
+
+.auto-hint.is-error .live-dot {
+  background: var(--ws-alert);
+  box-shadow: 0 0 0 3px var(--ws-alert-a16);
+}
+
+.auto-time {
+  font-size: 11px;
+  color: var(--ws-text-3);
 }
 
 .table {

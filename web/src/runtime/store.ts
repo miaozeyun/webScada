@@ -30,9 +30,9 @@ export interface AlarmEvent {
   message: string
   value: number | boolean | string
   at: number
-  /** M8 服务端帧透传字段（本地引擎事件无）：alarmId 供横幅快捷 ack（DB id），
-   *  variableKey 供 WidgetHost S2 报警态反查绑定变量（分享页 rules 不在本地 doc）；
-   *  缺失这两个字段会使分享页报警渲染与快捷确认双双失效 */
+  /** 服务端帧透传字段：alarmId 供横幅快捷 ack（DB id），variableKey 供 WidgetHost S2
+   *  报警态反查绑定变量。本地引擎事件也带 variableKey（不依赖 editor.doc，仿真台可用）；
+   *  缺失 alarmId 只会失去快捷确认，缺失 variableKey 会导致组件报警态不渲染。 */
   variableKey?: string
   ruleId?: string
   alarmId?: number

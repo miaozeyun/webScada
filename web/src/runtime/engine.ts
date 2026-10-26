@@ -622,6 +622,10 @@ export class RuntimeEngine {
           : `${rule.name} 已恢复（${variable.label}=${fmtValue(variable, value)}）`,
         value,
         at: Date.now(),
+        // 与 M8 服务端帧同构：WidgetHost S2 报警态按 variableKey 反查绑定变量。
+        // 缺这个字段时，仿真台/分享页（editor.doc 不是当前工程）无法给组件叠报警色。
+        variableKey: variable.key,
+        ruleId: rule.id,
       }
       this.runtime.pushAlarmEvent(ev)
       this.opts.onAlarmEvent?.(ev, rule)

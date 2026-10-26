@@ -61,7 +61,11 @@ export interface AlarmListParams {
   size?: number
 }
 
-export const listAlarms = (projectId: string, params: AlarmListParams = {}) => {
+export const listAlarms = (
+  projectId: string,
+  params: AlarmListParams = {},
+  opts: { silent?: boolean } = {},
+) => {
   const q: Record<string, string | number> = {}
   if (params.status && params.status.length > 0) q.status = params.status.join(',')
   if (params.level) q.level = params.level
@@ -70,7 +74,7 @@ export const listAlarms = (projectId: string, params: AlarmListParams = {}) => {
   if (params.to) q.to = params.to
   q.page = params.page ?? 1
   q.size = params.size ?? 20
-  return http.get<AlarmListOut>(`/projects/${projectId}/alarms`, { params: q })
+  return http.get<AlarmListOut>(`/projects/${projectId}/alarms`, { params: q, silent: opts.silent })
 }
 
 /** 报警确认（operator/admin；viewer 403）。note 可选 ≤256 字符；成功后派发页面内 ack 联动事件 */
@@ -88,30 +92,57 @@ export async function ackAlarm(projectId: string, alarmId: number, note?: string
 export type UserRole = 'admin' | 'operator' | 'viewer'
 
 let cachedRole: UserRole | null | undefined // undefined=未拉取
+/** 缓存绑定的 token：换账号后旧角色不得复用（登出/换人只跳路由、不刷新页面） */
+let cachedRoleToken: string | null = null
+/** 单飞：报警中心页与 AlarmPanel 同时挂载时只发一次 /auth/me */
+let roleInflight: Promise<UserRole | null> | null = null
+let roleInflightToken: string | null = null
 
 /**
  * 拉 /auth/me 的 role（M8 起返回 role 字段）。
  * 无 JWT（分享页）或请求失败一律返回 null，调用方据此隐藏 ack 按钮。
- * 缓存策略：会话内缓存；角色变更/登出后刷新页面生效（角色为低频管理操作）。
+ * 缓存策略：会话内缓存，按 token 失效（换账号/登出后自动重取）。
  */
-export async function fetchMyRole(): Promise<UserRole | null> {
-  if (cachedRole !== undefined) return cachedRole
-  if (!localStorage.getItem('webscada_token')) {
+export function fetchMyRole(): Promise<UserRole | null> {
+  const token = localStorage.getItem('webscada_token')
+  if (cachedRole !== undefined && cachedRoleToken === token) return Promise.resolve(cachedRole)
+  if (!token) {
     cachedRole = null
-    return null
+    cachedRoleToken = null
+    return Promise.resolve(null)
   }
-  try {
-    const me = await http.get<{ role?: string }>('/auth/me')
-    cachedRole = me.role === 'admin' || me.role === 'operator' || me.role === 'viewer' ? me.role : null
-  } catch {
-    cachedRole = null
-  }
-  return cachedRole
+  if (roleInflight && roleInflightToken === token) return roleInflight
+  const req = http
+    .get<{ role?: string }>('/auth/me')
+    .then((me) => {
+      // 请求期间已登出/换账号：结果丢弃，不污染新会话
+      if (localStorage.getItem('webscada_token') !== token) return null
+      cachedRole = me.role === 'admin' || me.role === 'operator' || me.role === 'viewer' ? me.role : null
+      cachedRoleToken = token
+      return cachedRole
+    })
+    .catch(() => {
+      // 失败不落缓存：网络抖动/服务重启后再次挂载可重试（否则 ack 按钮一直隐藏到刷新）
+      if (localStorage.getItem('webscada_token') === token) {
+        cachedRole = undefined
+        cachedRoleToken = null
+      }
+      return null
+    })
+    .finally(() => {
+      if (roleInflight === req) roleInflight = null
+    })
+  roleInflight = req
+  roleInflightToken = token
+  return req
 }
 
 /** 清空角色缓存（测试/登出场景用） */
 export function resetRoleCache(): void {
   cachedRole = undefined
+  cachedRoleToken = null
+  roleInflight = null
+  roleInflightToken = null
 }
 
 // ---- 报警级别色（运行态主题）：宿主注入 → editor doc → 内置默认，三级回退 ----
