@@ -196,6 +196,9 @@ services:
       DATASOURCE_SECRET: ${DATASOURCE_SECRET:?请在 .env 中设置 DATASOURCE_SECRET（生成方式见 .env.example）}
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请在 .env 中设置 ADMIN_PASSWORD}
+      # 对外可访问地址（分享链接用）；反代或非 80/443 端口部署时必须显式配置，
+      # 例如 https://scada.example.com:8088；空 = 从请求 Host 推导
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       # 可调参数显式透传（.env.example 同口径；容器内无 .env 文件，缺省会静默用默认值）
       JWT_EXPIRE_HOURS: ${JWT_EXPIRE_HOURS:-2}
       LOGIN_LOCKOUT_ATTEMPTS: ${LOGIN_LOCKOUT_ATTEMPTS:-5}
