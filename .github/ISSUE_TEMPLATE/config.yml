@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞
+    url: mailto:18835132457@163.com
+    about: 请勿通过公开 Issue 报告安全问题，直接邮件联系。
+  - name: 商业授权 / 企业版咨询
+    url: mailto:18835132457@163.com
+    about: 闭源使用、白标 OEM、SLA 支持等商业事宜。
+  - name: 使用文档
+    url: https://gitee.com/miao_zeyun/web-scada/blob/main/README.md
+    about: 部署方式、功能矩阵与路线图。

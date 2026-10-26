@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 开关（M7 反控，对齐 BY「开关」）：读写一体的变量控制组件。
+/** 开关（M7 反控，对齐 业界主流组态「开关」）：读写一体的变量控制组件。
  * 显示态 = runtime.values[variableId] 与 onValue 宽松相等；点击写 on/off 值（经写中心校验 writable）。
  * 编辑态（无 RuntimeApi provider）显示 off 态且不可操作。 */
 import { computed, ref } from 'vue'

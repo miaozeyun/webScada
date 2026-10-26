@@ -3,6 +3,7 @@
 前置：nginx(8088) 已运行；本脚本经 with_server.py 由 vite dev(5173) 代理访问。
 覆盖：放置/拖拽移动/吸附/撤销重做/成组解组/保存持久化（刷新后坐标一致）。
 """
+import os
 import sys
 
 from playwright.sync_api import sync_playwright
@@ -10,6 +11,12 @@ from playwright.sync_api import sync_playwright
 BASE = "http://localhost:5199"
 PASS = 0
 FAIL = 0
+
+# 凭证一律从环境变量读取，不写入仓库
+ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+if not ADMIN_PASSWORD:
+    sys.exit("缺少环境变量 ADMIN_PASSWORD")
 
 
 def check(name: str, cond: bool, detail: str = ""):
@@ -65,8 +72,8 @@ with sync_playwright() as p:
     # ---- 登录 ----
     page.goto(f"{BASE}/login")
     page.wait_for_load_state("networkidle")
-    page.fill("input[placeholder='用户名']", "admin")
-    page.fill("input[placeholder='密码']", "admin12345")
+    page.fill("input[placeholder='用户名']", ADMIN_USER)
+    page.fill("input[placeholder='密码']", ADMIN_PASSWORD)
     page.click("button.login-btn")
     page.wait_for_url("**/projects")
     check("登录并进入工程列表", "/projects" in page.url)

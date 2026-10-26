@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 视频（M7，对齐 BY「视频」）：HTML5 原生 video（mp4/webm/hls 视浏览器而定）。
+/** 视频（M7，对齐 业界主流组态「视频」）：HTML5 原生 video（mp4/webm/hls 视浏览器而定）。
  * RTSP/GB28181 需流媒体网关转 WebRTC/HTTP-FLV（企业版），此处给占位提示。
  * 编辑态禁用指针事件（同 WebFrameWidget）。 */
 import { computed } from 'vue'

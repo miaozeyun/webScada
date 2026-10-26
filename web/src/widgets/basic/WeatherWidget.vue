@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 天气（M7，对齐 BY「天气和时间」）：open-meteo 免费接口（无 key），按经纬度取实况。
+/** 天气（M7，对齐 业界主流组态「天气和时间」）：open-meteo 免费接口（无 key），按经纬度取实况。
  * 10 分钟刷新；失败静默保留旧值（首次失败显示 '--'）。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 

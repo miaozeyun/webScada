@@ -1,0 +1,45 @@
+name: 功能建议
+description: 提出新能力或改进建议
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先确认该能力不在 [NOTICE.md](../blob/main/NOTICE.md) 列出的**企业版专有范围**内
+        （RTSP 视频、主备冗余、白标 OEM、License 机制等），这些不在开源仓库实现。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你要解决的问题
+      description: 描述真实场景，而不是直接给方案。例如「产线 8 小时班次的生产报表需要导出」
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的方案
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你考虑过的替代方案
+      description: 例如现有功能组合能否绕过、是否有第三方工具可用
+    validations:
+      required: false
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: 影响面
+      options:
+        - 仅前端组件 / 编辑器交互
+        - 涉及契约变更（doc 结构，需前后端同步）
+        - 仅后端能力
+        - 涉及部署形态
+        - 不确定
+    validations:
+      required: true

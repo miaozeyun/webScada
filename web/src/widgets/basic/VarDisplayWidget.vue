@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 变量显示（M7，对齐 BY「变量」组件）：前缀 + 数值（精度）+ 单位；绑 props.value。
+/** 变量显示（M7，对齐 业界主流组态「变量」组件）：前缀 + 数值（精度）+ 单位；绑 props.value。
  * 无值时显示占位 '--'（编辑态即此形态）。 */
 import { computed } from 'vue'
 

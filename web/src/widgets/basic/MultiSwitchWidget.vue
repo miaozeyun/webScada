@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 多档开关（M7 反控，对齐 BY「多档开关」）：levels JSON [{value,label}]，
+/** 多档开关（M7 反控，对齐 业界主流组态「多档开关」）：levels JSON [{value,label}]，
  * 当前档 = 变量值匹配；点档位写值。编辑态静态展示且不可操作。 */
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'

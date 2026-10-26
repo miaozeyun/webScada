@@ -37,3 +37,9 @@ skills-lock.json
 backup/
 deploy/certs/
 backups/
+
+# 第三方系统侦察记录（含他人凭证，严禁入库；历史亦须剥离，见 docs/operations/opensource-checklist.md）
+.recon/
+
+# 内部商业文档（评估/策略/压测结论，不随开源发布）
+docs/private/

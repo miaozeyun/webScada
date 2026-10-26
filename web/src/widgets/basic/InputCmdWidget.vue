@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 输入框指令（M7 反控，对齐 BY「提交画面输入框指令」）：输入值 → 提交按钮 → 写变量。 */
+/** 输入框指令（M7 反控，对齐 业界主流组态「提交画面输入框指令」）：输入值 → 提交按钮 → 写变量。 */
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRuntimeApi } from '@/runtime/actions'

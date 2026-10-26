@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 时间（M7，对齐 BY「天气和时间」）：本地日期 + 时钟，1s tick；布局（横排/上下）可选。 */
+/** 时间（M7，对齐 业界主流组态「天气和时间」）：本地日期 + 时钟，1s tick；布局（横排/上下）可选。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 const props = defineProps<{ nodeProps: Record<string, unknown> }>()

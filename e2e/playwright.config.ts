@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test'
 
 /**
  * webScada E2E 冒烟：跑前服务须已起（docker compose，入口 http://localhost:8088），
- * 不自动拉起服务。凭证 admin/admin12345（.env）。
+ * 不自动拉起服务。凭证取环境变量 ADMIN_USER / ADMIN_PASSWORD（见 .env.example）。
  * 三陷阱规约：① 就绪信号用语义 selector 不用 URL；② 受控 el-input 用 JS 设值+change 事件；
  * ③ 运行态断言一律限定 .runtime-stage 作用域。
  */

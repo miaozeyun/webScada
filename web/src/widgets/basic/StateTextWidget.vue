@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 状态组件（M7，对齐 BY「状态」）：变量值 → 枚举文本 + 前景/背景色。
+/** 状态组件（M7，对齐 业界主流组态「状态」）：变量值 → 枚举文本 + 前景/背景色。
  * states 为 JSON 数组 [{value, text, color, background}]；绑 props.value 匹配。 */
 import { computed } from 'vue'
 

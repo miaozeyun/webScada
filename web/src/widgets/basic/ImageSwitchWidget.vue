@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 图片切换（M7，对齐 BY「图片切换」）：变量值 → 图片枚举切换。
+/** 图片切换（M7，对齐 业界主流组态「图片切换」）：变量值 → 图片枚举切换。
  * images JSON [{value, url}]；绑 props.value 匹配，无命中显示缺省图（首张）。 */
 import { computed } from 'vue'
 import { useRuntimeStore } from '@/runtime/store'

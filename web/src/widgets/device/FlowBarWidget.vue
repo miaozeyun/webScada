@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 流动条（M7，对齐 BY「流动条」）：管内流体条纹滚动，速度/启停由 props.speed（px/s）驱动
+/** 流动条（M7，对齐 业界主流组态「流动条」）：管内流体条纹滚动，速度/启停由 props.speed（px/s）驱动
  * （绑变量：0=停止，正值右流，负值左流）。方向箭头可选。 */
 import { computed } from 'vue'
 

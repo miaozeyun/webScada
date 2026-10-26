@@ -547,7 +547,7 @@ export interface AlarmRule {
       "config": {
         "brokerUrl": "mqtt://emqx:1883",
         "username": "factory",
-        "password": "F@ct0ry2026",
+        "password": "<凭证：库内 Fernet 加密，接口出口一律脱敏为空串>",
         "topics": ["factory/line1/#"],
         "qos": 0,
         "cleanSession": true,
@@ -914,7 +914,7 @@ interface EventActionDef {
 - `ComponentAnimations.move: { enabled, path(SVG path，相对组件原点), periodMs, mode:'loop'|'pingpong' }`：CSS Motion Path 轨迹运动。
 - 绑定目标路径新增动效通道（§2.8 四类扩为五类）：
   `anim.rotateOn | anim.rotatePeriod | anim.flowOn | anim.blinkOn | anim.moveOn`（仅 mode='value'；优先级高于静态 animations，符合 K12）。
-- `ScreenCfg.lockPan: bool = false`：运行态锁定画面（禁滚动/拖拽，BY「不让实时画面移动」）。
+- `ScreenCfg.lockPan: bool = false`：运行态锁定画面（禁滚动/拖拽，业界主流组态「不让实时画面移动」）。
 
 ### 7.6 M7 新组件（props 由 registry schema 驱动）
 

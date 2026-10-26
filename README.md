@@ -3,8 +3,7 @@
 Web 原生、轻量、低代码拖拽组态的实时监控大屏（开源核心 + 企业版双授权）。
 
 > **当前阶段：`internal-pilot`（受限内部试点），不可商用售卖。**
-> 依据 2026-10-20 商用就绪度评审（综合成熟度 2.2/5，详见
-> [docs/assessment/commercial-readiness-2026-10-20.md](docs/assessment/commercial-readiness-2026-10-20.md)）。
+> 依据 2026-10-20 商用就绪度评审（综合成熟度 2.2/5；评审报告为内部文档，不随开源发布）。
 > 当前仅可用于：非关键产线、**有人值守盯屏**、数据源无需鉴权或可自行维护凭证、
 > 不向外部交付工程文件、不作任何升级承诺。商用路线见文末「路线图」。
 
@@ -199,12 +198,11 @@ EMQX 已**禁用匿名连接**（`EMQX_MQTT__ALLOW_ANONYMOUS=false`，写死无�
 | 2 产品化护栏 | 部分完成 | 报警呈现、License key 骨架已就绪；压测报告、组件级打磨进行中 | commercial-beta（可试卖） |
 | 3 商用体系 | 未启动 | 定价激活、培训认证、i18n/白标 | commercial-ga |
 
-明细与 25 项 P0 基准逐项判定见
-[docs/assessment/commercial-readiness-2026-10-20.md](docs/assessment/commercial-readiness-2026-10-20.md)。
+明细与 25 项 P0 基准逐项判定见内部《商用就绪度评审（2026-10-20）》，该文档不随开源发布。
 
 ## 支持与 SLA
 
-- **社区支持（免费）**：GitHub Issues（缺陷报告与功能建议）；无响应时间承诺，按社区志愿原则处理。
+- **社区支持（免费）**：[Gitee Issues](https://gitee.com/miao_zeyun/web-scada/issues)（缺陷报告与功能建议）；无响应时间承诺，按社区志愿原则处理。
 - **企业支持（规划中，commercial-ga 后开放）**：工作日 8×5 工单通道；P1 缺陷（监控不可用）
   目标响应 4 小时/恢复 1 个工作日；P2 目标响应 1 个工作日——正式 SLA 条款随商业版合同发布。
 - **版本维护承诺**：开源核心按语义化版本发布（见 CHANGELOG），每个 minor 版本提供至少
@@ -232,13 +230,20 @@ pytest）与 web job（npm ci + vue-tsc --noEmit + vite build）。
 
 ## 支持渠道
 
-- 问题反馈 / 功能建议：`<GitHub Issues 占位>`（开源核心）
+- 问题反馈 / 功能建议：[Gitee Issues](https://gitee.com/miao_zeyun/web-scada/issues)（开源核心）
 - 商业授权 / 企业版（RTSP 转码、主备冗余、白标 OEM、SLA）：`18835132457@163.com` /
   微信 `miaozeyun2020`，授权边界见 [NOTICE.md](NOTICE.md)
 - 安全漏洞报告：请勿公开 Issue，发 `18835132457@163.com`（主题注明 [security]）
+
+## 参与贡献
+
+首次贡献须先签署 [CLA.md](CLA.md)；开发环境、契约双侧同步规则与硬性编码约定见
+[CONTRIBUTING.md](CONTRIBUTING.md)。项目名称与 Logo 的使用规则见 [TRADEMARK.md](TRADEMARK.md)。
 
 ## License
 
 开源核心以 [AGPL-3.0](LICENSE) 授权（含网络服务须提供源码条款）；企业版功能为商业授权，
 边界说明见 [NOTICE.md](NOTICE.md)，第三方组件声明见
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+代码的许可不包含商标许可，见 [TRADEMARK.md](TRADEMARK.md)。

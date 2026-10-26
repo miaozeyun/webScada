@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 水池（M7，对齐 BY「水池」）：罐体 + 液位（绑 props.percent 0-100，自下而上）+ 液面波动。
+/** 水池（M7，对齐 业界主流组态「水池」）：罐体 + 液位（绑 props.percent 0-100，自下而上）+ 液面波动。
  * 液体色走 --dev-color（style.color），缺省水蓝。 */
 import { computed } from 'vue'
 

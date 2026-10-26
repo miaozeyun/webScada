@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 网页嵌入（M7，对齐 BY「网页」组件）：iframe 沙箱嵌入外部页面/本地监控页。
+/** 网页嵌入（M7，对齐 业界主流组态「网页」组件）：iframe 沙箱嵌入外部页面/本地监控页。
  * 目标站若设置 X-Frame-Options/CSP frame-ancestors 会拒绝加载，显示占位提示。
  * 编辑态（runtime 未启动）iframe 禁用指针事件，避免吞掉画布选中/拖拽。 */
 import { computed } from 'vue'

@@ -3,6 +3,7 @@
 用法：python scripts/acceptance_m0.py [base_url]  （默认 http://localhost:8088）
 """
 import json
+import os
 import sys
 import urllib.request
 
@@ -11,6 +12,16 @@ API = f"{BASE}/api/v1"
 TOKEN = ""
 PASS = 0
 FAIL = 0
+
+# 凭证一律从环境变量读取，不写入仓库（模板见 .env.example）
+ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+MQTT_USER = os.environ.get("MQTT_USER", "factory")
+MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
+
+_missing = [n for n in ("ADMIN_PASSWORD", "MQTT_PASSWORD") if not os.environ.get(n)]
+if _missing:
+    sys.exit(f"缺少环境变量：{', '.join(_missing)}（示例：ADMIN_PASSWORD=*** MQTT_PASSWORD=*** python scripts/acceptance_m0.py）")
 
 
 def req(method: str, path: str, body: dict | None = None, auth: bool = True, raw: bool = False):
@@ -42,7 +53,7 @@ def check(name: str, cond: bool, detail: str = ""):
 
 
 # 1. 管理员登录
-st, body = req("POST", "/auth/login", {"username": "admin", "password": "admin12345"}, auth=False)
+st, body = req("POST", "/auth/login", {"username": ADMIN_USER, "password": ADMIN_PASSWORD}, auth=False)
 check("登录 200", st == 200)
 TOKEN = body["access_token"]
 
@@ -64,7 +75,7 @@ doc = body["doc"]
 # 4. 保存含凭证 doc（中文标签/绑定/报警规则全链）
 doc["datasources"] = [{
     "id": "ds_mqtt_01", "name": "车间 EMQX", "type": "mqtt", "enabled": True,
-    "config": {"brokerUrl": "mqtt://emqx:1883", "username": "factory", "password": "TopSecret@9",
+    "config": {"brokerUrl": "mqtt://emqx:1883", "username": MQTT_USER, "password": MQTT_PASSWORD,
                "topics": ["factory/line1/#"], "qos": 0, "cleanSession": True},
 }]
 doc["variables"] = [
