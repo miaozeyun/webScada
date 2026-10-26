@@ -17,7 +17,13 @@
 
 ## 二、阻断级：不处理不得公开
 
-### 2.1 `.recon/` 泄漏第三方系统登录态（最高风险）
+### 2.1 `.recon/` 泄漏第三方系统登录态（最高风险）⏳ 副本已剥离，待强推
+
+> **进度（2026-10-26）**：已在副本 `F:\mycode\webscada-clean.git` 完成
+> `.recon` + `docs/assessment` 的历史剥离并通过验证（47 个 commit 保留，
+> 两路径在 commit 历史与对象层均无残留）。原仓库备份：
+> `F:\mycode\webscada-backup-pre-filter-20261026.bundle`。
+> **剩余一步：强推副本到远端**，因属不可逆操作，需人工执行（见文末「当前待执行」）。
 
 已入库 67 个文件，含：
 
@@ -94,6 +100,12 @@ git push --force origin 'refs/heads/*' 'refs/tags/*'
 『业界主流组态』」的约定，已批量替换为「业界主流组态」。`ORDER BY` 等 SQL 关键字
 未受影响。
 
+### 2.3c 内部计划文档不公开 ✅ 已完成（2026-10-26）
+
+`docs/superpowers/`（6 份 plans/specs，含开发节奏、遗留问题清单）已迁至
+`docs/private/superpowers/`，`.gitignore` 已排除，历史已剥离。
+文件保留在本地，不随开源分发。
+
 ### 2.4 `docs/经验教训.md` 人工过筛
 
 该文件记录了踩坑细节，可能包含客户名称、内部环境地址、竞品对比结论。
@@ -116,3 +128,24 @@ git push --force origin 'refs/heads/*' 'refs/tags/*'
 - 新功能先进企业版，稳定后下沉开源版；**不要**为了转化故意阉割基础能力。
 - 每个 bug 修复同步追加 `docs/经验教训.md`（见 CONTRIBUTING.md §6）。
 - 收到竞品抄用的线索时，优先用商标 + 商业谈判处理，不要指望 AGPL 诉讼止损。
+
+## 五、当前待执行（需人工确认的不可逆操作）
+
+副本 `F:\mycode\webscada-clean.git` 已剥离完毕并验证。剩余两步：
+
+```bash
+R=/f/mycode/webscada-clean.git
+
+# 1) 配置远端并强推（会重写 gitee 上全部 commit hash）
+git -C $R remote add origin https://gitee.com/miao_zeyun/web-scada.git
+git -C $R push --force origin 'refs/heads/*' 'refs/tags/*'
+
+# 2) 原仓库同步到新历史（工作树改动保留，不丢未提交内容）
+cd /f/mycode/webScada
+git fetch origin
+git reset --mixed origin/main
+rm -rf .recon                      # 本地残留，已进 .gitignore
+```
+
+> 强推前确认：Gitee 仓库设置允许 force push；无他人持有旧 clone（或已通知重新克隆）。
+> 回滚手段：`git clone F:\mycode\webscada-backup-pre-filter-20261026.bundle`。
