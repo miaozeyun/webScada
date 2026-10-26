@@ -318,6 +318,7 @@ export class RuntimeEngine {
    *  质量位消费（03 §2.10 q∈good|stale|bad）：非 good 登记灰显态（UI 叠灰标记数据不可信），
    *  stale 值保留、bad 保留上一显示值（不闪空，灰显表达不可信）；恢复 good 才更新值并解除灰显。 */
   private applyServerEntry(key: string, entry: WsValueEntry): void {
+    this.runtime.markValueArrived()
     const varId = this.runtime.varByKey.get(key)
     if (!varId) return
     if (entry.q !== 'good') {
@@ -538,6 +539,20 @@ export class RuntimeEngine {
     const handle = this.handleByDs.get(v.datasourceId)
     if (!handle?.write) throw new Error(`数据源类型 ${ds.type} 不支持写入，或未配置写端点`)
     await handle.write(v, value)
+  }
+
+  /**
+   * 仿真注入（工程联调仿真台专用，2026-10-26）：绕过 writable/反控校验，按工程值直接入池。
+   * setValue 统一收口 → 绑定求值、报警判定、历史采样、虚拟变量级联、条件弹框全部照常。
+   * 仅 local 模式生效：server 模式下值流权威在服务端，本地注入会造成双源冲突。
+   * @returns 是否成功注入（虚拟变量/未知变量/server 模式返回 false）
+   */
+  injectValue(variableId: string, value: number | boolean | string): boolean {
+    if (this.serverMode) return false
+    const v = this.variables.get(variableId)
+    if (!v || v.expr) return false
+    this.setValue(v, value)
+    return true
   }
 
   /** 绑定求值 → 覆盖层（value/color/visibility/anim.*） */

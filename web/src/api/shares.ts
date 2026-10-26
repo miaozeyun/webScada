@@ -8,6 +8,8 @@ export interface ShareOut {
   expiresAt: string | null
   revokedAt: string | null
   createdAt: string
+  /** 快照最近刷新时间（与工程 updatedAt 比较判断「有未发布变更」） */
+  refreshedAt?: string | null
 }
 
 export interface ShareItem extends ShareOut {

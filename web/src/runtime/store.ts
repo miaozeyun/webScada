@@ -64,6 +64,9 @@ export const useRuntimeStore = defineStore('runtime', {
     /** 变量质量位（M8 契约 q∈good|stale|bad）：仅登记非 good（stale/bad）态，
      *  恢复 good 时移除；WidgetHost 据此对绑定节点叠灰（03 §2.10 质量位消费） */
     degradedVars: new Map<string, DegradedQuality>(),
+    /** 最近一次收到值/快照的时刻（epoch ms；0=从未收到）。值班大屏断线时用于
+     *  展示「数据最后更新于 …」，让客户看出画面已冻结而不是「一切正常」。 */
+    lastValueAt: 0,
   }),
 
   getters: {
@@ -72,6 +75,15 @@ export const useRuntimeStore = defineStore('runtime', {
     },
     activeAlarmCount(state): number {
       return state.activeAlarms.size
+    },
+    /** 未确认报警数（口径：triggered 且未 ack；本地引擎事件无 status 视为未确认）。
+     *  顶栏徽标与值班提醒必须用这个口径——activeAlarms.size 含已确认，会虚高。 */
+    unackedAlarmCount(state): number {
+      let n = 0
+      for (const ev of state.activeAlarms.values()) {
+        if (ev.status !== 'acked' && ev.status !== 'cleared') n++
+      }
+      return n
     },
   },
 
@@ -87,6 +99,12 @@ export const useRuntimeStore = defineStore('runtime', {
       this.serverAlarmIdByRule.clear()
       this.serverAckedAlarmIds.clear()
       this.degradedVars.clear()
+      this.lastValueAt = 0
+    },
+
+    /** 值/快照到达：刷新数据新鲜度时间戳（断线提示依赖） */
+    markValueArrived(): void {
+      this.lastValueAt = Date.now()
     },
 
     pushAlarmEvent(ev: AlarmEvent): void {

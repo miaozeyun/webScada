@@ -25,7 +25,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { exportProject } from '@/api/projects'
-import { createShare } from '@/api/shares'
+import ShareDialog from '@/editor/ShareDialog.vue'
 import { downloadJson, fileTimestamp } from '@/utils/download'
 import type { ProjectDoc } from '@/types/doc'
 import { installKeyboard } from '@/editor/keyboard'
@@ -51,6 +51,7 @@ const leftList = ref(true)
 const rightList = ref(true)
 const previewVisible = ref(false)
 const dataDrawerVisible = ref(false)
+const shareVisible = ref(false)
 
 // ---- 左侧栏上下分区高度（组件库 / 图层），拖动分隔条调整并本地记忆 ----
 
@@ -210,6 +211,16 @@ function manualSave(): void {
   })
 }
 
+/** 打开实时数据仿真台：仿真读的是服务端已保存版本，有脏改动先保存，避免仿真旧画面 */
+async function openSimulator(): Promise<void> {
+  if (!editor.projectId) return
+  if (editor.dirty) {
+    const ok = await saveWithThumbnail(true)
+    if (!ok) ElMessage.warning('保存未成功，将以服务端已保存版本进行仿真')
+  }
+  void router.push({ path: '/simulator', query: { project: editor.projectId } })
+}
+
 async function reloadAfterConflict(): Promise<void> {
   await ElMessageBox.confirm('检测到工程已被他人修改（409）。重新载入将丢弃本地未保存修改。', '版本冲突', { type: 'warning' })
   await editor.reloadFromServer()
@@ -236,11 +247,23 @@ function syncOnline(): void {
 onMounted(() => {
   window.addEventListener('online', syncOnline)
   window.addEventListener('offline', syncOnline)
+  window.addEventListener('resize', syncNarrow)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('online', syncOnline)
   window.removeEventListener('offline', syncOnline)
+  window.removeEventListener('resize', syncNarrow)
 })
+
+/** 窄屏（手机/平板竖屏）编辑器不可用：明确拦截，别给用户一个坏掉的界面 */
+const narrowScreen = ref(typeof window !== 'undefined' && window.innerWidth < 1024)
+function syncNarrow(): void {
+  narrowScreen.value = window.innerWidth < 1024
+}
+
+function backToProjects(): void {
+  router.push('/projects')
+}
 
 const pageSize = computed(() => {
   const s = editor.currentPage?.screen
@@ -360,7 +383,7 @@ async function clearCanvas(): Promise<void> {
   editor.clearPage()
 }
 
-// ---- 分享（M6）：创建 token → 弹出只读链接 ----
+// ---- 分享（M6 / 2026-10-26 重做为发布管理对话框）----
 
 async function shareProject(): Promise<void> {
   // 先保存，保证分享快照包含最新修改
@@ -371,24 +394,19 @@ async function shareProject(): Promise<void> {
       return
     }
   }
-  try {
-    const share = await createShare(editor.projectId)
-    const url = `${location.origin}/s/${share.token}`
-    try {
-      await navigator.clipboard.writeText(url)
-      ElMessage.success('分享链接已复制')
-    } catch {
-      /* 剪贴板权限受限时仅展示 */
-    }
-    ElMessageBox.alert(url, '分享链接（只读，匿名可访问）', { confirmButtonText: '关闭' })
-  } catch {
-    ElMessage.error('创建分享失败，请检查网络')
-  }
+  shareVisible.value = true
 }
 </script>
 
 <template>
   <div class="home">
+    <!-- 窄屏拦截：390px 下画布会被左右面板挤到不可见，直接给明确指引 -->
+    <div v-if="narrowScreen" class="narrow-block">
+      <p class="nb-title">请使用桌面浏览器编辑</p>
+      <p class="nb-desc">编辑器需要至少 1024px 宽度。手机端可以查看已分享的大屏画面。</p>
+      <el-button type="primary" @click="backToProjects">返回工程台账</el-button>
+    </div>
+
     <!-- 顶部控制台工具条：工程标识 | 文件 | 历史 | 结构 | 层级 | 视图 | 交付，
          高频命令用图标位 + 悬浮说明，破坏性命令收进「文件」菜单 -->
     <header class="toolbar">
@@ -487,6 +505,15 @@ async function shareProject(): Promise<void> {
         <span class="tb-fixed-sep" aria-hidden="true"></span>
         <button class="tb-btn" type="button" title="数据源 / 变量 / 报警规则" :disabled="!editor.doc" @click="dataDrawerVisible = true">数据</button>
         <button class="tb-btn" type="button" :disabled="!editor.doc" @click="previewVisible = true">预览</button>
+        <button
+          class="tb-btn"
+          type="button"
+          :disabled="!editor.doc"
+          title="实时数据仿真（基于已保存版本，不修改工程）"
+          @click="openSimulator"
+        >
+          仿真
+        </button>
         <button class="tb-btn" type="button" :disabled="!editor.doc" title="生成匿名只读分享链接" @click="shareProject">分享</button>
 
         <span class="tb-fixed-sep" aria-hidden="true"></span>
@@ -555,6 +582,14 @@ async function shareProject(): Promise<void> {
 
     <!-- 工程数据管理（M3/M5） -->
     <DataDrawer v-if="dataDrawerVisible" @close="dataDrawerVisible = false" />
+
+    <!-- 分享与发布管理（2026-10-26）：有效期/刷新快照/撤销/未发布变更提示 -->
+    <ShareDialog
+      v-model="shareVisible"
+      :project-id="editor.projectId"
+      :project-name="editor.projectName"
+      :project-updated-at="editor.doc?.project?.updatedAt"
+    />
 
     <!-- 快捷键帮助（? 键 / 状态栏入口） -->
     <el-dialog v-model="helpVisible" title="快捷键" width="560px" :close-on-click-modal="true">
@@ -1139,6 +1174,36 @@ main {
 
 .dialog-footer > :not(:first-child) {
   margin-left: 10px;
+}
+
+/* 窄屏拦截层：覆盖整个编辑器，避免把挤坏的界面交给用户 */
+.narrow-block {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: var(--ws-canvas);
+  color: var(--ws-text-2);
+  text-align: center;
+}
+
+.nb-title {
+  margin: 0;
+  color: var(--ws-text);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.nb-desc {
+  margin: 0 0 8px;
+  max-width: 320px;
+  line-height: 1.6;
+  font-size: 13px;
 }
 
 @media (max-width: 900px) {

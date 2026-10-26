@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, CopyDocument, Delete, Download, Grid, Menu, Plus, Search, Upload } from '@element-plus/icons-vue'
+import { ArrowDown, CopyDocument, Delete, Download, Grid, Menu, Plus, Search, Upload, VideoPlay } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { meApi } from '@/api/auth'
 import type { UserInfo } from '@/api/auth'
@@ -23,7 +23,11 @@ import type { ProjectDoc } from '@/types/doc'
 import ThemePicker from '@/components/ThemePicker.vue'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
+
+/** 开发者工具（压测工程生成）默认隐藏：面向最终用户的菜单不出现开发功能；?dev=1 显式开启 */
+const devTools = ref(route.query.dev === '1')
 
 // ---- 系统管理入口（M8 RBAC）：仅 admin 可见；角色经 /auth/me 拉取（auth store 未持久化 role） ----
 const isAdmin = ref(false)
@@ -182,6 +186,7 @@ function onTool(cmd: string): void {
 function onCardMore(cmd: string, row: ProjectListItem): void {
   if (cmd === 'clone') openClone(row)
   else if (cmd === 'export') void doExport(row)
+  else if (cmd === 'alarms') router.push(`/projects/${row.id}/alarms`)
   else if (cmd === 'delete') void doDelete(row)
 }
 
@@ -222,6 +227,41 @@ async function doDelete(row: ProjectListItem): Promise<void> {
   await deleteProject(row.id)
   ElMessage.success('已删除')
   refresh()
+}
+
+// ---- 批量删除（2026-10-26）：清理测试/演示工程，避免台账长期堆积 ----
+const selectedRows = ref<ProjectListItem[]>([])
+
+function onSelectionChange(rows: ProjectListItem[]): void {
+  selectedRows.value = rows
+}
+
+async function batchDelete(): Promise<void> {
+  const rows = selectedRows.value
+  if (!rows.length) return
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${rows.length} 个工程？其分享链接与报警记录会一并删除，且不可恢复。`,
+      '批量删除',
+      { type: 'warning', confirmButtonText: `删除 ${rows.length} 个`, cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  let ok = 0
+  let fail = 0
+  for (const row of rows) {
+    try {
+      await deleteProject(row.id)
+      ok++
+    } catch {
+      fail++
+    }
+  }
+  if (fail) ElMessage.warning(`已删除 ${ok} 个，${fail} 个失败（可重试）`)
+  else ElMessage.success(`已删除 ${ok} 个工程`)
+  selectedRows.value = []
+  refresh(true)
 }
 
 // ---- 导出：调导出端点 → 前端二次脱敏（G6 双保险）→ Blob 下载命名（G7） ----
@@ -341,16 +381,33 @@ function fmtTime(iso: string): string {
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="demo">演示案例…</el-dropdown-item>
-              <el-dropdown-item command="stress">生成压测工程</el-dropdown-item>
+              <el-dropdown-item v-if="devTools" command="stress" divided>生成压测工程（开发）</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        <el-button
+          v-if="selectedRows.length"
+          type="danger"
+          plain
+          :icon="Delete"
+          @click="batchDelete"
+        >
+          删除选中（{{ selectedRows.length }}）
+        </el-button>
+        <el-button :icon="VideoPlay" title="用仿真数据实时驱动任意工程画面（不修改工程）" @click="router.push('/simulator')">实时仿真</el-button>
         <el-button type="primary" :icon="Plus" @click="createVisible = true">新建工程</el-button>
       </div>
 
       <section class="ledger">
         <!-- 表格视图 -->
-        <el-table v-if="viewMode === 'table'" v-loading="loading" :data="items" stripe>
+        <el-table
+          v-if="viewMode === 'table'"
+          v-loading="loading"
+          :data="items"
+          stripe
+          @selection-change="onSelectionChange"
+        >
+          <el-table-column type="selection" width="44" />
           <el-table-column prop="name" label="工程名称" :min-width="isNarrow ? 150 : 210">
             <template #default="{ row }">
               <span class="name-cell">
@@ -390,6 +447,7 @@ function fmtTime(iso: string): string {
                   <el-dropdown-menu>
                     <el-dropdown-item command="clone" :icon="CopyDocument">复制工程</el-dropdown-item>
                     <el-dropdown-item command="export" :icon="Download">导出 JSON</el-dropdown-item>
+                    <el-dropdown-item command="alarms">报警记录</el-dropdown-item>
                     <el-dropdown-item command="delete" :icon="Delete" divided>删除</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -451,6 +509,7 @@ function fmtTime(iso: string): string {
                     <el-dropdown-menu>
                       <el-dropdown-item command="clone">复制工程</el-dropdown-item>
                       <el-dropdown-item command="export">导出</el-dropdown-item>
+                      <el-dropdown-item command="alarms">报警记录</el-dropdown-item>
                       <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                     </el-dropdown-menu>
                   </template>

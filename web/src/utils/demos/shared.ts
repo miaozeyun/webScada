@@ -113,8 +113,23 @@ export function nd(id: string, type: string, x: number, y: number, w: number, h:
 }
 
 /** 文本快捷（深色底白字） */
-export function txt(id: string, x: number, y: number, w: number, h: number, text: string, fontSize = 14, color?: string): ComponentNode {
-  return nd(id, 'text', x, y, w, h, { name: text.slice(0, 12), props: { text }, style: { fontSize, color, fontWeight: fontSize >= 20 ? 700 : 400 } })
+export function txt(
+  id: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  text: string,
+  fontSize = 14,
+  color?: string,
+  /** 演示说明文字：仅编辑器/演示可见，分享快照会剔除（不污染交付画面） */
+  demoNote = false,
+): ComponentNode {
+  return nd(id, 'text', x, y, w, h, {
+    name: text.slice(0, 12),
+    props: demoNote ? { text, demoNote: true } : { text },
+    style: { fontSize, color, fontWeight: fontSize >= 20 ? 700 : 400 },
+  })
 }
 
 // ---- 页面 / 工程 ----

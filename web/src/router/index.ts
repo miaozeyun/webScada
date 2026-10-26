@@ -7,7 +7,12 @@ const router = createRouter({
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
     { path: '/', redirect: '/projects' },
     { path: '/projects', name: 'projects', component: () => import('@/views/ProjectsView.vue'), meta: { requiresAuth: true } },
-    { path: '/editor/:id', name: 'editor', component: () => import('@/editor/EditorView.vue'), meta: { requiresAuth: true } },
+    // 编辑器/仿真台仅 operator/admin（viewer 只读账号不应进入，保存时才 403 太晚）
+    { path: '/editor/:id', name: 'editor', component: () => import('@/editor/EditorView.vue'), meta: { requiresAuth: true, requiresOperator: true } },
+    // 实时数据仿真台：选工程 → 本地仿真值驱动该工程画面（不改工程 doc）
+    { path: '/simulator', name: 'simulator', component: () => import('@/views/SimulatorView.vue'), meta: { requiresAuth: true, requiresOperator: true } },
+    // 报警中心：单工程报警历史/确认（交接班查遗留报警；viewer 可看，ack 由组件按角色隐藏）
+    { path: '/projects/:id/alarms', name: 'project-alarms', component: () => import('@/views/AlarmsView.vue'), meta: { requiresAuth: true } },
     // 系统管理（M8 RBAC）：仅 admin，E 包管理页
     { path: '/admin/users', name: 'admin-users', component: () => import('@/views/admin/UsersView.vue'), meta: { requiresAuth: true, requiresAdmin: true } },
     { path: '/admin/audit', name: 'admin-audit', component: () => import('@/views/admin/AuditView.vue'), meta: { requiresAuth: true, requiresAdmin: true } },
@@ -71,6 +76,11 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresAdmin) {
     const role = await fetchMyRole()
     if (role !== 'admin') return '/projects'
+  }
+  // 编辑器/仿真台：viewer 只读账号不进（否则编辑到保存才 403，白费现场时间）
+  if (to.meta.requiresOperator) {
+    const role = await fetchMyRole()
+    if (role !== 'admin' && role !== 'operator') return '/projects'
   }
   return true
 })

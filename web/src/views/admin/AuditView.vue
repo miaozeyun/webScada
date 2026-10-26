@@ -17,15 +17,17 @@ const auth = useAuthStore()
 
 type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger'
 
-// ---- action 元数据（七类埋点，契约 §6.3；未知值原值展示兜底） ----
+// ---- action 元数据（契约 §6.3；未知值原值展示兜底） ----
 const ACTION_META: Record<string, { label: string; tag: TagType }> = {
   login: { label: '登录', tag: 'info' },
   write_var: { label: '变量写入', tag: 'warning' },
   alarm_ack: { label: '报警确认', tag: 'danger' },
+  alarm_clear: { label: '报警清除', tag: 'danger' },
   project_save: { label: '工程保存', tag: 'primary' },
   share_create: { label: '分享创建', tag: 'success' },
   share_revoke: { label: '分享撤销', tag: 'warning' },
   user_mgmt: { label: '用户管理', tag: 'primary' },
+  datasource_test: { label: '数据源测试', tag: 'info' },
 }
 
 const actionOptions = Object.entries(ACTION_META).map(([value, meta]) => ({ value, label: meta.label }))

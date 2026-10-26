@@ -4,7 +4,7 @@
  * 直接编辑 editor.doc 对应数组并 _markDirty（走 3s 自动保存链路）；
  * doc 级数据不入页面级 undo 栈（历史为页面快照，语义不含本面板）。
  */
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, Plus, Upload } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
@@ -13,8 +13,10 @@ import { buildPointCsv, parsePointCsv, POINT_CSV_COLUMNS } from '@/utils/pointCs
 import { findVariableUsage, variablesOfDatasource } from '@/utils/usage'
 import type { PointCsvError, PointCsvRow } from '@/utils/pointCsv'
 import { VIRTUAL_DATASOURCE_ID } from '@/types/doc'
-import { browseOpcUa, testDatasource } from '@/api/datasources'
-import type { OpcUaNode } from '@/api/datasources'
+import { browseOpcUa, datasourceStatus, testDatasource } from '@/api/datasources'
+import type { DatasourceStatus, OpcUaNode } from '@/api/datasources'
+import { listDeliveries, type DeliveryOut } from '@/api/notifications'
+import { getVariableValues, type VariableValueEntry } from '@/api/projects'
 import type {
   AlarmLevel,
   AlarmOp,
@@ -37,6 +39,146 @@ const datasources = computed<DataSource[]>(() => editor.doc?.datasources ?? [])
 const variables = computed<VariableDef[]>(() => editor.doc?.variables ?? [])
 const alarms = computed<AlarmRule[]>(() => editor.doc?.alarmRules ?? [])
 const channels = computed<NotifyChannel[]>(() => editor.doc?.settings?.notify?.channels ?? [])
+
+// ---- 最近投递（outbox 可观测）：切到通知 tab 时拉取，回答「到底发出去没有」 ----
+const deliveries = ref<DeliveryOut[]>([])
+const deliveryLoading = ref(false)
+
+async function loadDeliveries(): Promise<void> {
+  if (!editor.projectId) return
+  deliveryLoading.value = true
+  try {
+    const resp = await listDeliveries(editor.projectId, { limit: 50 })
+    deliveries.value = resp.items ?? []
+  } catch {
+    /* http 拦截器已提示 */
+  } finally {
+    deliveryLoading.value = false
+  }
+}
+
+// ---- 数据源运行健康 / 变量实时值（2026-10-26）----
+const dsStatus = ref<Record<string, DatasourceStatus>>({})
+const dsStatusLoading = ref(false)
+let dsStatusTimer: number | null = null
+
+async function loadDsStatus(): Promise<void> {
+  if (!editor.projectId) return
+  dsStatusLoading.value = true
+  try {
+    const resp = await datasourceStatus(editor.projectId)
+    const map: Record<string, DatasourceStatus> = {}
+    for (const it of resp.items ?? []) map[it.dsId] = it
+    dsStatus.value = map
+  } catch {
+    /* 拦截器已提示；保持上次快照 */
+  } finally {
+    dsStatusLoading.value = false
+  }
+}
+
+function stopDsPolling(): void {
+  if (dsStatusTimer !== null) {
+    clearInterval(dsStatusTimer)
+    dsStatusTimer = null
+  }
+}
+
+function startDsPolling(): void {
+  stopDsPolling()
+  void loadDsStatus()
+  dsStatusTimer = window.setInterval(loadDsStatus, 5000)
+}
+
+const dsStateMeta: Record<string, { label: string; type: 'success' | 'warning' | 'danger' | 'info' }> = {
+  ok: { label: '在线', type: 'success' },
+  running: { label: '在线', type: 'success' },
+  connected: { label: '在线', type: 'success' },
+  connecting: { label: '连接中', type: 'warning' },
+  starting: { label: '启动中', type: 'info' },
+  reconnecting: { label: '重连中', type: 'warning' },
+  error: { label: '断线', type: 'danger' },
+  stopped: { label: '已停止', type: 'info' },
+}
+
+function dsStateOf(id: string): { label: string; type: 'success' | 'warning' | 'danger' | 'info' } {
+  const st = dsStatus.value[id]
+  if (!st) return { label: '未在采集', type: 'info' }
+  return dsStateMeta[st.state] ?? { label: st.state, type: 'info' }
+}
+
+function lastOkText(id: string): string {
+  const st = dsStatus.value[id]
+  if (!st?.lastOkMs) return '—'
+  const sec = Math.max(0, Math.round((Date.now() - st.lastOkMs) / 1000))
+  if (sec < 60) return `${sec}s 前`
+  if (sec < 3600) return `${Math.round(sec / 60)}min 前`
+  return `${Math.round(sec / 3600)}h 前`
+}
+
+// 变量实时值：仅切到变量 tab 时拉一次（编辑器不建立额外 WS，避免与运行态争用）
+const varValues = ref<Record<string, VariableValueEntry>>({})
+const varValuesTs = ref(0)
+const varValuesLoading = ref(false)
+
+async function loadVarValues(): Promise<void> {
+  if (!editor.projectId) return
+  varValuesLoading.value = true
+  try {
+    const resp = await getVariableValues(editor.projectId)
+    varValues.value = resp.values ?? {}
+    varValuesTs.value = resp.ts ?? Date.now()
+  } catch {
+    /* hub 未加载/无权限：保持空 */
+  } finally {
+    varValuesLoading.value = false
+  }
+}
+
+function varValueText(key: string): string {
+  const e = varValues.value[key]
+  if (!e || e.v == null) return '—'
+  if (typeof e.v === 'number') return Number.isInteger(e.v) ? String(e.v) : e.v.toFixed(2)
+  return String(e.v)
+}
+
+function varQuality(key: string): { label: string; type: 'success' | 'warning' | 'danger' | 'info' } {
+  const entry = varValues.value[key]
+  if (!entry) return { label: '—', type: 'info' }
+  if (entry.q === 'stale') return { label: '停更', type: 'warning' }
+  if (entry.q === 'bad') return { label: '坏值', type: 'danger' }
+  return { label: '正常', type: 'success' }
+}
+
+watch(tab, (v) => {
+  if (v === 'notify') void loadDeliveries()
+  if (v === 'sources') startDsPolling()
+  else stopDsPolling()
+  if (v === 'variables' || v === 'alarms') void loadVarValues()
+})
+
+onMounted(() => {
+  if (tab.value === 'sources') startDsPolling()
+})
+onBeforeUnmount(stopDsPolling)
+
+const DELIVERY_META: Record<string, { label: string; type: 'success' | 'warning' | 'danger' | 'info' }> = {
+  sent: { label: '已送达', type: 'success' },
+  pending: { label: '待补发', type: 'warning' },
+  sending: { label: '发送中', type: 'warning' },
+  dead: { label: '死信', type: 'danger' },
+}
+
+function deliveryMeta(status: string): { label: string; type: 'success' | 'warning' | 'danger' | 'info' } {
+  return DELIVERY_META[status] ?? { label: status, type: 'info' }
+}
+
+function fmtDeliveryTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
 
 /** 变量表搜索（key/名称/地址/单位），200+ 点工程的日常入口 */
 const varKeyword = ref('')
@@ -706,6 +848,66 @@ async function removeAlm(r: AlarmRule): Promise<void> {
   markDirty()
 }
 
+/** 持续时长按秒输入（工业习惯），存储仍为 ms（契约 durationMs） */
+const almDurationSec = computed({
+  get: () => Math.round((almForm.durationMs ?? 0) / 1000),
+  set: (v: number) => {
+    almForm.durationMs = Math.max(0, Math.floor(Number(v) || 0)) * 1000
+  },
+})
+
+function triggerPred(v: number, op: AlarmOp, t: number): boolean {
+  switch (op) {
+    case '>':
+      return v > t
+    case '>=':
+      return v >= t
+    case '<':
+      return v < t
+    case '<=':
+      return v <= t
+    case '==':
+      return v === t
+    case '!=':
+      return v !== t
+    default:
+      return false
+  }
+}
+
+/** 试判定：用当前变量值做一次阈值判断（不落库、不外发） */
+function testAlarm(r: AlarmRule): void {
+  const v = editor.doc?.variables.find((x) => x.id === r.variableId)
+  if (!v) {
+    ElMessage.warning('规则引用的变量不存在，该规则不会触发')
+    return
+  }
+  if (r.enabled === false) {
+    ElMessage.info(`规则「${r.name}」已停用，不会触发`)
+    return
+  }
+  const entry = varValues.value[v.key]
+  if (!entry || entry.v === null || entry.v === undefined) {
+    ElMessage.warning(`变量 ${v.key} 当前无数据，请在「变量」页刷新实时值后再试`)
+    return
+  }
+  const num = typeof entry.v === 'boolean' ? (entry.v ? 1 : 0) : Number(entry.v)
+  if (!Number.isFinite(num)) {
+    ElMessage.warning(`变量 ${v.key} 当前值不是数值（${String(entry.v)}），规则不会触发`)
+    return
+  }
+  const hit = triggerPred(num, r.op, r.threshold)
+  const quality = entry.q === 'good' ? '正常' : entry.q === 'stale' ? '停更' : '坏值'
+  ElMessage({
+    message: `试判定：${v.label} = ${num} ${r.op} ${r.threshold} → ${hit ? '满足阈值' : '不满足'}（质量：${quality}）${
+      entry.q !== 'good' ? '；质量非正常时服务端不判定' : ''
+    }`,
+    type: hit ? 'warning' : 'info',
+    duration: 6000,
+    showClose: true,
+  })
+}
+
 // ================= 通知渠道（工厂可用阶段二 Task 4：存 doc.settings.notify） =================
 
 const chVisible = ref(false)
@@ -833,6 +1035,20 @@ function channelTarget(ch: NotifyChannel): string {
                 </el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="状态" width="86">
+              <template #default="{ row }">
+                <el-tag v-if="row.enabled !== false" :type="dsStateOf(row.id).type" size="small">
+                  {{ dsStateOf(row.id).label }}
+                </el-tag>
+                <span v-else class="form-hint">停用</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="最后收数" width="86">
+              <template #default="{ row }">{{ row.enabled === false ? '—' : lastOkText(row.id) }}</template>
+            </el-table-column>
+            <el-table-column label="错误" min-width="120" show-overflow-tooltip>
+              <template #default="{ row }">{{ dsStatus[row.id]?.lastError || '—' }}</template>
+            </el-table-column>
             <el-table-column label="操作" width="150">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="openDs(row)">编辑</el-button>
@@ -857,6 +1073,7 @@ function channelTarget(ch: NotifyChannel): string {
             <el-button size="small" plain :icon="Download" :disabled="!variables.length" @click="exportCsv">
               导出 CSV
             </el-button>
+            <el-button size="small" :loading="varValuesLoading" @click="loadVarValues">刷新实时值</el-button>
             <el-input
               v-model="varKeyword"
               size="small"
@@ -890,6 +1107,19 @@ function channelTarget(ch: NotifyChannel): string {
                 </template>
               </template>
             </el-table-column>
+            <el-table-column label="当前值 / 质量" width="140">
+              <template #default="{ row }">
+                <span class="cell-mono">{{ varValueText(row.key) }}</span>
+                <el-tag
+                  v-if="varValues[row.key]"
+                  size="small"
+                  :type="varQuality(row.key).type"
+                  class="quality-tag"
+                >
+                  {{ varQuality(row.key).label }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="120">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="openVar(row)">编辑</el-button>
@@ -908,25 +1138,43 @@ function channelTarget(ch: NotifyChannel): string {
           </el-button>
           <el-table :data="alarms" size="small" empty-text="暂无报警规则">
             <el-table-column prop="name" label="名称" min-width="100" />
-            <el-table-column label="条件" min-width="130">
+            <el-table-column label="条件" min-width="120">
               <template #default="{ row }">
                 {{ variables.find((v) => v.id === row.variableId)?.label ?? '?' }} {{ row.op }} {{ row.threshold }}
               </template>
             </el-table-column>
-            <el-table-column label="级别" width="80">
+            <el-table-column label="级别" width="70">
               <template #default="{ row }">
                 <el-tag :type="row.level === 'critical' ? 'danger' : row.level === 'warn' ? 'warning' : 'info'" size="small">
                   {{ LEVEL_LABEL[row.level as AlarmLevel] }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="120">
+            <el-table-column label="启用" width="60">
+              <template #default="{ row }">
+                <el-tag :type="row.enabled === false ? 'info' : 'success'" size="small">
+                  {{ row.enabled === false ? '停' : '启' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="持续" width="64">
+              <template #default="{ row }">{{ (row.durationMs ?? 0) > 0 ? `${(row.durationMs ?? 0) / 1000}s` : '立即' }}</template>
+            </el-table-column>
+            <el-table-column label="回差" width="60">
+              <template #default="{ row }">{{ row.hysteresis ?? 0 }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="170">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="openAlm(row)">编辑</el-button>
+                <el-button link type="success" size="small" @click="testAlarm(row)">试判定</el-button>
                 <el-button link type="danger" size="small" @click="removeAlm(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
+          <div class="form-hint">
+            试判定用当前变量值做一次阈值判断，不落库、不外发；持续/回差按实际判定生效。
+            外发结果见「通知 → 最近投递」。
+          </div>
         </div>
       </el-tab-pane>
 
@@ -962,6 +1210,32 @@ function channelTarget(ch: NotifyChannel): string {
           <div class="form-hint">
             报警触发后按各渠道「级别阈值」过滤外发；工程配置后优先生效，未配置时回落服务端环境变量（Webhook/邮件）。
           </div>
+
+          <el-divider content-position="left">最近投递</el-divider>
+          <div class="delivery-bar">
+            <el-button size="small" :loading="deliveryLoading" @click="loadDeliveries">刷新</el-button>
+            <span class="form-hint">sent=已送达；待补发/发送中=断网重试；死信=多次失败需检查渠道配置。</span>
+          </div>
+          <el-table :data="deliveries" size="small" max-height="240" empty-text="暂无投递记录（报警外发后在此留痕）">
+            <el-table-column label="时间" width="104">
+              <template #default="{ row }">{{ fmtDeliveryTime(row.createdAt) }}</template>
+            </el-table-column>
+            <el-table-column label="事件" width="64">
+              <template #default="{ row }">{{ row.event === 'recovery' ? '恢复' : '触发' }}</template>
+            </el-table-column>
+            <el-table-column label="渠道" min-width="120" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.channelLabel }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="84">
+              <template #default="{ row }">
+                <el-tag size="small" :type="deliveryMeta(row.status).type">{{ deliveryMeta(row.status).label }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="尝试" width="56" prop="attempts" />
+            <el-table-column label="错误" min-width="130" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.lastError || '—' }}</template>
+            </el-table-column>
+          </el-table>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -1308,8 +1582,9 @@ function channelTarget(ch: NotifyChannel): string {
           <el-form-item label="迟滞">
             <el-input-number v-model="almForm.hysteresis" :min="0" :step="1" controls-position="right" />
           </el-form-item>
-          <el-form-item label="持续(ms)">
-            <el-input-number v-model="almForm.durationMs" :min="0" :step="1000" controls-position="right" />
+          <el-form-item label="持续(秒)">
+            <el-input-number v-model="almDurationSec" :min="0" :step="1" controls-position="right" />
+            <span class="form-hint">0 = 立即触发</span>
           </el-form-item>
         </div>
         <div class="form-row2">
@@ -1398,6 +1673,10 @@ function channelTarget(ch: NotifyChannel): string {
 .var-search {
   width: 220px;
   margin-left: auto;
+}
+
+.quality-tag {
+  margin-left: 4px;
 }
 
 .cell-mono {

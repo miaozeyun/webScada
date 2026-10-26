@@ -88,7 +88,7 @@ export function buildPvDoc(): ReturnType<typeof demoDoc> {
 
     ...cards,
 
-    txt('t_note', 84, 960, 1140, 56, '子阵辉度块随辐照四档渐亮（<300 / 550 / 750 W/m²）；出力、PR、组串电流均为虚拟变量表达式，修改辐照即可观察全屏联动。', 12, '#5b6b80'),
+    txt('t_note', 84, 960, 1140, 56, '子阵辉度块随辐照四档渐亮（<300 / 550 / 750 W/m²）；出力、PR、组串电流均为虚拟变量表达式，修改辐照即可观察全屏联动。', 12, '#5b6b80', true),
 
     // ---- 右列 A：并网点 ----
     nd('c_panelA', 'rect', 1296, 232, 564, 300, { name: '并网点面板', style: { fill: '#141d33', stroke: 'rgba(255,255,255,0.05)', strokeWidth: 1, borderRadius: 12 } }),

@@ -34,7 +34,8 @@ const selectionTitle = computed(() => {
   return meta.value?.name ?? (node.value.type === 'group' ? '组合' : node.value.type)
 })
 
-const activeSections = ref(['basic', 'geometry', 'display', 'style', 'bindings', 'animations', 'events', 'props'])
+// 绑定排在样式前：选中组件后最常见的动作是「接变量」，不应滚动到面板底部才找到
+const activeSections = ref(['basic', 'bindings', 'geometry', 'display', 'style', 'animations', 'events', 'props'])
 
 const ADAPTIVE_OPTIONS: { label: string; value: AdaptiveMode }[] = [
   { label: 'fixed 原始像素', value: 'fixed' },
@@ -110,22 +111,45 @@ function setStyle(key: StyleKey, value: unknown): void {
 const variables = computed(() => editor.doc?.variables ?? [])
 const varLabel = (id: string): string => variables.value.find((v) => v.id === id)?.label ?? '（变量已删除）'
 
+/** 绑定目标：下拉与列表都用人话（字段名只在 title 里兜底，不把 props.value 甩给用户） */
 const PROP_OPTIONS = [
-  { label: 'props.value（数值类单值）', value: 'props.value' },
-  { label: 'props.percent（进度条/水池液位）', value: 'props.percent' },
-  { label: 'props.speed（流动条流速）', value: 'props.speed' },
-  { label: 'props.text（文本）', value: 'props.text' },
-  { label: 'props.data（图表历史序列）', value: 'props.data' },
-  { label: 'style.color（颜色/文字色）', value: 'style.color' },
-  { label: 'style.fill（填充）', value: 'style.fill' },
-  { label: 'visible（显隐）', value: 'visible' },
-  { label: 'opacity（不透明度）', value: 'opacity' },
-  { label: 'anim.rotateOn（旋转启停）', value: 'anim.rotateOn' },
-  { label: 'anim.rotatePeriod（旋转周期 ms/圈）', value: 'anim.rotatePeriod' },
-  { label: 'anim.flowOn（流动启停）', value: 'anim.flowOn' },
-  { label: 'anim.blinkOn（闪烁启停）', value: 'anim.blinkOn' },
-  { label: 'anim.moveOn（轨迹运动启停）', value: 'anim.moveOn' },
+  { label: '读数（数值）', value: 'props.value' },
+  { label: '进度 / 液位（百分比）', value: 'props.percent' },
+  { label: '流动速度', value: 'props.speed' },
+  { label: '文字内容', value: 'props.text' },
+  { label: '历史数据序列', value: 'props.data' },
+  { label: '颜色', value: 'style.color' },
+  { label: '填充色', value: 'style.fill' },
+  { label: '显示 / 隐藏', value: 'visible' },
+  { label: '透明度', value: 'opacity' },
+  { label: '旋转', value: 'anim.rotateOn' },
+  { label: '旋转周期（毫秒/圈）', value: 'anim.rotatePeriod' },
+  { label: '流动动画', value: 'anim.flowOn' },
+  { label: '闪烁', value: 'anim.blinkOn' },
+  { label: '移动动画', value: 'anim.moveOn' },
 ]
+
+const PROP_LABEL: Record<string, string> = Object.fromEntries(
+  PROP_OPTIONS.map((o) => [o.value, o.label]),
+)
+function propLabel(prop: string): string {
+  return PROP_LABEL[prop] ?? prop
+}
+
+/** 作者期低分辨率护栏：按 1366×768 一体机视口缩放画布，并提示最小字号。
+ *  只改编辑器缩放，不改设计稿；运行态不做自动放大（会破坏版面）。 */
+function checkOn1366(): void {
+  const page = editor.currentPage
+  if (!page) return
+  const scale = Math.min(1366 / page.screen.designWidth, 768 / page.screen.designHeight)
+  editor.setZoom(Math.max(0.1, Math.round(scale * 100) / 100))
+  const smallest = Math.round(12 * scale * 10) / 10
+  ElMessage({
+    message: `已按 1366×768 缩放至 ${Math.round(scale * 100)}%：12px 正文显示约 ${smallest}px，请检查关键读数是否可读。`,
+    type: scale < 0.75 ? 'warning' : 'info',
+    duration: 5000,
+  })
+}
 
 const bindForm = reactive({
   prop: 'props.value',
@@ -305,6 +329,10 @@ function removeEvent(evId: string, actIdx: number): void {
               <el-option label="强制竖屏" value="portrait" />
             </el-select>
             <span class="form-hint">不符时运行态旋转 90°</span>
+          </el-form-item>
+          <el-form-item label="低分辨率">
+            <el-button size="small" @click="checkOn1366">按 1366×768 检查</el-button>
+            <span class="form-hint">缩放后 12px 正文约 8.5px</span>
           </el-form-item>
         </el-form>
 
@@ -533,7 +561,7 @@ function removeEvent(evId: string, actIdx: number): void {
             <el-collapse-item :title="`绑定（${node.bindings?.length ?? 0}）`" name="bindings">
               <div v-if="!variables.length" class="hint">尚无变量。先在顶部工具栏「数据」中添加数据源与变量。</div>
               <div v-for="b in node.bindings ?? []" :key="b.id" class="binding-row">
-                <span class="binding-prop">{{ b.prop }}</span>
+                <span class="binding-prop" :title="b.prop">{{ propLabel(b.prop) }}</span>
                 <span class="binding-arrow">←</span>
                 <span class="binding-var" :title="b.variableId">{{ varLabel(b.variableId) }}</span>
                 <span class="binding-mode">{{ b.mode }}</span>

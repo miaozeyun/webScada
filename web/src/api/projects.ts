@@ -39,6 +39,15 @@ export const cloneProject = (id: string, name: string) =>
 
 export const getProject = (id: string) => http.get<ProjectDetail>(`/projects/${id}`)
 
+/** 变量实时值快照（与 WS snapshot 同构：{key: {v,q,t}}）；hub 未加载时 values 为空 */
+export interface VariableValueEntry {
+  v: number | boolean | string | null
+  q: 'good' | 'stale' | 'bad'
+  t: number | null
+}
+export const getVariableValues = (id: string) =>
+  http.get<{ ts: number; values: Record<string, VariableValueEntry> }>(`/projects/${id}/variables/values`)
+
 export const deleteProject = (id: string) => http.delete<void>(`/projects/${id}`)
 
 /** 整体保存：全量 doc + baseRevision 乐观锁（G2，冲突 409） */

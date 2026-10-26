@@ -44,3 +44,21 @@ export function browseOpcUa(body: {
 }): Promise<OpcUaBrowseResult> {
   return http.post('/datasources/opcua/browse', body)
 }
+
+/** 数据源运行健康（collector 进程内状态，不触发探测） */
+export interface DatasourceStatus {
+  dsId: string
+  name: string
+  type: string
+  state: string
+  lastOkMs: number | null
+  startedMs: number | null
+  lastError: string | null
+  variableCount: number
+  intervalMs: number | null
+  heartbeatSec: number | null
+}
+
+export function datasourceStatus(projectId: string): Promise<{ items: DatasourceStatus[]; ts: number }> {
+  return http.get(`/projects/${projectId}/datasources/status`)
+}
