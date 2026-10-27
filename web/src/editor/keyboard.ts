@@ -81,7 +81,8 @@ export function installKeyboard(store: EditorStore, isBlocked: () => boolean = (
       }
       if (k === 'v') {
         e.preventDefault()
-        store.pasteClipboard()
+        // 粘贴落点跟随鼠标：以剪贴板包围盒原点对齐最近指针位置；指针不在画布（无记录）回落 +10px 阶梯
+        store.pasteClipboard(store.lastPointerDesign ?? undefined)
         return
       }
       if (k === 'd') {

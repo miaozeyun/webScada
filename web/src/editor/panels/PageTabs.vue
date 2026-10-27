@@ -1,6 +1,6 @@
 <script setup lang="ts">
-/** 页面页签：点击切换、双击改名、hover 删除（至少保留 1 页）、+ 新建、左右移序。 */
-import { computed, ref } from 'vue'
+/** 页面页签：点击切换、双击行内改名（替代模态弹窗）、hover 移序/删除（至少保留 1 页）、+ 新建、滚动。 */
+import { computed, nextTick, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { CaretLeft, CaretRight, Plus } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
@@ -10,13 +10,30 @@ const tabsRef = ref<HTMLDivElement>()
 
 const pages = computed(() => [...(editor.doc?.pages ?? [])].sort((a, b) => a.order - b.order))
 
-async function rename(id: string, current: string): Promise<void> {
-  try {
-    const { value } = await ElMessageBox.prompt('页面名称', '重命名页面', { inputValue: current })
-    editor.renamePage(id, value)
-  } catch {
-    /* 取消 */
-  }
+// ---- 行内重命名：双击页签 → input 就地编辑（Enter/blur 提交，Esc 取消） ----
+const editingId = ref('')
+const editingName = ref('')
+const renameInput = ref<HTMLInputElement>()
+
+function startRename(id: string, name: string): void {
+  if (editingId.value === id) return
+  editingId.value = id
+  editingName.value = name
+  nextTick(() => {
+    renameInput.value?.focus()
+    renameInput.value?.select()
+  })
+}
+
+function commitRename(id: string): void {
+  if (editingId.value !== id) return
+  const name = editingName.value.trim()
+  editingId.value = ''
+  if (name) editor.renamePage(id, name)
+}
+
+function cancelRename(): void {
+  editingId.value = ''
 }
 
 async function remove(id: string, name: string): Promise<void> {
@@ -40,10 +57,26 @@ function scrollTabs(dir: -1 | 1): void {
         class="page-tab"
         :class="{ active: p.id === editor.currentPageId }"
         @click="editor.setCurrentPage(p.id)"
-        @dblclick="rename(p.id, p.name)"
+        @dblclick="startRename(p.id, p.name)"
       >
-        <span class="tab-name">{{ p.name }}</span>
-        <span v-if="pages.length > 1" class="tab-close" title="删除页面" @click.stop="remove(p.id, p.name)">×</span>
+        <input
+          v-if="editingId === p.id"
+          ref="renameInput"
+          v-model="editingName"
+          class="rename-input"
+          @click.stop
+          @dblclick.stop
+          @pointerdown.stop
+          @keydown.enter.prevent="commitRename(p.id)"
+          @keydown.esc.stop="cancelRename"
+          @blur="commitRename(p.id)"
+        >
+        <span v-else class="tab-name">{{ p.name }}</span>
+        <template v-if="editingId !== p.id">
+          <span class="tab-move" title="左移（换序）" @click.stop="editor.movePage(p.id, -1)">‹</span>
+          <span class="tab-move" title="右移（换序）" @click.stop="editor.movePage(p.id, 1)">›</span>
+          <span v-if="pages.length > 1" class="tab-close" title="删除页面" @click.stop="remove(p.id, p.name)">×</span>
+        </template>
       </div>
       <el-icon :size="14" class="add-btn" title="新建页面" @click="editor.addPage()"><Plus /></el-icon>
     </div>
@@ -107,6 +140,36 @@ function scrollTabs(dir: -1 | 1): void {
   opacity: 0;
   color: var(--ws-text-3);
   padding: 0 2px;
+}
+
+/* 行内重命名输入框：与页签同尺寸，避免切换时跳动 */
+.rename-input {
+  width: 84px;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--ws-signal);
+  border-radius: var(--ws-radius);
+  background: var(--ws-panel);
+  color: var(--ws-text);
+  font-size: 12px;
+  outline: none;
+}
+
+/* 悬停移序按钮：与删除钮同款显隐节奏 */
+.tab-move {
+  opacity: 0;
+  color: var(--ws-text-3);
+  padding: 0 1px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.page-tab:hover .tab-move {
+  opacity: 1;
+}
+
+.tab-move:hover {
+  color: var(--ws-signal);
 }
 
 .page-tab:hover .tab-close {

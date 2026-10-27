@@ -224,7 +224,7 @@ const hasData = computed(() => (liveMode.value ? liveSeries.value.length > 0 : p
   display: flex;
   gap: 3px;
   opacity: 0.35;
-  transition: opacity 0.2s;
+  transition: opacity var(--ws-duration-base) var(--ws-ease);
   z-index: 2;
 }
 

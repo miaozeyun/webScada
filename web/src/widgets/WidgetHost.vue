@@ -45,8 +45,8 @@ interface AlarmEventLike {
   ackedAt?: number
 }
 
-/** 未知 level 的报警强调兜底色（安全橙警示，与主题 --ws-alert 同源） */
-const ALARM_FALLBACK_COLOR = '#c2410c'
+/** 未知 level 的报警强调兜底色：输出令牌引用（内联 style 绘制时解析、随换肤联动，
+ *  非默认主题下不再落回 electric 主题的 #c2410c 造成错色） */
 
 const LEVEL_RANK: Record<string, number> = { critical: 3, warn: 2, info: 1 }
 
@@ -94,7 +94,7 @@ const alarm = computed<{ hit: boolean; level: string; color: string } | null>(()
     hit: true,
     level: bestLevel,
     // 已知级别取工程配置色；未知级别灰显不合适（报警须强调），统一安全橙兜底
-    color: known ? levelColors.value[bestLevel as 'info' | 'warn' | 'critical'] : ALARM_FALLBACK_COLOR,
+    color: known ? levelColors.value[bestLevel as 'info' | 'warn' | 'critical'] : 'var(--ws-alert)',
   }
 })
 

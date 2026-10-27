@@ -55,7 +55,7 @@ const timeText = computed(() => {
 .time {
   font-size: 1.7em;
   font-weight: 700;
-  font-family: 'DIN Alternate', Consolas, monospace;
+  font-family: var(--ws-font-tech);
   letter-spacing: 0.04em;
   white-space: nowrap;
 }

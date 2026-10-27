@@ -21,6 +21,69 @@ import { PAGE_TEMPLATES } from '@/utils/pageTemplates'
 const editor = useEditorStore()
 const tab = ref<'widgets' | 'symbols' | 'decor' | 'templates' | 'mine'>('widgets')
 
+// ---- 收藏 / 最近使用（B-6）：拖入或点击即记录；收藏常驻，最近 12 项，localStorage 持久化 ----
+interface UseEntry {
+  kind: 'widget' | 'symbol'
+  id: string
+  label: string
+}
+const FAV_KEY = 'ws_palette_favs_v1'
+const RECENT_KEY = 'ws_palette_recent_v1'
+
+function loadEntries(key: string): UseEntry[] {
+  try {
+    const raw = localStorage.getItem(key)
+    const arr = raw ? (JSON.parse(raw) as UseEntry[]) : []
+    return Array.isArray(arr) ? arr.filter((e) => e && e.kind && e.id && e.label).slice(0, 12) : []
+  } catch {
+    return []
+  }
+}
+
+function saveEntries(key: string, list: UseEntry[]): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(list))
+  } catch {
+    /* 隐私模式静默跳过 */
+  }
+}
+
+const favs = ref<UseEntry[]>(loadEntries(FAV_KEY))
+const recents = ref<UseEntry[]>(loadEntries(RECENT_KEY))
+
+function sameEntry(a: UseEntry, b: UseEntry): boolean {
+  return a.kind === b.kind && a.id === b.id
+}
+
+function isFav(kind: 'widget' | 'symbol', id: string): boolean {
+  return favs.value.some((f) => f.kind === kind && f.id === id)
+}
+
+function toggleFav(kind: 'widget' | 'symbol', id: string, label: string): void {
+  const e: UseEntry = { kind, id, label }
+  const i = favs.value.findIndex((f) => sameEntry(f, e))
+  if (i >= 0) favs.value.splice(i, 1)
+  else favs.value.unshift(e)
+  favs.value = favs.value.slice(0, 12)
+  saveEntries(FAV_KEY, favs.value)
+}
+
+function recordUse(kind: 'widget' | 'symbol', id: string, label: string): void {
+  const e: UseEntry = { kind, id, label }
+  recents.value = [e, ...recents.value.filter((r) => !sameEntry(r, e))].slice(0, 12)
+  saveEntries(RECENT_KEY, recents.value)
+}
+
+/** 快捷条插入：widget 点击放置可视区中心；symbol 复用图元点击路径 */
+function insertEntry(e: UseEntry): void {
+  if (e.kind === 'widget') {
+    onClick(e.id)
+    return
+  }
+  const asset = symbolAssets.find((a) => a.id === e.id)
+  if (asset) onSymbolClick(asset)
+}
+
 const TABS = [
   { key: 'widgets', label: '组件', title: '注册组件' },
   { key: 'symbols', label: '图元', title: '行业图元库' },
@@ -127,6 +190,11 @@ function onDragStart(e: DragEvent, type: string, hint?: { w: number; h: number; 
   e.dataTransfer?.setData('text/plain', type)
   e.dataTransfer!.effectAllowed = 'copy'
   editor.dropHint = hint ?? null
+  // 最近使用：mysym 是工程内资产（跨工程不稳定）不入库
+  if (!type.startsWith('mysym|')) {
+    if (type.startsWith('symbol|')) recordUse('symbol', type.slice(7), hint?.label ?? type.slice(7))
+    else recordUse('widget', type, hint?.label ?? type)
+  }
 }
 
 function onDragEnd(): void {
@@ -161,11 +229,13 @@ function onClick(type: string): void {
   if (!meta) return
   const p = placeAtCenter(meta.defaultSize.w, meta.defaultSize.h)
   if (p) editor.addComponent(type as never, p.x, p.y)
+  recordUse('widget', type, meta.name)
 }
 
 function onSymbolClick(asset: SymbolAsset): void {
   const p = placeAtCenter(asset.w, asset.h)
   if (p) editor.addComponent('symbol', p.x, p.y, { symbolId: asset.id })
+  recordUse('symbol', asset.id, asset.label)
 }
 
 function onMySymbolClick(id: string): void {
@@ -184,6 +254,29 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
     <div class="panel-head">
       <span>{{ TABS.find((t) => t.key === tab)?.title }}</span>
       <span class="head-count ws-readout" :title="`${headCount} 项`">{{ headCount }}</span>
+    </div>
+    <!-- 快捷条：收藏 / 最近使用（拖入或点击即记录；点击直接插入可视区中心） -->
+    <div v-if="favs.length || recents.length" class="quick-strip">
+      <div v-if="favs.length" class="quick-row">
+        <span class="quick-label">收藏</span>
+        <button
+          v-for="f in favs"
+          :key="'f-' + f.kind + '-' + f.id"
+          class="quick-chip"
+          :title="f.label + '（点击插入）'"
+          @click="insertEntry(f)"
+        >{{ f.label }}</button>
+      </div>
+      <div v-if="recents.length" class="quick-row">
+        <span class="quick-label">最近</span>
+        <button
+          v-for="r in recents"
+          :key="'r-' + r.kind + '-' + r.id"
+          class="quick-chip"
+          :title="r.label + '（点击插入）'"
+          @click="insertEntry(r)"
+        >{{ r.label }}</button>
+      </div>
     </div>
     <div class="palette-tabs">
       <button
@@ -218,6 +311,13 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
           >
             <span class="list-icon"><WidgetIcon :meta="meta" /></span>
             <span class="label">{{ meta.name }}</span>
+            <span
+              class="fav-btn"
+              :class="{ on: isFav('widget', meta.type) }"
+              :title="isFav('widget', meta.type) ? '取消收藏' : '收藏'"
+              @mousedown.stop
+              @click.stop="toggleFav('widget', meta.type, meta.name)"
+            >{{ isFav('widget', meta.type) ? '★' : '☆' }}</span>
           </div>
         </template>
         <div v-if="filteredGroups.length === 0" class="symbol-empty">无匹配组件</div>
@@ -254,6 +354,13 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
         >
           <span class="symbol-thumb" v-html="asset.svg" />
           <span class="symbol-name">{{ asset.label }}</span>
+          <span
+            class="fav-btn"
+            :class="{ on: isFav('symbol', asset.id) }"
+            :title="isFav('symbol', asset.id) ? '取消收藏' : '收藏'"
+            @mousedown.stop
+            @click.stop="toggleFav('symbol', asset.id, asset.label)"
+          >{{ isFav('symbol', asset.id) ? '★' : '☆' }}</span>
         </div>
         <div v-if="filteredSymbols.length === 0" class="symbol-empty">无匹配图元</div>
       </div>
@@ -287,6 +394,13 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
         >
           <span class="symbol-thumb" v-html="asset.svg" />
           <span class="symbol-name">{{ asset.label }}</span>
+          <span
+            class="fav-btn"
+            :class="{ on: isFav('symbol', asset.id) }"
+            :title="isFav('symbol', asset.id) ? '取消收藏' : '收藏'"
+            @mousedown.stop
+            @click.stop="toggleFav('symbol', asset.id, asset.label)"
+          >{{ isFav('symbol', asset.id) ? '★' : '☆' }}</span>
         </div>
       </div>
     </div>
@@ -395,6 +509,82 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 }
 
 /* Tab 条（组件 / 图元 / 装饰 / 模板 / 我的）：分段控件，激活项为浅青药丸 */
+.quick-strip {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: var(--ws-border-soft);
+  background: var(--ws-steel-0);
+}
+
+.quick-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.quick-row::-webkit-scrollbar {
+  display: none;
+}
+
+.quick-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ws-text-3);
+}
+
+.quick-chip {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border: var(--ws-border-soft);
+  border-radius: var(--ws-radius);
+  background: var(--ws-panel);
+  color: var(--ws-text-2);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--ws-duration-fast) var(--ws-ease), border-color var(--ws-duration-fast) var(--ws-ease);
+}
+
+.quick-chip:hover {
+  color: var(--ws-signal);
+  border-color: var(--ws-signal-a45);
+}
+
+/* 收藏星：默认极淡，hover 卡片或自身时显形；点亮恒显 */
+.fav-btn {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--ws-text-3);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity var(--ws-duration-fast) var(--ws-ease), color var(--ws-duration-fast) var(--ws-ease);
+}
+
+.list:hover .fav-btn,
+.symbol-item:hover .fav-btn,
+.fav-btn.on {
+  opacity: 1;
+}
+
+.fav-btn.on {
+  color: var(--ws-warn-bright);
+}
+
+.fav-btn:hover {
+  color: var(--ws-warn-bright);
+}
+
 .palette-tabs {
   flex-shrink: 0;
   display: flex;
@@ -421,7 +611,7 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   color: var(--ws-text-3);
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.12s ease-out, color 0.12s ease-out, border-color 0.12s ease-out;
+  transition: background-color var(--ws-duration-fast) var(--ws-ease), color var(--ws-duration-fast) var(--ws-ease), border-color var(--ws-duration-fast) var(--ws-ease);
 }
 
 .tab:hover {
@@ -480,6 +670,7 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
 
 /* 缩略卡：三列密排（图标居上、名称居下），40 个组件一屏可见过半 */
 .list {
+  position: relative; /* 收藏星（.fav-btn absolute）锚定卡片 */
   min-width: 0;
   height: 54px;
   padding: 7px 3px 5px;
@@ -495,8 +686,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   cursor: grab;
   user-select: none;
   text-align: center;
-  transition: border-color 0.12s ease-out, background-color 0.12s ease-out,
-    color 0.12s ease-out, box-shadow 0.12s ease-out;
+  transition: border-color var(--ws-duration-fast) var(--ws-ease), background-color var(--ws-duration-fast) var(--ws-ease),
+    color var(--ws-duration-fast) var(--ws-ease), box-shadow var(--ws-duration-fast) var(--ws-ease);
 }
 
 .list:active {
@@ -557,8 +748,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   color: var(--ws-text);
   font-size: 12px;
   outline: none;
-  transition: border-color 0.12s ease-out, background-color 0.12s ease-out,
-    box-shadow 0.12s ease-out;
+  transition: border-color var(--ws-duration-fast) var(--ws-ease), background-color var(--ws-duration-fast) var(--ws-ease),
+    box-shadow var(--ws-duration-fast) var(--ws-ease);
 }
 
 .symbol-search::placeholder {
@@ -613,7 +804,7 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   line-height: 16px;
   color: var(--ws-text-2);
   cursor: pointer;
-  transition: border-color 0.12s ease-out, background-color 0.12s ease-out, color 0.12s ease-out;
+  transition: border-color var(--ws-duration-fast) var(--ws-ease), background-color var(--ws-duration-fast) var(--ws-ease), color var(--ws-duration-fast) var(--ws-ease);
 }
 
 .cat:hover {
@@ -657,8 +848,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   background: var(--ws-panel);
   cursor: grab;
   user-select: none;
-  transition: border-color 0.12s ease-out, background-color 0.12s ease-out,
-    box-shadow 0.12s ease-out;
+  transition: border-color var(--ws-duration-fast) var(--ws-ease), background-color var(--ws-duration-fast) var(--ws-ease),
+    box-shadow var(--ws-duration-fast) var(--ws-ease);
 }
 
 .symbol-item:active {
@@ -764,8 +955,8 @@ function onTemplateClick(t: (typeof PAGE_TEMPLATES)[number]): void {
   background: var(--ws-panel);
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.12s ease-out, background-color 0.12s ease-out,
-    transform 0.12s ease-out;
+  transition: border-color var(--ws-duration-fast) var(--ws-ease), background-color var(--ws-duration-fast) var(--ws-ease),
+    transform var(--ws-duration-fast) var(--ws-ease);
 }
 
 .tpl-item:hover {

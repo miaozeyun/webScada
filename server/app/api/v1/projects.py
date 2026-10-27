@@ -59,6 +59,8 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
 ) -> ProjectListOut:
     total, items = await project_service.list_projects(db, keyword, page, size)
+    # 首页缩略图（卡片视图）：编辑器保存前写入 doc.project.thumbnail，路径投影读出（不拉 doc 大列）
+    thumbnails = await project_service.list_thumbnails(db, [p.id for p in items])
     return ProjectListOut(
         total=total,
         page=page,
@@ -66,8 +68,7 @@ async def list_projects(
         items=[
             ProjectListItem(
                 id=str(p.id), name=p.name, description=p.description, revision=p.revision, updatedAt=p.updated_at,
-                # 首页缩略图（卡片视图）：编辑器保存前写入 doc.project.thumbnail，此处直接读出
-                thumbnail=(p.doc or {}).get("project", {}).get("thumbnail") if isinstance(p.doc, dict) else None,
+                thumbnail=thumbnails.get(p.id),
             )
             for p in items
         ],

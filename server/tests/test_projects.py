@@ -31,6 +31,24 @@ async def test_list_has_no_doc(client, auth_headers):
     assert item["id"] == created["id"] and "doc" not in item
 
 
+async def test_list_thumbnail_projection(client, auth_headers):
+    """缩略图走 doc 路径投影读出：保存后列表能拿到，未保存工程为 None（列裁剪不丢字段）。"""
+    created = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["project"]["thumbnail"] = "/uploads/t_a1b2c3.png"
+    assert (await put_doc(client, auth_headers, created["id"], doc, base_revision=1)).status_code == 200
+    resp = await client.get("/api/v1/projects", headers=auth_headers)
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert items[0]["thumbnail"] == "/uploads/t_a1b2c3.png"
+    # 再建一个未保存缩略图的工程：投影缺省回落 None，不误读其他字段
+    await _create(client, auth_headers, name="二号车间")
+    resp2 = await client.get("/api/v1/projects", headers=auth_headers)
+    by_name = {i["name"]: i["thumbnail"] for i in resp2.json()["items"]}
+    assert by_name["演示工程"] == "/uploads/t_a1b2c3.png"
+    assert by_name["二号车间"] is None
+
+
 async def test_update_doc_revision_and_name_sync(client, auth_headers):
     created = await _create(client, auth_headers)
     doc = make_doc()

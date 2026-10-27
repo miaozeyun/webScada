@@ -67,4 +67,108 @@ export class HistoryStack {
   get canRedo(): boolean {
     return this.redoStack.length > 0
   }
+
+  /** undo 栈当前条目数（PageHistory 全局配额统计用） */
+  get size(): number {
+    return this.undoStack.length
+  }
+
+  /** 淘汰最旧一条（全局上限触发时由 PageHistory 调用） */
+  popOldest(): void {
+    this.undoStack.shift()
+    this.lastKey = ''
+  }
+}
+
+/**
+ * 跨页撤销管理（B-3）：每页独立 HistoryStack + 全局 undo 条目总量上限。
+ * - 切页不清栈：undo/redo 只作用于当前页（页内快照互不串扰）
+ * - 全局超限（默认 200）时按 LRU 淘汰「最久未活动页」的栈底条目，防多页快照内存膨胀
+ * - 整 doc 替换（load/replaceDoc）才 clearAll；删页 clearPage
+ */
+export class PageHistory {
+  private stacks = new Map<string, HistoryStack>()
+  private lru: string[] = []
+
+  constructor(
+    private readonly perPage = 50,
+    private readonly globalLimit = 200,
+  ) {}
+
+  private touch(pageId: string): void {
+    const i = this.lru.indexOf(pageId)
+    if (i >= 0) this.lru.splice(i, 1)
+    this.lru.push(pageId)
+  }
+
+  private stackOf(pageId: string): HistoryStack {
+    let s = this.stacks.get(pageId)
+    if (!s) {
+      s = new HistoryStack(this.perPage)
+      this.stacks.set(pageId, s)
+      this.touch(pageId)
+    }
+    return s
+  }
+
+  private totalUndo(): number {
+    let n = 0
+    for (const s of this.stacks.values()) n += s.size
+    return n
+  }
+
+  private evictOverflow(except: string): void {
+    while (this.totalUndo() > this.globalLimit) {
+      // 最久未活动页先掏栈底；只剩当前页时由 perPage 上限兜底，不误伤
+      const victim = this.lru.find((id) => id !== except && (this.stacks.get(id)?.size ?? 0) > 0)
+      if (!victim) return
+      const s = this.stacks.get(victim)!
+      s.popOldest()
+      if (s.size === 0 && !s.canRedo) this.stacks.delete(victim)
+      this.touch(victim)
+    }
+  }
+
+  push(pageId: string, snapshot: string, mergeKey?: string): void {
+    this.stackOf(pageId).push(snapshot, mergeKey)
+    this.touch(pageId)
+    this.evictOverflow(pageId)
+  }
+
+  cancelLast(pageId: string): void {
+    this.stacks.get(pageId)?.cancelLast()
+  }
+
+  undo(pageId: string, current: string): string | null {
+    const s = this.stacks.get(pageId)
+    if (!s) return null
+    this.touch(pageId)
+    return s.undo(current)
+  }
+
+  redo(pageId: string, current: string): string | null {
+    const s = this.stacks.get(pageId)
+    if (!s) return null
+    this.touch(pageId)
+    return s.redo(current)
+  }
+
+  canUndo(pageId: string): boolean {
+    return this.stacks.get(pageId)?.canUndo ?? false
+  }
+
+  canRedo(pageId: string): boolean {
+    return this.stacks.get(pageId)?.canRedo ?? false
+  }
+
+  clearPage(pageId: string): void {
+    this.stacks.delete(pageId)
+    const i = this.lru.indexOf(pageId)
+    if (i >= 0) this.lru.splice(i, 1)
+  }
+
+  clearAll(): void {
+    this.stacks.clear()
+    this.lru = []
+  }
 }

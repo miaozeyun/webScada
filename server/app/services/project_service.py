@@ -11,8 +11,10 @@ import uuid as uuidlib
 from datetime import datetime, timezone
 
 from loguru import logger
-from sqlalchemy import func, select, update
+from sqlalchemy import cast, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB as PG_JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.core.errors import AppError
 from app.db.models import Project, User
@@ -94,8 +96,14 @@ async def clone_project(db: AsyncSession, source: Project, owner: User, name: st
 async def list_projects(
     db: AsyncSession, keyword: str | None, page: int, size: int
 ) -> tuple[int, list[Project]]:
-    """列表不含 doc（03-接口清单 §2.3）。"""
-    base = select(Project)
+    """列表不含 doc（03-接口清单 §2.3）：load_only 裁掉 doc JSONB 大列
+    （≤2MB/工程，20 行最坏 ~40MB 反序列化全压列表首屏），缩略图走 list_thumbnails 路径投影。"""
+    base = select(Project).options(
+        load_only(
+            Project.id, Project.name, Project.description, Project.revision,
+            Project.owner_id, Project.updated_at,
+        )
+    )
     if keyword:
         base = base.where(Project.name.ilike(f"%{keyword}%"))
     total = await db.scalar(select(func.count()).select_from(base.subquery())) or 0
@@ -105,6 +113,21 @@ async def list_projects(
         )
     ).all()
     return int(total), list(items)
+
+
+async def list_thumbnails(db: AsyncSession, ids: list[uuidlib.UUID]) -> dict[uuidlib.UUID, str | None]:
+    """首页缩略图（卡片视图）：只投影 doc.project.thumbnail 一个标量，不反序列化整个 doc。
+    按方言分派（JSONVariant 同款做法）：PG 走 jsonb 路径 astext，SQLite 单测走 json_extract。"""
+    if not ids:
+        return {}
+    if db.get_bind().dialect.name == "postgresql":
+        # 列声明是 JSON().with_variant(JSONB())：variant 只在 DDL/编译期切换，
+        # 表达式层 [] 仍按基类型 JSON 解析（无 .astext）——须显式 cast 成 JSONB 再取路径
+        expr = cast(Project.doc, PG_JSONB)["project"]["thumbnail"].astext
+    else:
+        expr = func.json_extract(Project.doc, "$.project.thumbnail")
+    rows = (await db.execute(select(Project.id, expr).where(Project.id.in_(ids)))).all()
+    return {pid: (thumb if isinstance(thumb, str) and thumb else None) for pid, thumb in rows}
 
 
 async def update_doc(db: AsyncSession, project: Project, doc_raw: dict, base_revision: int) -> Project:

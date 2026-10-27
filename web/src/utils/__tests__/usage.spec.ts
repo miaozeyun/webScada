@@ -73,3 +73,30 @@ describe('variablesOfDatasource', () => {
     expect(variablesOfDatasource(doc, 'nope')).toEqual([])
   })
 })
+
+describe('findVariableUsage 跳转定位字段', () => {
+  it('组件引用携带 pageId/nodeId/顶层组 id（嵌套组归并顶层组上下文）', () => {
+    const doc = makeDoc()
+    const page = doc.pages[0]
+    const mk = (id: string, name: string, extra: Record<string, unknown> = {}): any => ({
+      id, name, type: 'rect', x: 0, y: 0, w: 1, h: 1, z: 2, props: {}, bindings: [], ...extra,
+    })
+    const bindVar1 = { id: 'bx', prop: 'props.value', variableId: 'var1', mode: 'value' }
+    const deep = mk('c_deep', '深层件', { bindings: [bindVar1] })
+    const nested = mk('c_nest', '嵌套组', { type: 'group', children: [deep] })
+    const child = mk('c_child', '子件', { bindings: [bindVar1] })
+    page.components.push(mk('c_g', '顶层组', { type: 'group', children: [child, nested] }))
+
+    const usages = findVariableUsage(doc, doc.variables[0])
+    const u1 = usages.find((u) => u.where.includes('子件'))!
+    expect(u1.pageId).toBe('page1')
+    expect(u1.nodeId).toBe('c_child')
+    expect(u1.groupId).toBe('c_g')
+    // 嵌套组内的引用同样归并到顶层组（editingGroup 只认顶层）
+    const u2 = usages.find((u) => u.where.includes('深层件'))!
+    expect(u2.nodeId).toBe('c_deep')
+    expect(u2.groupId).toBe('c_g')
+    // 非组件引用（报警规则/表达式）不可定位
+    expect(usages.find((u) => u.kind === 'alarm')!.pageId).toBe('')
+  })
+})

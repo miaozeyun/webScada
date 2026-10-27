@@ -63,7 +63,7 @@ const levelColors = computed(() => resolveLevelColors(editor.doc?.settings.alarm
 function levelColor(level: string): string {
   if (level === 'info' || level === 'warn' || level === 'critical') return levelColors.value[level]
   // 未知级别：灰显标签，强调色用安全橙兜底（报警不可无色）
-  return 'var(--ws-alert, #c2410c)'
+  return 'var(--ws-alert)'
 }
 
 /** 本地关闭的单条（非响应式集合，经 refreshTick 触发重算；恢复帧到达后自然从 store 移除） */

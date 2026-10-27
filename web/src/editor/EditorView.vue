@@ -701,7 +701,7 @@ async function shareProject(): Promise<void> {
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.12s ease-out, border-color 0.12s ease-out, color 0.12s ease-out;
+  transition: background-color var(--ws-duration-fast) var(--ws-ease), border-color var(--ws-duration-fast) var(--ws-ease), color var(--ws-duration-fast) var(--ws-ease);
 }
 
 .tb-btn.is-icon {
@@ -865,7 +865,7 @@ main {
   color: var(--ws-text);
   display: flex;
   flex-direction: column;
-  transition: width 0.25s ease;
+  transition: width var(--ws-duration-slow) var(--ws-ease);
 }
 
 .left {
@@ -908,7 +908,7 @@ main {
   transform: translate(-50%, -50%);
   border-radius: 1px;
   background: var(--ws-steel-3);
-  transition: background-color 0.12s ease-out, width 0.12s ease-out;
+  transition: background-color var(--ws-duration-fast) var(--ws-ease), width var(--ws-duration-fast) var(--ws-ease);
 }
 
 .left-split:hover i {
@@ -938,7 +938,7 @@ main {
   height: 100%;
   display: flex;
   flex-direction: column;
-  transition: margin 0.25s ease;
+  transition: margin var(--ws-duration-slow) var(--ws-ease);
   min-width: 0;
 }
 
@@ -969,7 +969,7 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: margin 0.25s ease;
+  transition: margin var(--ws-duration-slow) var(--ws-ease);
 }
 
 .show-list:hover {

@@ -40,10 +40,10 @@ const unit = computed(() => String(props.nodeProps.unit ?? ''))
 /* 字号随组件高度自适应，避免小尺寸溢出 */
 .digits {
   font-size: min(3em, calc(100vh / 12));
-  font-family: 'DIN Alternate', 'Consolas', 'Courier New', monospace;
+  font-family: var(--ws-font-tech);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: #1ba7b8;
+  color: var(--ws-signal-bright);
   line-height: 1.2;
   white-space: nowrap;
 }

@@ -43,7 +43,7 @@ const display = computed(() => {
 .value {
   font-size: 1.6em;
   font-weight: 700;
-  font-family: 'DIN Alternate', Consolas, monospace;
+  font-family: var(--ws-font-tech);
   line-height: 1.1;
 }
 

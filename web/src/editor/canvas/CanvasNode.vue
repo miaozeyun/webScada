@@ -23,8 +23,15 @@ const emit = defineEmits<{
 const isLocked = computed(() => props.node.locked === true)
 const isSelected = computed(() => editor.selection.includes(props.node.id))
 const isEditing = computed(() => editor.editingNodeId === props.node.id)
-/** 本组正被双击进入编辑：子组件事件不再上溯，直接作为选中目标 */
+/** 悬停描边只对「可点选的普通呈现态」生效：选中（已有实线框）/锁定/隐藏/行内编辑/组编辑自身均不叠加 */
+const isHoverable = computed(
+  () => !isSelected.value && !isLocked.value && !isEditing.value && !isGroupEditing.value && props.node.visible !== false,
+)
+/** 本组正被双击进入编辑（路径栈顶）：子组件事件不再上溯，直接作为选中目标 */
 const isGroupEditing = computed(() => props.node.type === 'group' && editor.editingGroupId === props.node.id)
+/** 本组在编辑路径上（含栈顶与各级祖先）：子级需保持独立可交互——嵌套组逐层进入的渲染前提
+ *  （祖先组若折叠子级，深层的编辑组就够不着了） */
+const groupExpanded = computed(() => props.node.type === 'group' && editor.editingGroupPath.includes(props.node.id))
 const anim = computed(() => animationOf(props.node.animations))
 
 const editEl = ref<HTMLDivElement>()
@@ -90,7 +97,7 @@ function onEditKeydown(e: KeyboardEvent): void {
 <template>
   <div
     class="canvas-node"
-    :class="[{ selected: isSelected, group: node.type === 'group', 'group-editing': isGroupEditing, editing: isEditing }, anim.cls]"
+    :class="[{ selected: isSelected, group: node.type === 'group', 'group-editing': isGroupEditing, editing: isEditing, hoverable: isHoverable }, anim.cls]"
     :style="boxStyle"
     @pointerdown.stop="onDown($event)"
     @dblclick.stop="onDblClick"
@@ -112,10 +119,10 @@ function onEditKeydown(e: KeyboardEvent): void {
     <!-- 锁定标识 -->
     <el-icon v-if="isLocked" class="lock-badge" :size="12" title="已锁定（可选中，不可拖动）"><Lock /></el-icon>
     <template v-if="node.type === 'group' && node.children">
-      <!-- 编辑中的组：子组件事件指向自身（可单独选中/拖拽/行内编辑）；
-           未编辑组：子组件事件一律上报顶层祖先（M1 约定：组为整体） -->
-      <template v-if="isGroupEditing">
-        <span class="group-edit-badge">组内编辑 · Esc 退出</span>
+      <!-- 编辑路径上的组（栈顶或其祖先）：子组件事件指向自身（可单独选中/拖拽/行内编辑）；
+           路径外的组：子组件事件一律上报顶层祖先（M1 约定：组为整体） -->
+      <template v-if="groupExpanded">
+        <span v-if="isGroupEditing" class="group-edit-badge">组内编辑 · Esc 退出</span>
         <CanvasNode
           v-for="child in node.children"
           :key="child.id"
@@ -150,6 +157,11 @@ function onEditKeydown(e: KeyboardEvent): void {
 /* 选中态参照 visual-drag-demo Shape.vue .active：outline 1px var(--ws-select) */
 .canvas-node.selected {
   outline: 1px solid var(--ws-select);
+}
+
+/* 悬停可选中反馈：比选中态弱一档的信号色描边（.hoverable 已排除选中/锁定/隐藏/行内编辑/组编辑自身） */
+.canvas-node.hoverable:hover {
+  outline: 1px solid var(--ws-signal-a45);
 }
 
 .canvas-node.group {

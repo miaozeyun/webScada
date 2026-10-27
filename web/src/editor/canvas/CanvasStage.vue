@@ -8,11 +8,14 @@
  * （保证"一次拖拽全程仅 1 条 undo 记录、纯点击零记录"）；Alt 复制的克隆发生在首次移动时。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { FullScreen, Minus, Plus } from '@element-plus/icons-vue'
 import type { ComponentNode } from '@/types/doc'
 import { useEditorStore } from '@/stores/editor'
 import { registry } from '@/widgets/registry'
 import { bboxIntersect, clamp, nodesBBox } from '@/utils/coord'
+import { newId } from '@/utils/nanoid'
+import { rotateMembersAbout, scaleMembersAbout, type MemberGeom } from '@/utils/multiTransform'
 import { calcResize, handlePoint } from '@/utils/resize'
 import { computeSnap } from './AlignGuides'
 import CanvasNode from './CanvasNode.vue'
@@ -102,6 +105,23 @@ function toDesign(e: { clientX: number; clientY: number }): { x: number; y: numb
   }
 }
 
+// ---------------- 悬停轨迹（Ctrl+V 粘贴落点跟随鼠标） ----------------
+
+/** 视口矩形缓存重建：pointerenter/窗口 resize 时一次量测。
+ *  pan/zoom 只改内层 stage 的 transform（合成器层），不改变视口自身矩形，无需逐事件量测。 */
+function refreshHoverRect(): void {
+  vpRect = viewportEl.value?.getBoundingClientRect() ?? null
+}
+
+function onHoverMove(e: PointerEvent): void {
+  editor.lastPointerDesign = toDesign(e)
+}
+
+function onHoverLeave(): void {
+  // 离开画布：清空记录，Ctrl+V 回落 +10px 阶梯偏移（纯键盘路径）
+  editor.lastPointerDesign = null
+}
+
 // ---------------- 缩放与平移（滚轮） ----------------
 
 const MIN_ZOOM = 0.25
@@ -122,6 +142,8 @@ function onWheel(e: WheelEvent): void {
     const dy = (cy - editor.pan.y) / editor.zoom
     editor.setPan(cx - dx * newZoom, cy - dy * newZoom)
     editor.setZoom(newZoom)
+    // 缩放后光标下的设计坐标已变，悬停轨迹同步刷新（滚轮不触发 pointermove）
+    editor.lastPointerDesign = toDesign(e)
     return
   }
   // 滚轮/触控板平移画布（Shift=水平）；视口自身无滚动条，接管无副作用
@@ -129,6 +151,7 @@ function onWheel(e: WheelEvent): void {
   const dx = e.shiftKey ? e.deltaX * unit + e.deltaY * unit : e.deltaX * unit
   const dy = e.shiftKey ? 0 : e.deltaY * unit
   editor.setPan(editor.pan.x - dx, editor.pan.y - dy)
+  editor.lastPointerDesign = toDesign(e)
 }
 
 // ---------------- 交互状态机 ----------------
@@ -138,6 +161,8 @@ type DragState =
   | { kind: 'move'; startDesign: { x: number; y: number }; origins: Map<string, { x: number; y: number; w: number; h: number }>; alt: boolean; moved: boolean }
   | { kind: 'resize'; dir: ResizeDir; id: string; startDesign: { x: number; y: number }; rect0: { x: number; y: number; w: number; h: number; rotate: number }; center0: { x: number; y: number }; handle0: { x: number; y: number }; shift: boolean; moved: boolean }
   | { kind: 'rotate'; id: string; center: { x: number; y: number }; a0: number; rotate0: number; moved: boolean }
+  | { kind: 'multi-resize'; dir: ResizeDir; startDesign: { x: number; y: number }; bbox0: { x: number; y: number; w: number; h: number }; members: MemberGeom[]; moved: boolean }
+  | { kind: 'multi-rotate'; center: { x: number; y: number }; a0: number; members: MemberGeom[]; moved: boolean }
   | { kind: 'marquee'; start: { x: number; y: number }; additive: boolean }
 
 const drag = ref<DragState | null>(null)
@@ -268,11 +293,26 @@ function onNodeDown(e: PointerEvent, node: ComponentNode): void {
 // ---- 缩放柄 / 旋转柄 ----
 
 function onResizeStart(dir: ResizeDir, e: PointerEvent): void {
+  const sel = editor.selectedNodes
   const node = editor.primarySelected
   if (!node) return
   blurTypingTarget()
   beginGesture()
   editor.beginChange()
+  // 多选：选中集整体缩放（成员中心随包围盒锚点比例平移，宽高同比；见 utils/multiTransform）
+  if (sel.length > 1) {
+    const bbox0 = nodesBBox(sel)
+    drag.value = {
+      kind: 'multi-resize',
+      dir,
+      startDesign: toDesign(e),
+      bbox0,
+      members: sel.map(memberGeomOf),
+      moved: false,
+    }
+    bindWindowDrag()
+    return
+  }
   const rect0 = { x: node.x, y: node.y, w: node.w, h: node.h, rotate: node.rotate ?? 0 }
   drag.value = {
     kind: 'resize',
@@ -289,11 +329,27 @@ function onResizeStart(dir: ResizeDir, e: PointerEvent): void {
 }
 
 function onRotateStart(e: PointerEvent): void {
+  const sel = editor.selectedNodes
   const node = editor.primarySelected
   if (!node) return
   blurTypingTarget()
   beginGesture()
   editor.beginChange()
+  // 多选：绕选中集包围盒中心整体旋转（成员 rotate0+θ，中心公转）
+  if (sel.length > 1) {
+    const bbox = nodesBBox(sel)
+    const center = { x: bbox.x + bbox.w / 2, y: bbox.y + bbox.h / 2 }
+    const p = toDesign(e)
+    drag.value = {
+      kind: 'multi-rotate',
+      center,
+      a0: (Math.atan2(p.y - center.y, p.x - center.x) * 180) / Math.PI,
+      members: sel.map(memberGeomOf),
+      moved: false,
+    }
+    bindWindowDrag()
+    return
+  }
   const center = { x: node.x + node.w / 2, y: node.y + node.h / 2 }
   const p = toDesign(e)
   drag.value = {
@@ -305,6 +361,19 @@ function onRotateStart(e: PointerEvent): void {
     moved: false,
   }
   bindWindowDrag()
+}
+
+/** 选中集成员的变换原值快照（几何 + 字号，手势期间每次从原值重算防漂移） */
+function memberGeomOf(n: ComponentNode): MemberGeom {
+  return {
+    id: n.id,
+    x: n.x,
+    y: n.y,
+    w: n.w,
+    h: n.h,
+    rotate: n.rotate ?? 0,
+    fontSize: n.style?.fontSize,
+  }
 }
 
 // ---- 视口按下：平移（空格/中键）或框选 ----
@@ -406,13 +475,54 @@ function processDrag(e: { clientX: number; clientY: number; shiftKey: boolean })
     return
   }
 
+  if (st.kind === 'multi-resize') {
+    const pdx = p.x - st.startDesign.x
+    const pdy = p.y - st.startDesign.y
+    if (!st.moved && Math.abs(pdx) + Math.abs(pdy) > 2) st.moved = true
+    if (!st.moved) return
+    // 每帧从原值重算（无累积漂移）；Shift=角柄等比
+    const r = scaleMembersAbout(st.bbox0, st.dir, p, st.members, e.shiftKey)
+    for (const m of r.members) {
+      editor.setNodeRect(m.id, { x: m.x, y: m.y, w: m.w, h: m.h })
+      if (m.fontSize !== undefined) editor.setNodeFontSize(m.id, m.fontSize)
+    }
+    readout.value = {
+      x: r.bbox.x + r.bbox.w / 2,
+      y: r.bbox.y + r.bbox.h,
+      text: `${Math.round(r.bbox.w)} × ${Math.round(r.bbox.h)}`,
+    }
+    return
+  }
+
+  if (st.kind === 'multi-rotate') {
+    const a = (Math.atan2(p.y - st.center.y, p.x - st.center.x) * 180) / Math.PI
+    let deg = a - st.a0
+    if (!st.moved && Math.abs(a - st.a0) > 1) st.moved = true
+    if (!st.moved) return
+    // 近 15° 倍数吸附（4° 内）；Shift 临时脱离（多选/单选一致）
+    if (!e.shiftKey) {
+      const near = Math.round(deg / 15) * 15
+      if (Math.abs(deg - near) < 4) deg = near
+    }
+    const out = rotateMembersAbout(st.center, deg, st.members)
+    for (const m of out) editor.setNodeRect(m.id, { x: m.x, y: m.y, rotate: m.rotate })
+    readout.value = {
+      x: st.center.x,
+      y: st.center.y - 26 / editor.zoom,
+      text: `${Math.round(((deg % 360) + 360) % 360)}°`,
+    }
+    return
+  }
+
   if (st.kind === 'rotate') {
     const a = (Math.atan2(p.y - st.center.y, p.x - st.center.x) * 180) / Math.PI
     let deg = st.rotate0 + (a - st.a0)
     if (!st.moved && Math.abs(a - st.a0) > 1) st.moved = true
-    // 近 15° 倍数吸附（4° 内）
-    const near = Math.round(deg / 15) * 15
-    if (Math.abs(deg - near) < 4) deg = near
+    // 近 15° 倍数吸附（4° 内）；Shift 临时脱离吸附（多选/单选一致）
+    if (!e.shiftKey) {
+      const near = Math.round(deg / 15) * 15
+      if (Math.abs(deg - near) < 4) deg = near
+    }
     // 归一化到 [0, 360)（契约 rotate ge=0 lt=360）
     deg = ((Math.round(deg) % 360) + 360) % 360
     editor.setNodeRect(st.id, { rotate: deg })
@@ -434,7 +544,7 @@ function onPointerUp(e: PointerEvent): void {
   readout.value = null
   if (!st) return
 
-  if (st.kind === 'move' || st.kind === 'resize' || st.kind === 'rotate') {
+  if (st.kind === 'move' || st.kind === 'resize' || st.kind === 'rotate' || st.kind === 'multi-resize' || st.kind === 'multi-rotate') {
     // 纯点击/无实际变化：回退快照，不留历史记录（Alt 复制未发生，无副作用）
     if (!st.moved) editor.cancelChange()
     return
@@ -491,8 +601,13 @@ function onContextMenu(e: MouseEvent): void {
   editor.openContextMenu(e.clientX - rect.left, e.clientY - rect.top)
 }
 
-/** 双击：文本 → 行内编辑（进入时先入历史快照，blur/Enter 提交）；组 → 进入组内编辑 */
+/** 双击：文本 → 行内编辑（进入时先入历史快照，blur/Enter 提交）；组 → 进入组内编辑（嵌套组逐层进入） */
 function onNodeDblClick(node: ComponentNode): void {
+  if (node.type === 'group' && node.locked) {
+    // 锁定组双击不再静默失败：给出明确指引（防「双击没反应」的困惑）
+    ElMessage.info('该组已锁定，不可进入编辑（先在图层面板或右键解锁）')
+    return
+  }
   if (node.locked) return
   if (node.type === 'group') {
     editor.enterGroup(node.id)
@@ -514,6 +629,12 @@ function onDragOver(e: DragEvent): void {
   if (hint) {
     const p = toDesign(e)
     dragGhost.value = { x: p.x - hint.w / 2, y: p.y - hint.h / 2, w: hint.w, h: hint.h }
+    // 变量拖拽悬停到可绑定组件上：提示语义从「生成」切到「绑定」（松开即挂值绑定）
+    if (Array.from(e.dataTransfer?.types ?? []).includes('application/x-variable')) {
+      const hit = hitTestTopLevel(p)
+      const label = hit ? `松开绑定到「${hit.name}」` : hint.label
+      if (hint.label !== label) editor.dropHint = { ...hint, label }
+    }
   }
 }
 
@@ -521,14 +642,52 @@ function onDragLeave(): void {
   dragGhost.value = null
 }
 
+/** 拖放命中测试：顶层组件按 z 从高到低找包含设计坐标者（组/锁定/隐藏不作绑定目标，落到空白生成） */
+function hitTestTopLevel(p: { x: number; y: number }): ComponentNode | null {
+  const comps = [...(page.value?.components ?? [])].sort((a, b) => b.z - a.z)
+  for (const n of comps) {
+    if (n.type === 'group' || n.locked || n.visible === false) continue
+    if (p.x >= n.x && p.x <= n.x + n.w && p.y >= n.y && p.y <= n.y + n.h) return n
+  }
+  return null
+}
+
+/** 变量拖放落点：命中已有组件 → 挂值绑定（独立一步 undo）；空白 → 按变量类型生成默认绑定组件
+ *  （number→数值读数 / boolean→状态灯 / string→文本，创建+绑定合并为一步 undo）。 */
+function dropVariable(varId: string, p: { x: number; y: number }): void {
+  const v = editor.doc?.variables.find((it) => it.id === varId)
+  if (!v) return
+  const hit = hitTestTopLevel(p)
+  if (hit) {
+    const exists = (hit.bindings ?? []).some((b) => b.variableId === varId && b.prop === 'props.value')
+    if (!exists) {
+      editor.updateNode(hit.id, { bindings: [...(hit.bindings ?? []), { id: newId('bnd'), prop: 'props.value', variableId: varId, mode: 'value' as const }] }, 'bindings')
+    }
+    editor.selection = [hit.id]
+    return
+  }
+  const kind = v.type === 'boolean' ? 'status-light' : v.type === 'string' ? 'text' : 'var-display'
+  const meta = registry.get(kind as never)!
+  const prop = kind === 'text' ? 'props.text' : 'props.value'
+  const id = editor.addComponent(kind as never, p.x - meta.defaultSize.w / 2, p.y - meta.defaultSize.h / 2)
+  if (id) editor.appendBinding(id, varId, prop)
+}
+
 function onDrop(e: DragEvent): void {
   e.preventDefault()
   dragGhost.value = null
-  const raw = e.dataTransfer?.getData('application/x-widget') || e.dataTransfer?.getData('text/plain')
+  const dt = e.dataTransfer
+  // 变量拖放（DataDrawer 变量表 → 画布）：优先于组件载荷处理
+  const varId = dt?.getData('application/x-variable') || ''
+  const raw = dt?.getData('application/x-widget') || dt?.getData('text/plain') || ''
+  const p = toDesign(e)
+  if (varId || raw.startsWith('var|')) {
+    dropVariable(varId || raw.slice(4), p)
+    return
+  }
   if (!raw) return
   // 复合载荷：'symbol|<symbolId>'（图元库）/ 'mysym|<资产id>'（我的图元）；普通组件为纯 type
   const [type, id] = raw.split('|')
-  const p = toDesign(e)
   if (type === 'mysym' && id) {
     editor.insertMySymbol(id, p.x, p.y)
     return
@@ -621,11 +780,14 @@ function zoomReset(): void {
 onMounted(() => {
   viewportEl.value?.addEventListener('wheel', onWheel, { passive: false })
   window.addEventListener('ws:zoom', onZoomCmd)
+  window.addEventListener('resize', refreshHoverRect)
   fitToView()
 })
 onBeforeUnmount(() => {
   viewportEl.value?.removeEventListener('wheel', onWheel)
   window.removeEventListener('ws:zoom', onZoomCmd)
+  window.removeEventListener('resize', refreshHoverRect)
+  editor.lastPointerDesign = null
 })
 
 // 切页/换设计尺寸时重新适配
@@ -641,11 +803,27 @@ watch(
     class="canvas-viewport"
     :class="viewportClass"
     @pointerdown="onViewportDown"
+    @pointerenter="refreshHoverRect"
+    @pointermove="onHoverMove"
+    @pointerleave="onHoverLeave"
     @contextmenu="onContextMenu"
     @dragover="onDragOver"
     @dragleave="onDragLeave"
     @drop="onDrop"
   >
+    <!-- 组编辑面包屑（嵌套组逐层进入）：页 / 组A / 组B，点击任一级退到该层；不随画布平移缩放 -->
+    <div v-if="editor.editingGroupChain.length" class="group-crumbs" @pointerdown.stop @click.stop @dblclick.stop>
+      <button type="button" class="crumb" @click="editor.exitToGroupLevel(0)">{{ page?.name ?? '页面' }}</button>
+      <template v-for="(g, i) in editor.editingGroupChain" :key="g.id">
+        <span class="crumb-sep">›</span>
+        <button
+          type="button"
+          class="crumb"
+          :class="{ active: i === editor.editingGroupChain.length - 1 }"
+          @click="editor.exitToGroupLevel(i + 1)"
+        >{{ g.name }}</button>
+      </template>
+    </div>
     <div v-if="page" class="canvas-stage" :style="stageStyle">
       <div ref="pageEl" class="canvas-page" :style="pageStyle">
         <!-- 点阵网格（7.24 小格 / 36.18 大格，着色随主题令牌；缩放 <60% 整层淡出降噪） -->
@@ -670,12 +848,14 @@ watch(
         />
         <SelectionLayer @resize-start="onResizeStart" @rotate-start="onRotateStart" />
         <MarqueeSelect v-if="marquee" :rect="marquee" />
-        <!-- 拖入放置 ghost：组件库拖拽经过时按默认尺寸预览落点 -->
+        <!-- 拖入放置 ghost：组件/变量拖拽经过时按默认尺寸预览落点；变量悬停组件上时提示语义切换 -->
         <div
           v-if="dragGhost"
           class="drop-ghost"
           :style="{ left: `${dragGhost.x}px`, top: `${dragGhost.y}px`, width: `${dragGhost.w}px`, height: `${dragGhost.h}px` }"
-        />
+        >
+          <span v-if="editor.dropHint?.label" class="drop-ghost-label">{{ editor.dropHint.label }}</span>
+        </div>
         <!-- 吸附参考线 -->
         <div v-for="(lx, i) in guides.linesX" :key="`gx${i}`" class="guide-v" :style="{ left: `${lx + guideOffset.x}px` }" />
         <div v-for="(ly, i) in guides.linesY" :key="`gy${i}`" class="guide-h" :style="{ top: `${ly + guideOffset.y}px` }" />
@@ -832,6 +1012,24 @@ watch(
   z-index: 5;
 }
 
+/* ghost 标签：变量/图元名与「松开绑定到 X」语义提示，悬浮于 ghost 上沿 */
+.drop-ghost-label {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  margin-bottom: 4px;
+  padding: 2px 8px;
+  border-radius: var(--ws-radius);
+  background: var(--ws-ink);
+  color: var(--ws-text-inverse);
+  font-size: 11px;
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .drop-ghost::after {
   content: '';
   position: absolute;
@@ -926,6 +1124,51 @@ watch(
 }
 
 /* 缩放坞：玻璃白浮动条，悬浮在画布右下角 */
+/* 组编辑面包屑：视口左上角悬浮（不随画布变换），层级可点跳转 */
+.group-crumbs {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 9100;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: var(--ws-border);
+  border-radius: var(--ws-radius-lg);
+  background: var(--ws-panel);
+  box-shadow: var(--ws-shadow-panel);
+  font-size: 12px;
+}
+
+.group-crumbs .crumb {
+  padding: 1px 6px;
+  border: none;
+  border-radius: var(--ws-radius);
+  background: transparent;
+  color: var(--ws-text-2);
+  cursor: pointer;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color var(--ws-duration-fast) var(--ws-ease), color var(--ws-duration-fast) var(--ws-ease);
+}
+
+.group-crumbs .crumb:hover {
+  background: var(--ws-signal-a12);
+  color: var(--ws-text);
+}
+
+.group-crumbs .crumb.active {
+  color: var(--ws-signal-strong);
+  font-weight: 600;
+}
+
+.group-crumbs .crumb-sep {
+  color: var(--ws-text-3);
+}
+
 .zoom-dock {
   position: absolute;
   right: 14px;
@@ -955,7 +1198,7 @@ watch(
   background: transparent;
   color: var(--ws-text-2);
   cursor: pointer;
-  transition: background-color 0.12s ease-out, color 0.12s ease-out;
+  transition: background-color var(--ws-duration-fast) var(--ws-ease), color var(--ws-duration-fast) var(--ws-ease);
 }
 
 .zd-btn:hover {
@@ -997,7 +1240,7 @@ watch(
   left: 0;
   z-index: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease-out;
+  transition: opacity var(--ws-duration-base) var(--ws-ease);
 }
 
 .grid :deep(.dot-minor) {

@@ -109,6 +109,8 @@ class AlarmRecord(Base):
         CheckConstraint("status IN ('triggered','acked','cleared')", name="ck_alarm_status"),
         # 复合索引：按工程查报警时按触发时间倒序（与 alembic 0001/0002 一致）
         Index("idx_alarm_proj_triggered", "project_id", text("triggered_at DESC")),
+        # 报警中心/统计按工程+状态（活跃/已恢复）+规则过滤的高频口径
+        Index("idx_alarm_proj_status_rule", "project_id", "status", "rule_id"),
     )
 
     # 自增主键：PostgreSQL 用 BIGINT（与 alembic 一致）；SQLite 测试环境
@@ -171,6 +173,8 @@ class HistoryValue(Base):
     __tablename__ = "history_values"
     __table_args__ = (
         Index("idx_history_proj_var_ts", "project_id", "variable_key", text("ts DESC")),
+        # ts 前导索引：30 天保留清理按 cutoff 范围扫，避免全表 DELETE
+        Index("idx_history_ts", text("ts")),
     )
 
     id: Mapped[int] = mapped_column(Integer().with_variant(BigInteger(), "postgresql"), primary_key=True, autoincrement=True)

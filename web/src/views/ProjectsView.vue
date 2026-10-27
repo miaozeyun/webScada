@@ -740,7 +740,7 @@ function fmtTime(iso: string): string {
   opacity: 0;
   transform: translateY(4px);
   pointer-events: none;
-  transition: opacity 0.14s ease-out, transform 0.14s ease-out;
+  transition: opacity var(--ws-duration-fast) var(--ws-ease), transform var(--ws-duration-fast) var(--ws-ease);
 }
 
 .name-cell:hover .hover-preview {
@@ -827,7 +827,7 @@ function fmtTime(iso: string): string {
   border: 1px solid var(--ws-steel-3);
   border-radius: var(--ws-radius);
   overflow: hidden;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  transition: border-color var(--ws-duration-fast) var(--ws-ease), box-shadow var(--ws-duration-fast) var(--ws-ease), transform var(--ws-duration-fast) var(--ws-ease);
 }
 
 .project-card:hover {

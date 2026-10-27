@@ -86,7 +86,7 @@ async function toggle(ev?: Event): Promise<void> {
   height: 1.15em;
   border-radius: 1em;
   background: #909399;
-  transition: background 0.25s;
+  transition: background var(--ws-duration-slow) var(--ws-ease);
   flex-shrink: 0;
 }
 
@@ -98,7 +98,7 @@ async function toggle(ev?: Event): Promise<void> {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-  transition: transform 0.25s;
+  transition: transform var(--ws-duration-slow) var(--ws-ease);
   transform: translateY(0.1em);
 }
 

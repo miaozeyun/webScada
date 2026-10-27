@@ -113,7 +113,7 @@ onBeforeUnmount(() => {
 .temp {
   font-size: 1.7em;
   font-weight: 700;
-  font-family: 'DIN Alternate', Consolas, monospace;
+  font-family: var(--ws-font-tech);
 }
 
 .deg {

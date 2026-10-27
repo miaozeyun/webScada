@@ -11,7 +11,8 @@ import { Bell, Download, Plus, Upload } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { newId } from '@/utils/nanoid'
 import { buildPointCsv, parsePointCsv, POINT_CSV_COLUMNS } from '@/utils/pointCsv'
-import { findVariableUsage, variablesOfDatasource } from '@/utils/usage'
+import { findVariableUsage, variablesOfDatasource, type VariableUsage } from '@/utils/usage'
+import VarUsageDialog from '@/editor/panels/VarUsageDialog.vue'
 import type { PointCsvError, PointCsvRow } from '@/utils/pointCsv'
 import { VIRTUAL_DATASOURCE_ID } from '@/types/doc'
 import { browseOpcUa, datasourceStatus, testDatasource } from '@/api/datasources'
@@ -801,7 +802,7 @@ const almForm = reactive({
 
 const LEVEL_LABEL: Record<AlarmLevel, string> = { info: '提示', warn: '警告', critical: '严重' }
 
-function openAlm(r?: AlarmRule): void {
+function openAlm(r?: AlarmRule, presetVariableId?: string): void {
   almVisible.value = true
   if (r) {
     Object.assign(almForm, {
@@ -811,10 +812,45 @@ function openAlm(r?: AlarmRule): void {
     })
   } else {
     Object.assign(almForm, {
-      id: '', name: '', variableId: variables.value[0]?.id ?? '', op: '>', threshold: 90,
+      id: '', name: '', variableId: presetVariableId ?? variables.value[0]?.id ?? '', op: '>', threshold: 90,
       level: 'warn', message: '{label} = {value}（阈值 {threshold}）', enabled: true, hysteresis: 0, durationMs: 0, sound: true,
     })
   }
+}
+
+// ---------------- 查找引用（变量表行级入口，懒扫描） ----------------
+
+const usageVisible = ref(false)
+const usageVariable = ref<VariableDef | null>(null)
+
+function openUsage(v: VariableDef): void {
+  usageVariable.value = v
+  usageVisible.value = true
+}
+
+/** 跳转时序不可颠倒：先切页（清选择/组上下文/历史）→ 进组上下文 → 最后选中目标 */
+function locateUsage(u: VariableUsage): void {
+  editor.setCurrentPage(u.pageId)
+  if (u.groupId) editor.enterGroup(u.groupId)
+  else editor.exitAllGroups()
+  editor.selection = [u.nodeId]
+  emit('close')
+}
+
+// ---------------- 变量拖拽到画布（生成绑定组件 / 挂值绑定） ----------------
+
+/** ghost 尺寸按目标组件默认尺寸预告（number→变量读数 / boolean→状态灯 / string→文本） */
+function onVarDragStart(e: DragEvent, row: VariableDef): void {
+  // 双类型写入：标准类型 + text/plain 兜底（Firefox dataTransfer 兼容，同 ComponentPalette 模式）
+  e.dataTransfer?.setData('application/x-variable', row.id)
+  e.dataTransfer?.setData('text/plain', `var|${row.id}`)
+  e.dataTransfer!.effectAllowed = 'copy'
+  const size = row.type === 'boolean' ? { w: 80, h: 80 } : row.type === 'string' ? { w: 160, h: 48 } : { w: 220, h: 64 }
+  editor.dropHint = { ...size, label: `${row.label}（${row.key}）` }
+}
+
+function onVarDragEnd(): void {
+  editor.dropHint = null
 }
 
 function saveAlm(): void {
@@ -1092,7 +1128,18 @@ function channelTarget(ch: NotifyChannel): string {
             />
           </div>
           <el-table :data="filteredVariables" size="small" empty-text="暂无变量">
-            <el-table-column prop="key" label="key" min-width="110" />
+            <el-table-column label="key" min-width="110">
+              <template #default="{ row }">
+                <!-- 拖拽源：拖到画布空白生成绑定组件 / 拖到已有组件上挂值绑定 -->
+                <span
+                  class="var-drag"
+                  draggable="true"
+                  title="按住拖到画布：空白处生成组件并绑定；组件上松开直接绑定"
+                  @dragstart="onVarDragStart($event, row)"
+                  @dragend="onVarDragEnd"
+                >{{ row.key }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="label" label="名称" min-width="90" />
             <el-table-column prop="type" label="类型" width="70" />
             <el-table-column label="地址 / 表达式" min-width="140">
@@ -1129,9 +1176,11 @@ function channelTarget(ch: NotifyChannel): string {
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="120">
+            <el-table-column label="操作" width="168">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="openVar(row)">编辑</el-button>
+                <el-button link size="small" @click="openUsage(row)">引用</el-button>
+                <el-button link size="small" @click="openAlm(undefined, row.id)">报警</el-button>
                 <el-button link type="danger" size="small" @click="removeVar(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -1610,6 +1659,9 @@ function channelTarget(ch: NotifyChannel): string {
       </template>
     </el-dialog>
 
+    <!-- 变量查找引用（变量表行级入口；定位 = 关抽屉 → 切页 → 进组 → 选中） -->
+    <VarUsageDialog v-model:visible="usageVisible" :variable="usageVariable" @locate="locateUsage" />
+
     <!-- 通知渠道表单（工厂可用阶段二 Task 4） -->
     <el-dialog v-model="chVisible" :title="chForm.idx >= 0 ? '编辑通知渠道' : '新增通知渠道'" width="500px" append-to-body>
       <el-form label-width="92px" size="small">
@@ -1689,6 +1741,15 @@ function channelTarget(ch: NotifyChannel): string {
 
 .quality-tag {
   margin-left: 4px;
+}
+
+.var-drag {
+  cursor: grab;
+  border-bottom: 1px dashed var(--ws-inv-line);
+}
+
+.var-drag:active {
+  cursor: grabbing;
 }
 
 .cell-mono {

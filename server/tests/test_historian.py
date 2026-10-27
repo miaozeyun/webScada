@@ -160,3 +160,22 @@ async def test_cleanup_history(env, seam):
         assert await cleanup_history(s) == 1
         left = [r.variable_key for r in (await s.execute(select(HistoryValue))).scalars()]
     assert left == ["fresh"]
+
+
+async def test_cleanup_history_batched(env, seam):
+    """分批删除：过期行数超过 batch 时循环多批删净（防止单条大 DELETE 长事务）。"""
+    pid = uuidlib.uuid4()
+    now = datetime.now(UTCD)
+    async with env.factory() as s:
+        s.add_all(
+            [
+                HistoryValue(project_id=pid, variable_key=f"old{i}", ts=now - timedelta(days=40), value=1.0)
+                for i in range(5)
+            ]
+            + [HistoryValue(project_id=pid, variable_key="fresh", ts=now - timedelta(days=1), value=2.0)]
+        )
+        await s.commit()
+        # batch=2：5 行过期分 3 批（2+2+1），最后一批不足 batch 终止
+        assert await cleanup_history(s, batch=2) == 5
+        left = [r.variable_key for r in (await s.execute(select(HistoryValue))).scalars()]
+    assert left == ["fresh"]

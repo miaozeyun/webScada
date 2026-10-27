@@ -620,10 +620,10 @@ onBeforeUnmount(() => {
 
 .alarm-chip {
   padding: 2px 9px;
-  border: 1px solid var(--ws-alert-line, #c2410c);
+  border: 1px solid var(--ws-alert-line);
   border-radius: 999px;
-  background: var(--ws-alert-a16, rgba(194, 65, 12, 0.12));
-  color: var(--ws-alert-bright, #b45309);
+  background: var(--ws-alert-a16);
+  color: var(--ws-alert-bright);
   font-size: 12px;
   white-space: nowrap;
 }

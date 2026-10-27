@@ -44,7 +44,7 @@ const display = computed(() => percent.value.toFixed(precision.value))
   height: 100%;
   border-radius: 7px;
   background: linear-gradient(90deg, #0b7285, #1ba7b8);
-  transition: width 0.3s;
+  transition: width var(--ws-duration-base) var(--ws-ease);
 }
 
 .pct {

@@ -16,11 +16,11 @@ const pool = computed(() => editor.editingGroup?.children ?? editor.topLevelNode
 // z 大者在上 → 列表顶部
 const layers = computed(() => [...pool.value].sort((a, b) => b.z - a.z))
 
-/** 返回顶层：退出组编辑并重新选中该组（与画布 Esc 行为一致） */
+/** 返回顶层：一步退出全部嵌套组编辑并选中（最外层）该组 */
 function backToTop(): void {
-  const gid = editor.editingGroupId
-  editor.exitGroup()
-  if (gid) editor.select([gid])
+  const top = editor.editingGroupChain[0]?.id ?? ''
+  editor.exitAllGroups()
+  if (top) editor.select([top])
 }
 
 function rowClick(e: MouseEvent, id: string): void {

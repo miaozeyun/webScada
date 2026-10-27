@@ -86,7 +86,7 @@ async function pick(level: Level, ev?: Event): Promise<void> {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background 0.2s, border-color 0.2s;
+  transition: background var(--ws-duration-base) var(--ws-ease), border-color var(--ws-duration-base) var(--ws-ease);
 }
 
 .level.active {

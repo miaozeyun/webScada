@@ -4,18 +4,19 @@
  * 历史为页面级快照，切换页面即清空（快照不含页面切换语义）。
  */
 import { defineStore } from 'pinia'
-import type { ComponentNode, MySymbolDef, Page, ProjectDoc, WidgetType } from '@/types/doc'
+import type { Binding, ComponentNode, MySymbolDef, Page, ProjectDoc, WidgetType } from '@/types/doc'
 import { getProject, updateProject } from '@/api/projects'
-import { HistoryStack } from '@/editor/history'
+import { PageHistory } from '@/editor/history'
 import { buildGroup, flattenGroup, normalizeZ, normalizeZOf } from '@/editor/canvas/group'
 import { nodesBBox } from '@/utils/coord'
-import { newComponentId, newPageId } from '@/utils/nanoid'
+import { newComponentId, newId, newPageId } from '@/utils/nanoid'
 import { getSymbol } from '@/assets/symbols'
 import { registry } from '@/widgets/registry'
 import { normalizeComponents, normalizeDoc } from '@/utils/docNormalize'
 
 // 历史栈保持非响应式（模块级实例），版本计数驱动按钮状态
-const history = new HistoryStack(50)
+// 跨页撤销单例（保持非响应式，版本计数驱动按钮态）。导出仅为测试隔离用，业务代码走 store action
+export const history = new PageHistory(50, 200)
 
 export const useEditorStore = defineStore('editor', {
   state: () => ({
@@ -42,12 +43,17 @@ export const useEditorStore = defineStore('editor', {
     clipboardBase: null as { x: number; y: number } | null,
     /** 行内编辑中的节点 id（双击文本进入，blur/Enter 提交） */
     editingNodeId: '' as string,
-    /** 双击进入的组编辑上下文（空 = 顶层）：选中/拖拽/属性面板均作用于该组 children */
+    /** 组编辑路径（栈，顶层→当前）：嵌套组逐层进入；editingGroupId 为栈顶（空 = 顶层）。
+     *  双击进入；Esc/空白单击退一级并选回该组（各退出点共用此语义），面包屑可跳任意层级。 */
+    editingGroupPath: [] as string[],
     editingGroupId: '' as string,
     /** 组件库拖拽载荷尺寸提示（palette dragstart 写入，画布渲染放置 ghost；dragend/drop 清除） */
     dropHint: null as { w: number; h: number; label: string } | null,
     /** 画布右键菜单（坐标相对画布视口） */
     contextMenu: { show: false, x: 0, y: 0 } as { show: boolean; x: number; y: number },
+    /** 最近一次画布内指针的设计坐标（CanvasStage 悬停轨迹写入；Ctrl+V 粘贴落点跟随鼠标，
+     *  离开画布/窗口失焦即清空回落 +10px 阶梯偏移，保住纯键盘路径） */
+    lastPointerDesign: null as { x: number; y: number } | null,
   }),
 
   getters: {
@@ -63,11 +69,28 @@ export const useEditorStore = defineStore('editor', {
       const pool = this.editingGroup ? (this.editingGroup.children ?? []) : this.topLevelNodes
       return pool.filter((n) => state.selection.includes(n.id))
     },
-    /** 双击进入的编辑组（不存在/非组时视为无编辑上下文） */
+    /** 双击进入的编辑组：沿路径栈自顶层逐层解析（嵌套组递归进入；路径断裂回落 null） */
     editingGroup(): ComponentNode | null {
-      const id = this.editingGroupId
-      if (!id) return null
-      return this.topLevelNodes.find((n) => n.id === id && n.type === 'group') ?? null
+      let pool = this.topLevelNodes
+      let g: ComponentNode | null = null
+      for (const id of this.editingGroupPath) {
+        g = pool.find((n) => n.id === id && n.type === 'group') ?? null
+        if (!g) return null
+        pool = g.children ?? []
+      }
+      return g
+    },
+    /** 面包屑链（页 → 各级组名）：点击任一级退到该层 */
+    editingGroupChain(): { id: string; name: string }[] {
+      const out: { id: string; name: string }[] = []
+      let pool = this.topLevelNodes
+      for (const id of this.editingGroupPath) {
+        const g = pool.find((n) => n.id === id && n.type === 'group')
+        if (!g) break
+        out.push({ id: g.id, name: g.name || g.id })
+        pool = g.children ?? []
+      }
+      return out
     },
     /** 主选中（最后一个点选的），属性面板/缩放柄作用对象 */
     primarySelected(): ComponentNode | null {
@@ -88,10 +111,11 @@ export const useEditorStore = defineStore('editor', {
       this.doc = normalizeDoc(detail.doc) // 补全模板/历史工程缺省字段（bindings/locked/z 等）
       this.currentPageId = detail.doc.pages[0]?.id ?? ''
       this.selection = []
+      this.editingGroupPath = []
       this.editingGroupId = ''
       this.dirty = false
       this.saveError = ''
-      history.clear()
+      history.clearAll()
       this.historyVersion++
       this.zoom = 1
       this.pan = { x: 0, y: 0 }
@@ -133,13 +157,13 @@ export const useEditorStore = defineStore('editor', {
 
     beginChange(mergeKey?: string): void {
       if (!this.currentPage) return
-      history.push(JSON.stringify(this.currentPage), mergeKey)
+      history.push(this.currentPageId, JSON.stringify(this.currentPage), mergeKey)
       this.historyVersion++
     },
 
     /** 交互未产生实际变化时回退快照（纯点击不入历史） */
     cancelChange(): void {
-      history.cancelLast()
+      history.cancelLast(this.currentPageId)
       this.historyVersion++
     },
 
@@ -159,20 +183,20 @@ export const useEditorStore = defineStore('editor', {
 
     undo(): void {
       if (!this.currentPage) return
-      this._applySnapshot(history.undo(JSON.stringify(this.currentPage)))
+      this._applySnapshot(history.undo(this.currentPageId, JSON.stringify(this.currentPage)))
     },
 
     redo(): void {
       if (!this.currentPage) return
-      this._applySnapshot(history.redo(JSON.stringify(this.currentPage)))
+      this._applySnapshot(history.redo(this.currentPageId, JSON.stringify(this.currentPage)))
     },
 
     canUndo(): boolean {
-      return history.canUndo
+      return history.canUndo(this.currentPageId)
     },
 
     canRedo(): boolean {
-      return history.canRedo
+      return history.canRedo(this.currentPageId)
     },
 
     // ---------------- 选中 ----------------
@@ -206,16 +230,36 @@ export const useEditorStore = defineStore('editor', {
 
     // ---------------- 组编辑上下文（双击组进入，Esc/空白单击退出） ----------------
 
-    /** 进入组内编辑：选中作用于该组直接子节点。锁定组不可进入（防止误改冻结资产）。 */
+    /** 进入组内编辑：目标须为当前上下文的直接子级组（逐层进入，防跨层跳入）。
+     *  锁定组不可进入（防误改冻结资产；画布双击锁定组会给提示）。 */
     enterGroup(id: string): void {
-      const g = this.topLevelNodes.find((n) => n.id === id && n.type === 'group')
+      const pool = this.editingGroup ? (this.editingGroup.children ?? []) : this.topLevelNodes
+      const g = pool.find((n) => n.id === id && n.type === 'group')
       if (!g || g.locked) return
+      this.editingGroupPath = [...this.editingGroupPath, id]
       this.editingGroupId = id
       this.selection = []
     },
 
+    /** 退一级（调用方按需 select 回退出的组；已到顶层则无操作副作用只剩清选） */
     exitGroup(): void {
+      this.editingGroupPath = this.editingGroupPath.slice(0, -1)
+      this.editingGroupId = this.editingGroupPath[this.editingGroupPath.length - 1] ?? ''
+      this.selection = []
+    },
+
+    /** 一步退回顶层（新增组件落顶层、整 doc 替换等场景） */
+    exitAllGroups(): void {
+      this.editingGroupPath = []
+      this.editingGroupPath = []
       this.editingGroupId = ''
+      this.selection = []
+    },
+
+    /** 面包屑跳层：截断到前 depth 级（0 = 顶层） */
+    exitToGroupLevel(depth: number): void {
+      this.editingGroupPath = this.editingGroupPath.slice(0, Math.max(0, depth))
+      this.editingGroupId = this.editingGroupPath[this.editingGroupPath.length - 1] ?? ''
       this.selection = []
     },
 
@@ -230,7 +274,7 @@ export const useEditorStore = defineStore('editor', {
       const page = this.currentPage
       const meta = registry.get(type)
       if (!page || !meta) return ''
-      this.exitGroup() // 新增组件一律落在顶层（坐标为画布绝对坐标）
+      this.exitAllGroups() // 新增组件一律落在顶层（坐标为画布绝对坐标）
       // symbol：覆盖默认尺寸（按图元 viewBox 比例）与节点名（图元中文名）
       const symbolAsset = type === 'symbol' ? getSymbol(String(extraProps?.symbolId ?? '')) : undefined
       this.beginChange()
@@ -293,6 +337,7 @@ export const useEditorStore = defineStore('editor', {
       this.beginChange()
       page.components = []
       this.selection = []
+      this.editingGroupPath = []
       this.editingGroupId = ''
       this._markDirty()
     },
@@ -303,8 +348,9 @@ export const useEditorStore = defineStore('editor', {
       this.doc = normalizeDoc(doc) // 导入数据同口径补全缺省字段
       this.currentPageId = doc.pages[0].id
       this.selection = []
+      this.editingGroupPath = []
       this.editingGroupId = ''
-      history.clear()
+      history.clearAll()
       this.historyVersion++
       this._markDirty()
       return true
@@ -335,6 +381,14 @@ export const useEditorStore = defineStore('editor', {
       }
       if (!changed) return
       Object.assign(node, patch)
+      this._markDirty()
+    },
+
+    /** 手势内写字号（选中集整体缩放的字号跟随；不另开历史记录，与手势 beginChange 同窗） */
+    setNodeFontSize(id: string, fontSize: number): void {
+      const node = this.findNodeDeep(id)
+      if (!node || node.style?.fontSize === fontSize) return
+      node.style = { ...(node.style ?? {}), fontSize }
       this._markDirty()
     },
 
@@ -476,7 +530,8 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /** 粘贴：重新生成全部 id（含组内与绑定 id），整体偏移 +10px（连续粘贴阶梯错位），粘贴后选中新节点。
-     *  at：粘贴到指定设计坐标（右键"粘贴到此处"），以剪贴板包围盒原点对齐。 */
+     *  at：页面绝对设计坐标（右键"粘贴到此处"/Ctrl+V 跟随鼠标），以剪贴板包围盒原点对齐；
+     *  组编辑上下文内先换算为目标池相对坐标（修复组内"粘贴到此处"偏移组原点的错位）。 */
     pasteClipboard(at?: { x: number; y: number }): void {
       const page = this.currentPage
       if (!page || this.clipboard.length === 0) return
@@ -490,8 +545,11 @@ export const useEditorStore = defineStore('editor', {
       if (at) {
         const minX = Math.min(...this.clipboard.map((n) => n.x))
         const minY = Math.min(...this.clipboard.map((n) => n.y))
-        offX = at.x - minX - originX
-        offY = at.y - minY - originY
+        // at 为页面绝对坐标：组编辑上下文先转到目标池（eg.children）坐标系
+        const atX = eg ? at.x - eg.x : at.x
+        const atY = eg ? at.y - eg.y : at.y
+        offX = atX - minX - originX
+        offY = atY - minY - originY
       }
       const pool = eg ? (eg.children ?? []) : page.components
       const newIds: string[] = []
@@ -513,6 +571,18 @@ export const useEditorStore = defineStore('editor', {
       if (this.selection.length === 0) return
       this.copySelection()
       this.pasteClipboard()
+    },
+
+    /** 给顶层组件追加值绑定（拖变量到画布生成组件的收尾步骤）。
+     *  故意不另开历史记录：与紧邻的 addComponent（其 beginChange 已快照创建前状态）
+     *  合并为同一条 undo；独立改绑定请走 updateNode / PropPanel。 */
+    appendBinding(nodeId: string, variableId: string, prop: string): void {
+      const node = this.currentPage?.components.find((c) => c.id === nodeId)
+      if (!node) return
+      if ((node.bindings ?? []).some((b) => b.variableId === variableId && b.prop === prop)) return
+      const binding: Binding = { id: newId('bnd'), prop, variableId, mode: 'value' }
+      node.bindings = [...(node.bindings ?? []), binding]
+      this._markDirty()
     },
 
     /** Alt+拖动复制的落点：克隆当前选中（原地），改为选中克隆体并返回其 id 列表。
@@ -688,13 +758,15 @@ export const useEditorStore = defineStore('editor', {
       if (id === this.currentPageId) return
       this.currentPageId = id
       this.selection = []
+      this.editingGroupPath = []
       this.editingGroupId = ''
-      history.clear()
+      // B-3 跨页撤销：历史按页分栈，切页不清——undo/redo 只作用于当前页
       this.historyVersion++
     },
 
     addPage(): void {
       if (!this.doc) return
+      const prevPageId = this.currentPageId
       this.beginChange()
       const current = this.currentPage
       const page: Page = {
@@ -712,8 +784,9 @@ export const useEditorStore = defineStore('editor', {
       this.doc.pages.push(page)
       this.currentPageId = page.id
       this.selection = []
+      this.editingGroupPath = []
       this.editingGroupId = ''
-      history.clear()
+      history.cancelLast(prevPageId) // 新增页不可 undo 复活；旧页不留无操作条目
       this.historyVersion++
       this._markDirty()
     },
@@ -723,6 +796,7 @@ export const useEditorStore = defineStore('editor', {
      *  服务端 validate_references「组件 id 重复」422 且脏态持续报错。 */
     applyPageTemplate(name: string, page: Page): void {
       if (!this.doc) return
+      const prevPageId = this.currentPageId
       this.beginChange()
       const p = JSON.parse(JSON.stringify(page)) as Page
       p.id = newPageId()
@@ -732,8 +806,9 @@ export const useEditorStore = defineStore('editor', {
       this.doc.pages.push(p)
       this.currentPageId = p.id
       this.selection = []
+      this.editingGroupPath = []
       this.editingGroupId = ''
-      history.clear()
+      history.cancelLast(prevPageId) // 模板新页不可 undo 复活；旧页不留无操作条目
       this.historyVersion++
       this._markDirty()
     },
@@ -748,10 +823,11 @@ export const useEditorStore = defineStore('editor', {
       this.doc.pages.sort((a, b) => a.order - b.order).forEach((p, i) => (p.order = i))
       if (this.currentPageId === id) {
         this.currentPageId = this.doc.pages[0].id
-        history.clear()
         this.selection = []
+        this.editingGroupPath = []
         this.editingGroupId = ''
       }
+      history.clearPage(id) // 被删页的撤销栈随之丢弃；其余页历史保留
       this.historyVersion++
       this._markDirty()
     },

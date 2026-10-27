@@ -111,6 +111,7 @@ const bare = computed(() => props.chromeless === true && !embed.value)
 /** 无顶栏/嵌入时画面即视口：禁滚动条，页面按 mode 自适应铺满 */
 const noScroll = computed(() => embed.value || bare.value)
 /** 无顶栏时舞台底色跟页面底色：留白区与画面同色，视觉上「铺满」视口 */
+// token-exempt: doc 页面底色缺省（内容口径，非 UI chrome）
 const stageBg = computed(() => (noScroll.value ? (page.value?.background.color ?? '#0d1823') : undefined))
 
 /** M9 批次5：画面方向强制——视口方向与设定不符时页面旋转 90°（横屏画面在竖屏手机上强制横看，反之亦然） */
@@ -145,6 +146,7 @@ const fit = computed(() => {
 const pageStyle = computed(() => ({
   width: `${page.value?.screen.designWidth ?? 0}px`,
   height: `${page.value?.screen.designHeight ?? 0}px`,
+  // token-exempt: doc 页面底色缺省（内容口径，非 UI chrome）
   background: page.value?.background.color ?? '#0b1220',
   transform: rotated.value
     ? `translate(-50%, -50%) rotate(90deg) scale(${fit.value.sx}, ${fit.value.sy})`
@@ -580,7 +582,7 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   z-index: 2000;
-  background: #0d1823;
+  background: var(--ws-runtime-bg);
   display: flex;
   flex-direction: column;
 }
@@ -599,7 +601,7 @@ onBeforeUnmount(() => {
 
 /* 全屏态：舞台即视口（fixed inset:0 依旧成立，画面按 screen.mode 重新自适应） */
 .runtime-stage:fullscreen {
-  background: #0d1823;
+  background: var(--ws-runtime-bg);
 }
 
 /* 运行态顶栏：与控制台一致的深墨蓝，画面内容在其下独立呈现 */
@@ -638,12 +640,12 @@ onBeforeUnmount(() => {
 }
 
 .tab:hover {
-  color: #fff;
+  color: var(--ws-runtime-ink);
   background: var(--ws-inv-hover);
 }
 
 .tab.active {
-  color: #fff;
+  color: var(--ws-runtime-ink);
   background: var(--ws-signal-a18);
   box-shadow: inset 0 -2px 0 var(--ws-signal-bright);
   font-weight: 600;
@@ -681,7 +683,7 @@ onBeforeUnmount(() => {
 }
 
 .stage-bar :deep(.el-button:hover) {
-  color: #fff;
+  color: var(--ws-runtime-ink);
   border-color: var(--ws-signal-bright);
   background: var(--ws-signal-a12);
 }
@@ -720,21 +722,21 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid var(--ws-runtime-line);
   border-radius: 6px;
-  background: rgba(13, 24, 35, 0.55);
-  color: rgba(255, 255, 255, 0.82);
+  background: var(--ws-runtime-veil);
+  color: var(--ws-runtime-ink-dim);
   cursor: pointer;
   opacity: 0.7;
-  transition: opacity 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out;
+  transition: opacity var(--ws-duration-fast) var(--ws-ease), background-color var(--ws-duration-fast) var(--ws-ease), border-color var(--ws-duration-fast) var(--ws-ease);
 }
 
 .float-fs:hover,
 .float-fs:focus-visible {
   opacity: 1;
-  background: rgba(13, 24, 35, 0.82);
+  background: var(--ws-runtime-veil-strong);
   border-color: var(--ws-signal);
-  color: #fff;
+  color: var(--ws-runtime-ink);
   outline: none;
 }
 
@@ -748,10 +750,10 @@ onBeforeUnmount(() => {
   position: relative;
   flex-shrink: 0;
   transform-origin: center center;
-  box-shadow: 0 0 0 1px rgba(238, 244, 247, 0.07), 0 14px 44px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--ws-runtime-shadow);
   overflow: hidden;
   /* 运行态页面底色默认深色：未显式设色的文字/控制件统一走浅色，避免黑字黑底 */
-  color: #e2e8f0;
+  color: var(--ws-runtime-ink-muted);
 }
 
 /* ---- 2026-10-26 报警呈现接线 ---- */
@@ -777,7 +779,7 @@ onBeforeUnmount(() => {
 }
 
 .ro-enable:hover {
-  background: var(--ws-warn-a16, rgba(245, 158, 11, 0.16));
+  background: var(--ws-warn-a28);
 }
 
 .alarm-badge {
@@ -811,7 +813,7 @@ onBeforeUnmount(() => {
 }
 
 .sound-btn:hover {
-  color: #fff;
+  color: var(--ws-runtime-ink);
   border-color: var(--ws-signal-bright);
 }
 
@@ -829,17 +831,17 @@ onBeforeUnmount(() => {
   z-index: 9600;
   max-width: min(92vw, 720px);
   padding: 7px 16px;
-  border: 1px solid var(--ws-warn-line, rgba(245, 158, 11, 0.5));
+  border: 1px solid var(--ws-warn-line);
   border-radius: 8px;
-  background: rgba(13, 24, 35, 0.92);
-  color: var(--ws-warn-bright, #fbbf24);
+  background: var(--ws-runtime-veil-max);
+  color: var(--ws-warn-bright);
   font-size: 13px;
   text-align: center;
 }
 
 .conn-alert.bad {
-  border-color: var(--ws-alert-bright, #ef4444);
-  color: var(--ws-alert-bright, #ef4444);
+  border-color: var(--ws-alert-bright);
+  color: var(--ws-alert-bright);
   font-weight: 600;
 }
 
@@ -855,22 +857,22 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid var(--ws-runtime-line);
   border-radius: 6px;
-  background: rgba(13, 24, 35, 0.55);
-  color: rgba(255, 255, 255, 0.82);
+  background: var(--ws-runtime-veil);
+  color: var(--ws-runtime-ink-dim);
   cursor: pointer;
   opacity: 0.8;
 }
 
 .float-sound.dim {
-  color: var(--ws-warn-bright, #fbbf24);
-  border-color: var(--ws-warn-bright, #fbbf24);
+  color: var(--ws-warn-bright);
+  border-color: var(--ws-warn-bright);
 }
 
 .float-sound:hover {
   opacity: 1;
-  color: #fff;
+  color: var(--ws-runtime-ink);
 }
 
 /* 分享页多页面导航：底部悬浮页签 */
@@ -883,9 +885,9 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 4px;
   padding: 4px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  border: 1px solid var(--ws-runtime-line-soft);
   border-radius: 8px;
-  background: rgba(13, 24, 35, 0.72);
+  background: var(--ws-runtime-panel);
   max-width: 92vw;
   overflow-x: auto;
 }
@@ -895,17 +897,17 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--ws-runtime-ink-faint);
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
 }
 
 .float-pages button.active {
-  background: var(--ws-signal-a18, rgba(27, 167, 184, 0.18));
-  color: #fff;
+  background: var(--ws-signal-a18);
+  color: var(--ws-runtime-ink);
   font-weight: 600;
-  box-shadow: inset 0 -2px 0 var(--ws-signal-bright, #22d3ee);
+  box-shadow: inset 0 -2px 0 var(--ws-signal-bright);
 }
 
 /* 竖屏提示：画面缩成一条时明确引导横屏 */
@@ -918,8 +920,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 16px;
-  background: rgba(9, 16, 24, 0.94);
-  color: #e2e8f0;
+  background: var(--ws-runtime-scrim);
+  color: var(--ws-runtime-ink-muted);
 }
 
 .portrait-hint p {
@@ -930,10 +932,10 @@ onBeforeUnmount(() => {
 
 .portrait-hint button {
   padding: 8px 20px;
-  border: 1px solid rgba(148, 163, 184, 0.45);
+  border: 1px solid var(--ws-runtime-line-strong);
   border-radius: 6px;
   background: transparent;
-  color: #e2e8f0;
+  color: var(--ws-runtime-ink-muted);
   font-size: 13px;
   cursor: pointer;
 }

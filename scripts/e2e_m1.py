@@ -93,8 +93,15 @@ with sync_playwright() as p:
     page.wait_for_timeout(400)
     check("编辑器加载（画布 1920x1080）", page.locator(".canvas-page").count() == 1)
 
+    # ---- 清空欢迎画面（blank_doc 模板自带装饰节点；本用例按空页面校准几何） ----
+    page.keyboard.press("Control+a")
+    page.wait_for_timeout(120)
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(200)
+    check("清空模板欢迎画面", page.locator(".canvas-page > .canvas-node").count() == 0)
+
     # ---- 放置组件（点击组件面板 → 当前可视区中心；页签条占高后不必等于设计中心，用相对断言） ----
-    page.click(".palette-item >> text=文本")
+    page.click(".list >> text=文本")
     page.wait_for_timeout(200)
     r0 = node_rect(page, 0)
     check("点击放置组件（落点在画布内）", r0 is not None and 0 <= r0["left"] <= 1920 - r0["w"] and 0 <= r0["top"] <= 1000, str(r0))
@@ -116,7 +123,7 @@ with sync_playwright() as p:
     check("Ctrl+Shift+Z 重做回到移动后", abs(r3["left"] - base_x - 150) < 2 and abs(r3["top"] - base_y - 90) < 2, str(r3))
 
     # ---- 吸附（第二组件右缘 1080 为目标线） ----
-    page.click(".palette-item >> text=文本")
+    page.click(".list >> text=文本")
     page.wait_for_timeout(150)
     drag_node(page, 1, 0, 150)  # 第二个组件移到 (840, 642)，右缘 = 840+240 = 1080
     # 从 990 拖 dx=+38 → 原始 1028，距 1080 中心线不命中；改为贴近右缘：dx = 1080-990-2 = 88 → 1078 距 1080 差 2 ≤5 → 吸附到 1080
@@ -172,10 +179,13 @@ with sync_playwright() as p:
     check("右键菜单弹出且含操作项", menu_items >= 6, f"items={menu_items}")
     page.keyboard.press("Escape")
 
-    # ---- 手动保存 ----
+    # ---- 手动保存（保存前 html2canvas 截缩略图 + PUT，耗时不定：等状态位而非固定时长） ----
     page.get_by_role("button", name="保存", exact=True).click()
-    page.wait_for_timeout(800)
-    saved = page.locator(".save-status", has_text="已保存").count() == 1
+    try:
+        page.wait_for_selector(".tb-dirty.ok", timeout=10_000)
+        saved = True
+    except Exception:
+        saved = False
     check("保存成功（状态=已保存）", saved)
     before = node_rect(page, 0)
 

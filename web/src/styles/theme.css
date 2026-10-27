@@ -65,6 +65,12 @@
   --ws-font-tech: Bahnschrift, 'DIN Alternate', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
   --ws-font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
 
+  /* 动效：全站交互反馈统一三档时长 + ease-out（图表内置动画不在此约束内） */
+  --ws-duration-fast: 0.12s;
+  --ws-duration-base: 0.2s;
+  --ws-duration-slow: 0.25s;
+  --ws-ease: ease-out;
+
   /* 结构 */
   --ws-radius: 3px;
   --ws-radius-lg: 5px;
@@ -85,6 +91,23 @@
   --ws-stage-grid: rgba(86, 105, 122, 0.42);
   --ws-stage-grid-major: rgba(20, 33, 46, 0.38);
   --ws-stage-vignette: rgba(20, 33, 46, 0.22);
+
+  /* 运行大屏舞台（RuntimeStage 深色 chrome）：画面外框、悬浮件、遮罩与提示层。
+     静态令牌（不经 theme.ts 派生重算）——运行大屏深色底独立于浅色工作台主题 */
+  --ws-runtime-bg: #0d1823;
+  --ws-runtime-ink: #ffffff;
+  --ws-runtime-ink-dim: rgba(255, 255, 255, 0.82);
+  --ws-runtime-ink-faint: rgba(255, 255, 255, 0.62);
+  --ws-runtime-ink-muted: #e2e8f0;
+  --ws-runtime-line: rgba(148, 163, 184, 0.35);
+  --ws-runtime-line-soft: rgba(148, 163, 184, 0.28);
+  --ws-runtime-line-strong: rgba(148, 163, 184, 0.45);
+  --ws-runtime-veil: rgba(13, 24, 35, 0.55);
+  --ws-runtime-veil-strong: rgba(13, 24, 35, 0.82);
+  --ws-runtime-veil-max: rgba(13, 24, 35, 0.92);
+  --ws-runtime-panel: rgba(13, 24, 35, 0.72);
+  --ws-runtime-scrim: rgba(9, 16, 24, 0.94);
+  --ws-runtime-shadow: 0 0 0 1px rgba(238, 244, 247, 0.07), 0 14px 44px rgba(0, 0, 0, 0.5);
 }
 
 /* ---- Element Plus 令牌映射：主色改为电气青，圆角收紧 ---- */
@@ -164,6 +187,8 @@
   --el-border-radius-small: 3px;
 
   --el-font-family: var(--ws-font-ui);
+  --el-transition-duration: var(--ws-duration-base);
+  --el-transition-duration-fast: var(--ws-duration-fast);
   --el-font-size-base: 13px;
   --el-font-size-small: 12px;
   --el-font-size-extra-small: 11px;
@@ -223,7 +248,7 @@ body {
   font-family: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: border-color 0.12s ease-out, background-color 0.12s ease-out, color 0.12s ease-out;
+  transition: border-color var(--ws-duration-fast) var(--ws-ease), background-color var(--ws-duration-fast) var(--ws-ease), color var(--ws-duration-fast) var(--ws-ease);
 }
 
 .ws-ghost-btn:hover {

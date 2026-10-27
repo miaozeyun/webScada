@@ -71,7 +71,7 @@ const levelH = computed(() => (76 * percent.value) / 100)
 .pct {
   font-size: 13px;
   font-weight: 600;
-  font-family: Consolas, monospace;
+  font-family: var(--ws-font-tech);
 }
 
 /* 液面高光条：同步液体颜色，随液位定位，只做合成友好的 transform 波动 */

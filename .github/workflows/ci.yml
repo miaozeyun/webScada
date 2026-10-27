@@ -77,3 +77,6 @@ jobs:
 
       - name: 构建
         run: npx vite build
+
+      - name: 视觉令牌门禁（硬编码色值扫描，基线外新增即红灯）
+        run: node scripts/check_visual_tokens.cjs

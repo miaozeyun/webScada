@@ -316,8 +316,8 @@ async function onRevoke(item: ShareItem): Promise<void> {
 }
 
 .is-on {
-  color: var(--ws-success, #16a34a);
-  border-color: var(--ws-success, #16a34a);
+  color: var(--ws-ok);
+  border-color: var(--ws-ok);
 }
 
 .is-off {

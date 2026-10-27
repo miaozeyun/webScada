@@ -79,10 +79,44 @@ onMounted(() => {
 // option 由各图表 computed 整体新建，引用变化即需重设；deep 遍历大数组（历史序列）纯属浪费
 watch(
   () => props.option,
-  (o) => applyOption(o),
+  (o) => scheduleApply(o),
 )
 
+/**
+ * 渲染节流：服务端 100ms 合帧之上再合并到 ~4Hz（工业大屏视觉无损）。
+ * leading 立即执行——编辑器属性面板拖参的首帧即时生效；trailing 补发窗口内最后一帧。
+ * 只作用于图表渲染层，文本读数组件不走此路径、保持逐帧更新。
+ */
+const RENDER_THROTTLE_MS = 250
+let pendingOption: echarts.EChartsCoreOption | null = null
+let throttleTimer: number | null = null
+let lastApplyAt = 0
+
+function scheduleApply(o: echarts.EChartsCoreOption): void {
+  pendingOption = o
+  const elapsed = Date.now() - lastApplyAt
+  if (elapsed >= RENDER_THROTTLE_MS) {
+    flushPending()
+  } else if (throttleTimer === null) {
+    throttleTimer = window.setTimeout(flushPending, RENDER_THROTTLE_MS - elapsed)
+  }
+}
+
+function flushPending(): void {
+  if (throttleTimer !== null) {
+    clearTimeout(throttleTimer)
+    throttleTimer = null
+  }
+  if (pendingOption === null) return
+  const o = pendingOption
+  pendingOption = null
+  lastApplyAt = Date.now()
+  applyOption(o)
+}
+
 onBeforeUnmount(() => {
+  // 卸载前补发最后一帧，防止停在旧帧；且必须先 flush 再 dispose（对已销毁实例 setOption 会抛错）
+  flushPending()
   ro?.disconnect()
   chart?.dispose()
 })

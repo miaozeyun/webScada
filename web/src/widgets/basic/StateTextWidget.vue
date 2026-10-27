@@ -52,6 +52,6 @@ const current = computed<StateItem | null>(() => {
   border-radius: 4px;
   overflow: hidden;
   white-space: nowrap;
-  transition: color 0.2s, background 0.2s;
+  transition: color var(--ws-duration-base) var(--ws-ease), background var(--ws-duration-base) var(--ws-ease);
 }
 </style>

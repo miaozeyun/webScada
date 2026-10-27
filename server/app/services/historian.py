@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from loguru import logger
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -187,13 +187,28 @@ def get_historian() -> Historian:
     return _historian
 
 
-async def cleanup_history(db: AsyncSession) -> int:
-    """保留清理（契约 §6.2）：删除 ts 早于 HISTORY_RETENTION_DAYS 的行，返回删除条数。"""
+async def cleanup_history(db: AsyncSession, batch: int = 5000) -> int:
+    """保留清理（契约 §6.2）：删除 ts 早于 HISTORY_RETENTION_DAYS 的行，返回删除条数。
+
+    分批删除（id 子查询按 ts 索引取一批）：过期行可达数十万，单条大 DELETE
+    长事务持锁并放大 WAL，批量提交让清理与读写并发平滑。"""
     cutoff = datetime.now(timezone.utc) - timedelta(days=settings.HISTORY_RETENTION_DAYS)
-    res = await db.execute(
-        delete(HistoryValue)
-        .where(HistoryValue.ts < cutoff)
-        .execution_options(synchronize_session=False)
-    )
-    await db.commit()
-    return res.rowcount or 0
+    total = 0
+    while True:
+        res = await db.execute(
+            delete(HistoryValue)
+            .where(
+                HistoryValue.id.in_(
+                    select(HistoryValue.id)
+                    .where(HistoryValue.ts < cutoff)
+                    .order_by(HistoryValue.ts)
+                    .limit(batch)
+                )
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+        n = res.rowcount or 0
+        total += n
+        if n < batch:
+            return total
