@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * 选中层：主选中（单选）绘制 8 向缩放柄 + 旋转柄；多选绘制整体包围框（无柄）。
- * M1 约定（风险对策）：缩放柄按轴对齐包围盒工作（不做斜向缩放数学），
- * 选中框不对自身应用 rotate —— 旋转组件的柄位为其未旋转包围盒位置（已知限制）。
- * 柄尺寸按 1/zoom 缩放保持屏幕视觉恒定。
+ * 选中层：主选中（单选）绘制 8 向缩放柄 + 旋转柄；多选绘制整体包围框（带选中集变换柄）。
+ * 选中框跟随节点自身旋转：柄/徽标位于组件自身坐标系——与 calcResize 的对称点锚定数学
+ * （按未旋转坐标系求新宽高）假设一致；此前不随转（M1 已知限制），视觉上呈「旋转后残留
+ * 旧框」的重叠假象。柄尺寸按 1/zoom 缩放保持屏幕视觉恒定。
  */
 import { computed } from 'vue'
 import { RefreshRight } from '@element-plus/icons-vue'
@@ -62,12 +62,19 @@ function handlePos(dir: ResizeDir, rect: { w: number; h: number }) {
 
 <template>
   <div v-if="primary" class="selection-layer">
-    <!-- 主选中框（轴对齐；多选时整体隐藏——柄只作用于主选中件，多选下留着就是「改一个伤一片」的陷阱，
-         仅保留下方 multi-box 虚线包围框与整体拖动；待「选中集整体变换」落地后按选中集语义恢复柄） -->
+    <!-- 主选中框（跟随节点自身旋转——柄/徽标位于组件自身坐标系，与 calcResize 对称点锚定数学一致；
+         多选时整体隐藏——柄只作用于主选中件，多选下留着就是「改一个伤一片」的陷阱，
+         仅保留下方 multi-box 虚线包围框与整体拖动） -->
     <div
       v-if="!multiBox"
       class="sel-box"
-      :style="{ left: `${offset.x + primary.x}px`, top: `${offset.y + primary.y}px`, width: `${primary.w}px`, height: `${primary.h}px` }"
+      :style="{
+        left: `${offset.x + primary.x}px`,
+        top: `${offset.y + primary.y}px`,
+        width: `${primary.w}px`,
+        height: `${primary.h}px`,
+        transform: primary.rotate ? `rotate(${primary.rotate}deg)` : undefined,
+      }"
     >
       <!-- 旋转柄（顶部上方） -->
       <el-icon
