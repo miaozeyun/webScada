@@ -10,6 +10,13 @@ test('正确凭证登录后进入工程台账', async ({ page }) => {
   await expect(page.locator('.el-table')).toBeVisible()
 })
 
+test('首次进入台账默认卡片视图（未手动切过表格）', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' })
+  await login(page, { view: 'card' })
+  await expect(page.locator('.card-grid .project-card').first()).toBeVisible()
+  await expect(page.locator('.el-table')).toHaveCount(0)
+})
+
 test('错误密码提示错误信息', async ({ page }) => {
   await page.goto('/login', { waitUntil: 'networkidle' })
   await page.evaluate(() => {

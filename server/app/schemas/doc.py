@@ -180,6 +180,9 @@ class RestConfig(DocModel):
 class MockConfig(DocModel):
     # mock 数据生成的启停即 enabled 字段（G13：不设独立开关端点/表列）
     defaultIntervalMs: int = Field(default=1000, ge=100)
+    # 协议标注（模拟 WebSocket / MQTT / ...）：仅界面显示，生成逻辑与通用模拟一致；
+    # 用于无真实上游时占位，后续可平替为同协议具名数据源
+    simProtocol: Literal["websocket", "rest", "mqtt", "modbus", "opcua"] | None = None
 
 
 class ModbusConfig(DocModel):
@@ -392,7 +395,11 @@ WidgetType = Literal[
 
 class PageBackground(DocModel):
     color: str = "#0b1220"
-    image: str | None = None   # 外链 URL（P0 不做资源上传）
+    # 背景图 URL：上传相对路径 /api/v1/uploads/…、预置 /bg/… 或外链
+    image: str | None = None
+    # 显示方式：cover 铺满裁切（缺省）/ contain 适应留边 / stretch 拉伸
+    imageFit: Literal["cover", "contain", "stretch"] = "cover"
+    imageOpacity: float = Field(default=1.0, ge=0, le=1)
 
 
 class ScreenCfg(DocModel):

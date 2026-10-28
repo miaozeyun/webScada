@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#080d15"/>
+      <stop offset="1" stop-color="#050910"/>
+    </linearGradient>
+    <pattern id="stripes" width="18" height="18" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="9" height="18" fill="#16283d" opacity="0.32"/>
+    </pattern>
+    <linearGradient id="sweep" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#2a7ec0" stop-opacity="0.16"/>
+      <stop offset="0.45" stop-color="#154a72" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.7">
+      <stop offset="0.45" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.62"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#base)"/>
+  <rect width="1920" height="1080" fill="url(#stripes)"/>
+  <rect width="1920" height="1080" fill="url(#sweep)"/>
+  <g stroke="#2a6ea8" fill="none" opacity="0.28">
+    <path d="M0 108h1920" stroke-width="1"/>
+    <path d="M0 972h1920" stroke-width="1"/>
+    <path d="M96 0v1080" stroke-width="1"/>
+    <path d="M1824 0v1080" stroke-width="1"/>
+  </g>
+  <rect width="1920" height="1080" fill="url(#vignette)"/>
+</svg>

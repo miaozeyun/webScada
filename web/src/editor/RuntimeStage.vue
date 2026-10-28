@@ -14,6 +14,7 @@ import type { ProjectDoc } from '@/types/doc'
 import { RuntimeEngine, type ServerRuntimeOptions } from '@/runtime/engine'
 import { useRuntimeStore, type ServerStatus } from '@/runtime/store'
 import { provideRuntime } from '@/runtime/actions'
+import { pageBaseStyle, pageImageStyle } from '@/editor/pageBackground'
 import { addAlarmRecord, setAlarmLevelColors } from '@/api/alarms'
 import AlarmBanner from '@/components/alarm/AlarmBanner.vue'
 import AlarmPanel from '@/components/alarm/AlarmPanel.vue'
@@ -147,7 +148,7 @@ const pageStyle = computed(() => ({
   width: `${page.value?.screen.designWidth ?? 0}px`,
   height: `${page.value?.screen.designHeight ?? 0}px`,
   // token-exempt: doc 页面底色缺省（内容口径，非 UI chrome）
-  background: page.value?.background.color ?? '#0b1220',
+  ...pageBaseStyle(page.value?.background),
   transform: rotated.value
     ? `translate(-50%, -50%) rotate(90deg) scale(${fit.value.sx}, ${fit.value.sy})`
     : `scale(${fit.value.sx}, ${fit.value.sy})`,
@@ -155,6 +156,9 @@ const pageStyle = computed(() => ({
   left: rotated.value ? '50%' : undefined,
   top: rotated.value ? '50%' : undefined,
 }))
+
+/** 背景图独立层：不透明度只作用于图，不影响页内组件（与编辑画布共用 pageImageStyle） */
+const pageBgImage = computed(() => pageImageStyle(page.value?.background))
 
 /** 旋转态外层占位（宽高 = 旋转后的页面尺寸 × 缩放），保持 flex 居中与滚动正确 */
 const wrapStyle = computed(() => {
@@ -563,6 +567,8 @@ onBeforeUnmount(() => {
     <div ref="bodyEl" class="stage-body" :class="{ 'lock-pan': page?.screen.lockPan === true, 'no-scroll': noScroll }">
       <div v-if="page" class="stage-rot-wrap" :style="wrapStyle">
         <div class="stage-page" :style="pageStyle">
+          <!-- 背景图独立层（编辑画布 / 预览 / 运行态 / 分享页同一实现口径） -->
+          <div v-if="pageBgImage" class="page-bg-image" :style="pageBgImage" />
           <!-- 全部节点都挂载：静态 visible:false 的组件可能被事件（toggleVisible）/绑定恢复显示，
                显隐统一由 PreviewNode 内部按覆盖层优先级判定 -->
           <PreviewNode v-for="node in page.components" :key="node.id" :node="node" />
@@ -754,6 +760,12 @@ onBeforeUnmount(() => {
   overflow: hidden;
   /* 运行态页面底色默认深色：未显式设色的文字/控制件统一走浅色，避免黑字黑底 */
   color: var(--ws-runtime-ink-muted);
+}
+
+.page-bg-image {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 /* ---- 2026-10-26 报警呈现接线 ---- */

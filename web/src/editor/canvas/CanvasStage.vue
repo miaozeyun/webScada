@@ -18,6 +18,7 @@ import { newId } from '@/utils/nanoid'
 import { rotateMembersAbout, scaleMembersAbout, type MemberGeom } from '@/utils/multiTransform'
 import { calcResize, handlePoint } from '@/utils/resize'
 import { computeSnap } from './AlignGuides'
+import { pageBaseStyle, pageImageStyle } from '@/editor/pageBackground'
 import CanvasNode from './CanvasNode.vue'
 import ContextMenu from '../ContextMenu.vue'
 import MarqueeSelect from './MarqueeSelect.vue'
@@ -33,23 +34,65 @@ const pageEl = ref<HTMLDivElement>()
  *  供 EditorView 保存前调用，随 doc 一并 PUT。 */
 const THUMB_WIDTH = 320
 
+/** html2canvas 按需加载（体积大，不计入编辑器首屏包）且只加载一次：
+ *  否则「本次会话第一次截图」还要现场下载+解析 chunk，在保存链路上再叠一层卡顿。 */
+let html2canvasLoader: Promise<typeof import('html2canvas')['default']> | null = null
+function loadHtml2canvas(): Promise<typeof import('html2canvas')['default']> {
+  if (!html2canvasLoader) {
+    html2canvasLoader = import('html2canvas').then((m) => m.default)
+  }
+  return html2canvasLoader
+}
+
+/** 空闲期预加载截图库，把首次截图的网络/解析开销移出用户交互路径 */
+function preloadThumbnail(): void {
+  void loadHtml2canvas().catch(() => {
+    // 预加载失败不影响保存，真正截图时会重建 loader 重试
+    html2canvasLoader = null
+  })
+}
+
 async function captureThumbnail(): Promise<string | null> {
   const el = pageEl.value
   const p = page.value
   if (!el || !p || p.components.length === 0) return null
+  // 手势（拖拽/缩放/旋转/框选）进行中不截：截图要读元素矩形，拖动中还在一帧帧变。
+  // 让下一次保存再补，不为此干扰用户操作。
+  if (drag.value) return null
   el.classList.add('capturing')
   try {
-    // 按需加载：html2canvas 体积大，只有「保存时生成缩略图」用得到，不应计入编辑器首屏包
-    const { default: html2canvas } = await import('html2canvas')
+    const html2canvas = await loadHtml2canvas()
+    const dw = p.screen.designWidth
+    const dh = p.screen.designHeight
     const canvas = await html2canvas(el, {
-      width: p.screen.designWidth,
-      height: p.screen.designHeight,
-      windowWidth: p.screen.designWidth,
-      windowHeight: p.screen.designHeight,
-      scale: THUMB_WIDTH / p.screen.designWidth,
+      // 裁剪框 = 设计尺寸，且必须在克隆体里把视口 transform 归零：
+      // html2canvas 是「照克隆出来的 DOM 实际呈现」成像的，画布处于「适应画布」缩放（通常 0.4~0.7）时
+      // 整页只会缩在成像左上角、右下大片空白——台账缩略图「小图 + 空白」的根因。
+      // 只在克隆体里改，不改动画布本身：真实画布截一次要 2~3 秒，归零重排会当着用户的面跳变。
+      width: dw,
+      height: dh,
+      windowWidth: dw,
+      windowHeight: dh,
+      x: 0,
+      y: 0,
+      scale: THUMB_WIDTH / dw,
       backgroundColor: p.background.color,
       logging: false,
       useCORS: true,
+      // html2canvas 会克隆整个 document：编辑器 UI（组件库 75 张图元缩略卡、工具栏/面板图标）
+      // 里有五百多个 SVG，每个都要走它的 SVG 克隆+样式路径——实测一次截图从 ~250ms 拖到 2.4s。
+      // 画布外的 SVG 根本不出现在缩略图里，跳过它们不影响成像与布局（只是少几个图标节点）。
+      ignoreElements: (node) => node.tagName.toLowerCase() === 'svg' && !node.closest('.canvas-page'),
+      onclone: (_clonedDoc, clonedEl) => {
+        const stage = clonedEl?.closest('.canvas-stage') as HTMLElement | null
+        if (!stage) return
+        stage.style.transform = 'none'
+        stage.style.position = 'fixed'
+        stage.style.left = '0'
+        stage.style.top = '0'
+        stage.style.width = `${dw}px`
+        stage.style.height = `${dh}px`
+      },
     })
     return canvas.toDataURL('image/jpeg', 0.72)
   } catch (err) {
@@ -61,14 +104,17 @@ async function captureThumbnail(): Promise<string | null> {
   }
 }
 
-defineExpose({ captureThumbnail })
+defineExpose({ captureThumbnail, preloadThumbnail })
 
 const page = computed(() => editor.currentPage)
 const pageStyle = computed(() => ({
   width: `${page.value?.screen.designWidth ?? 1920}px`,
   height: `${page.value?.screen.designHeight ?? 1080}px`,
-  background: page.value?.background.color ?? '#0b1220',
+  ...pageBaseStyle(page.value?.background),
 }))
+
+/** 背景图画独立层（不透明度只作用于图，不影响页内组件内容） */
+const pageBgImage = computed(() => pageImageStyle(page.value?.background))
 
 const stageStyle = computed(() => ({
   transform: `translate(${editor.pan.x}px, ${editor.pan.y}px) scale(${editor.zoom})`,
@@ -826,6 +872,8 @@ watch(
     </div>
     <div v-if="page" class="canvas-stage" :style="stageStyle">
       <div ref="pageEl" class="canvas-page" :style="pageStyle">
+        <!-- 背景图（页面底色之上、网格/组件之下；截图期保留，属画面内容） -->
+        <div v-if="pageBgImage" class="page-bg-image" :style="pageBgImage" />
         <!-- 点阵网格（7.24 小格 / 36.18 大格，着色随主题令牌；缩放 <60% 整层淡出降噪） -->
         <svg class="grid" :style="{ opacity: gridOpacity }" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
           <defs>
@@ -964,6 +1012,13 @@ watch(
   position: relative;
   box-shadow: 0 0 0 1px var(--ws-steel-3), 0 18px 48px var(--ws-stage-vignette);
   transform-origin: 0 0;
+}
+
+/* 背景图独立层：铺满设计尺寸，不吃指针事件 */
+.page-bg-image {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .canvas-empty {

@@ -9,6 +9,7 @@ import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import ImagePicker from '@/editor/panels/ImagePicker.vue'
+import { BACKGROUND_PRESETS } from '@/editor/backgroundPresets'
 import { registry, type PropSchemaItem } from '@/widgets/registry'
 import { newId } from '@/utils/nanoid'
 import type {
@@ -149,6 +150,11 @@ function checkOn1366(): void {
     type: scale < 0.75 ? 'warning' : 'info',
     duration: 5000,
   })
+}
+
+/** 设置/清除页面背景图：空串 → null（显式清除，不留空字符串进 doc） */
+function applyBackgroundImage(url: string): void {
+  editor.updatePageBackground({ image: url.trim() || null })
 }
 
 const bindForm = reactive({
@@ -344,6 +350,60 @@ function removeEvent(evId: string, actIdx: number): void {
               @update:model-value="editor.updatePage({}, $event ?? '#0b1220')"
             />
             <span class="form-hint ws-readout">{{ editor.currentPage.background.color }}</span>
+          </el-form-item>
+          <el-form-item label="背景图">
+            <div class="bg-picker">
+              <div class="bg-presets">
+                <button
+                  v-for="preset in BACKGROUND_PRESETS"
+                  :key="preset.id"
+                  type="button"
+                  class="bg-preset"
+                  :class="{ active: editor.currentPage.background.image === preset.url }"
+                  :style="{ backgroundImage: `url(${preset.url})` }"
+                  :title="preset.label"
+                  :aria-label="`背景：${preset.label}`"
+                  @click="applyBackgroundImage(preset.url)"
+                />
+              </div>
+              <ImagePicker
+                :model-value="editor.currentPage.background.image ?? ''"
+                @update:model-value="applyBackgroundImage"
+              />
+              <el-button
+                v-if="editor.currentPage.background.image"
+                size="small"
+                text
+                type="info"
+                @click="applyBackgroundImage('')"
+              >
+                清除背景图
+              </el-button>
+            </div>
+          </el-form-item>
+          <el-form-item label="图片铺设">
+            <el-select
+              :model-value="editor.currentPage.background.imageFit ?? 'cover'"
+              :disabled="!editor.currentPage.background.image"
+              size="small"
+              @update:model-value="editor.updatePageBackground({ imageFit: $event })"
+            >
+              <el-option label="铺满（裁切）" value="cover" />
+              <el-option label="适应（留边）" value="contain" />
+              <el-option label="拉伸（变形）" value="stretch" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="图片透明度">
+            <el-slider
+              :model-value="Math.round((editor.currentPage.background.imageOpacity ?? 1) * 100)"
+              :min="0"
+              :max="100"
+              :step="5"
+              :disabled="!editor.currentPage.background.image"
+              :show-tooltip="false"
+              size="small"
+              @update:model-value="editor.updatePageBackground({ imageOpacity: Number($event) / 100 })"
+            />
           </el-form-item>
           <el-form-item label="锁定画面">
             <el-switch
@@ -1104,5 +1164,40 @@ function removeEvent(evId: string, actIdx: number): void {
 .form-hint {
   color: var(--ws-text-3);
   font-size: 12px;
+}
+
+/* ---- 页面背景图（预置缩略卡 + 上传 + 铺设/透明度） ---- */
+.bg-picker {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bg-presets {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+
+.bg-preset {
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: 1px solid var(--ws-steel-3);
+  border-radius: var(--ws-radius);
+  background-color: var(--ws-steel-0);
+  background-size: cover;
+  background-position: center;
+  cursor: pointer;
+  transition: border-color var(--ws-duration-fast) var(--ws-ease), box-shadow var(--ws-duration-fast) var(--ws-ease);
+}
+
+.bg-preset:hover {
+  border-color: var(--ws-signal);
+}
+
+.bg-preset.active {
+  border-color: var(--ws-signal);
+  box-shadow: 0 0 0 1px var(--ws-signal) inset;
 }
 </style>

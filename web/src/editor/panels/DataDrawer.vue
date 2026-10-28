@@ -7,12 +7,13 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Bell, Download, Plus, Upload } from '@element-plus/icons-vue'
+import { Bell, Download, Plus, Setting, Upload } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
 import { newId } from '@/utils/nanoid'
 import { buildPointCsv, parsePointCsv, POINT_CSV_COLUMNS } from '@/utils/pointCsv'
 import { findVariableUsage, variablesOfDatasource, type VariableUsage } from '@/utils/usage'
 import VarUsageDialog from '@/editor/panels/VarUsageDialog.vue'
+import MockDataDialog from '@/editor/panels/MockDataDialog.vue'
 import type { PointCsvError, PointCsvRow } from '@/utils/pointCsv'
 import { VIRTUAL_DATASOURCE_ID } from '@/types/doc'
 import { browseOpcUa, datasourceStatus, testDatasource } from '@/api/datasources'
@@ -28,6 +29,7 @@ import type {
   NotifyChannel,
   NotifyChannelKind,
   NotifyLevel,
+  SimProtocol,
   VariableDef,
   VariableType,
 } from '@/types/doc'
@@ -217,6 +219,8 @@ const dsForm = reactive({
   id: '',
   name: '',
   type: 'mock' as DataSource['type'],
+  /** 模拟数据源的协议标注（'' = 通用模拟）；只影响显示，不改变生成方式 */
+  mockProtocol: '' as SimProtocol | '',
   enabled: true,
   url: '',
   topics: '',
@@ -239,12 +243,39 @@ const dsForm = reactive({
   mqPassword: '',
 })
 
+/** 模拟数据源（含协议标注的变体）：供「配置模拟数据」入口与下拉分组使用 */
+const mockSources = computed(() => datasources.value.filter((d) => d.type === 'mock'))
+const mockVisible = ref(false)
+
+/** 类型下拉的合成值：mock 变体编码成 `mock:<协议>`，其余直接等价 type */
+type DsKind = DataSource['type'] | `mock:${SimProtocol}`
+const dsKind = computed<DsKind>({
+  get: () => (dsForm.type === 'mock' && dsForm.mockProtocol ? `mock:${dsForm.mockProtocol}` : dsForm.type) as DsKind,
+  set: (v) => {
+    if (v.startsWith('mock:')) {
+      dsForm.type = 'mock'
+      dsForm.mockProtocol = v.slice(5) as SimProtocol
+    } else {
+      dsForm.type = v as DataSource['type']
+      dsForm.mockProtocol = ''
+    }
+  },
+})
+
+/** 列表/变量表的类型文案：mock 带协议标注时显示「模拟 · WebSocket」 */
+function dsTypeText(ds?: DataSource): string {
+  if (!ds) return '—'
+  if (ds.type === 'mock' && ds.config?.simProtocol) return `模拟 · ${TYPE_LABEL[ds.config.simProtocol]}`
+  return TYPE_LABEL[ds.type] ?? ds.type
+}
+
 function openDs(ds?: DataSource): void {
   dsVisible.value = true
   if (ds) {
     dsForm.id = ds.id
     dsForm.name = ds.name
     dsForm.type = ds.type
+    dsForm.mockProtocol = ds.type === 'mock' ? (ds.config?.simProtocol ?? '') : ''
     dsForm.enabled = ds.enabled !== false
     dsForm.url = ds.type === 'mqtt' ? ds.config.brokerUrl
       : ds.type === 'modbus' ? ds.config.host
@@ -268,7 +299,7 @@ function openDs(ds?: DataSource): void {
     dsForm.mqUsername = ds.type === 'mqtt' ? (ds.config.username ?? '') : ''
     dsForm.mqPassword = ''
   } else {
-    Object.assign(dsForm, { id: '', name: '', type: 'mock', enabled: true, url: '', topics: '', intervalMs: 1000, writeUrl: '', writeMethod: 'POST' as const, writeBodyTemplate: '', writeFrameTemplate: '', writeQos: 0 as const, mbPort: 502, mbUnitId: 1, ocUsername: '', ocPassword: '', ocPublishMs: 1000, mqUsername: '', mqPassword: '' })
+    Object.assign(dsForm, { id: '', name: '', type: 'mock', mockProtocol: '', enabled: true, url: '', topics: '', intervalMs: 1000, writeUrl: '', writeMethod: 'POST' as const, writeBodyTemplate: '', writeFrameTemplate: '', writeQos: 0 as const, mbPort: 502, mbUnitId: 1, ocUsername: '', ocPassword: '', ocPublishMs: 1000, mqUsername: '', mqPassword: '' })
   }
 }
 
@@ -310,6 +341,9 @@ function buildConfig(): DataSource['config'] {
         password: dsForm.ocPassword,
         publishIntervalMs: dsForm.ocPublishMs,
       }
+    case 'mock':
+      // 协议标注（可选）：'mock:websocket' 等变体落到同一 type，仅此字段区分显示
+      return { simProtocol: dsForm.mockProtocol || null }
     default:
       return {}
   }
@@ -518,6 +552,12 @@ function openVar(v?: VariableDef): void {
       mockKind: 'sine', mockMin: 0, mockMax: 100, mockPeriodMs: 30000, mockIntervalMs: 1000,
     })
   }
+}
+
+/** 模拟数据面板 → 「新增模拟信号」：复用变量表单并预选目标模拟数据源 */
+function openVarForMock(dsId: string): void {
+  openVar()
+  if (dsId) varForm.datasourceId = dsId
 }
 
 function buildMock(): MockSpec | null {
@@ -1067,11 +1107,23 @@ function channelTarget(ch: NotifyChannel): string {
       <!-- 数据源 -->
       <el-tab-pane label="数据源" name="sources">
         <div class="pane">
-          <el-button size="small" type="primary" plain :icon="Plus" @click="openDs()">新增数据源</el-button>
+          <div class="toolbar">
+            <el-button size="small" type="primary" plain :icon="Plus" @click="openDs()">新增数据源</el-button>
+            <el-button
+              size="small"
+              plain
+              :icon="Setting"
+              :disabled="!mockSources.length"
+              title="集中配置模拟数据源的波形与定值"
+              @click="mockVisible = true"
+            >
+              配置模拟数据
+            </el-button>
+          </div>
           <el-table :data="datasources" size="small" empty-text="暂无数据源">
             <el-table-column prop="name" label="名称" min-width="110" />
-            <el-table-column label="类型" width="90">
-              <template #default="{ row }">{{ TYPE_LABEL[row.type] }}</template>
+            <el-table-column label="类型" width="118">
+              <template #default="{ row }">{{ dsTypeText(row) }}</template>
             </el-table-column>
             <el-table-column label="启用" width="70">
               <template #default="{ row }">
@@ -1158,7 +1210,7 @@ function channelTarget(ch: NotifyChannel): string {
               <template #default="{ row }">
                 <el-tag v-if="row.expr" type="warning" size="small">虚拟</el-tag>
                 <template v-else>
-                  {{ TYPE_LABEL[datasources.find((d) => d.id === row.datasourceId)?.type ?? ''] ?? '—' }}
+                  {{ dsTypeText(datasources.find((d) => d.id === row.datasourceId)) }}
                   <el-tag v-if="row.writable" type="success" size="small" style="margin-left: 2px">可写</el-tag>
                 </template>
               </template>
@@ -1306,14 +1358,24 @@ function channelTarget(ch: NotifyChannel): string {
       <el-form label-width="92px" size="small">
         <el-form-item label="名称" required><el-input v-model="dsForm.name" /></el-form-item>
         <el-form-item label="类型">
-          <el-select v-model="dsForm.type">
-            <el-option label="模拟（前端生成）" value="mock" />
-            <el-option label="WebSocket" value="websocket" />
-            <el-option label="REST 轮询" value="rest" />
-            <el-option label="MQTT over WS" value="mqtt" />
-            <el-option label="Modbus TCP" value="modbus" />
-            <el-option label="OPC UA" value="opcua" />
+          <el-select v-model="dsKind">
+            <el-option-group label="模拟（无需设备 / 上游）">
+              <el-option label="模拟（通用）" value="mock" />
+              <el-option label="模拟 WebSocket" value="mock:websocket" />
+              <el-option label="模拟 REST" value="mock:rest" />
+              <el-option label="模拟 MQTT" value="mock:mqtt" />
+              <el-option label="模拟 Modbus TCP" value="mock:modbus" />
+              <el-option label="模拟 OPC UA" value="mock:opcua" />
+            </el-option-group>
+            <el-option-group label="真实数据源（需上游 / 设备）">
+              <el-option label="WebSocket" value="websocket" />
+              <el-option label="REST 轮询" value="rest" />
+              <el-option label="MQTT over WS" value="mqtt" />
+              <el-option label="Modbus TCP" value="modbus" />
+              <el-option label="OPC UA" value="opcua" />
+            </el-option-group>
           </el-select>
+          <span v-if="dsForm.type === 'mock'" class="form-hint">波形在「配置模拟数据」统一设置；协议标注只影响显示</span>
         </el-form-item>
         <template v-if="dsForm.type !== 'mock'">
           <el-form-item :label="dsForm.type === 'mqtt' ? 'Broker 地址' : dsForm.type === 'modbus' ? 'PLC/网关 IP' : dsForm.type === 'opcua' ? 'Endpoint' : 'URL'" required>
@@ -1428,7 +1490,7 @@ function channelTarget(ch: NotifyChannel): string {
         </div>
         <el-form-item label="数据源" required>
           <el-select v-model="varForm.datasourceId">
-            <el-option v-for="d in datasources" :key="d.id" :label="`${d.name}（${TYPE_LABEL[d.type]}）`" :value="d.id" />
+            <el-option v-for="d in datasources" :key="d.id" :label="`${d.name}（${dsTypeText(d)}）`" :value="d.id" />
             <el-option label="虚拟（表达式计算）" :value="VIRTUAL_DATASOURCE_ID" />
           </el-select>
         </el-form-item>
@@ -1552,7 +1614,7 @@ function channelTarget(ch: NotifyChannel): string {
       <el-form label-width="92px" size="small">
         <el-form-item label="目标数据源" required>
           <el-select v-model="csvDsId">
-            <el-option v-for="d in datasources" :key="d.id" :label="`${d.name}（${TYPE_LABEL[d.type]}）`" :value="d.id" />
+            <el-option v-for="d in datasources" :key="d.id" :label="`${d.name}（${dsTypeText(d)}）`" :value="d.id" />
           </el-select>
           <span class="form-hint">CSV 不设凭证列，凭证在数据源表单配置</span>
         </el-form-item>
@@ -1661,6 +1723,9 @@ function channelTarget(ch: NotifyChannel): string {
 
     <!-- 变量查找引用（变量表行级入口；定位 = 关抽屉 → 切页 → 进组 → 选中） -->
     <VarUsageDialog v-model:visible="usageVisible" :variable="usageVariable" @locate="locateUsage" />
+
+    <!-- 模拟数据配置（数据源 tab 顶部入口）：集中改波形/定值 -->
+    <MockDataDialog v-model:visible="mockVisible" @add-variable="openVarForMock" />
 
     <!-- 通知渠道表单（工厂可用阶段二 Task 4） -->
     <el-dialog v-model="chVisible" :title="chForm.idx >= 0 ? '编辑通知渠道' : '新增通知渠道'" width="500px" append-to-body>

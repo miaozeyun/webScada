@@ -144,8 +144,14 @@ export interface RestConfig {
   writeBodyTemplate?: string | null
 }
 
+/** 模拟数据源的协议标注：只影响界面显示（「模拟 · WebSocket」），生成方式一律是波形仿真。
+ *  用于没有真实设备/上游时占位，后续可换成同协议的具名数据源。 */
+export type SimProtocol = 'websocket' | 'rest' | 'mqtt' | 'modbus' | 'opcua'
+
 export interface MockConfig {
   defaultIntervalMs?: number
+  /** 协议标注（空 = 通用模拟） */
+  simProtocol?: SimProtocol | null
 }
 
 /** Modbus TCP（M8 阶段 1 后半）；变量 address 用 Modbus 惯用区位：4xxxx 保持寄存器/3xxxx 输入寄存器/0xxxx 线圈/1xxxx 离散输入 */
@@ -262,7 +268,17 @@ export type WidgetType =
   | 'history-table'
   | 'group'
 
-export interface PageBackground { color: string; image?: string | null }
+/** 页面背景图显示方式：cover 铺满裁切（缺省）/ contain 适应留边 / stretch 拉伸 */
+export type PageImageFit = 'cover' | 'contain' | 'stretch'
+
+export interface PageBackground {
+  color: string
+  /** 背景图 URL：上传返回 /api/v1/uploads/…、预置 /bg/… 或外链 */
+  image?: string | null
+  imageFit?: PageImageFit
+  /** 背景图不透明度 0–1，缺省 1 */
+  imageOpacity?: number
+}
 
 export interface ScreenCfg {
   designWidth: number

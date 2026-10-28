@@ -4,7 +4,7 @@
  * + 中间画布区 + 右 288px 属性面板（可折叠）+ 底部读数状态栏。
  * 保存链路：dirtySeq 变更 → 3s 防抖 PUT（G2 乐观锁）；断网失败保内存态，冲突给重载入口。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -138,6 +138,8 @@ onMounted(async () => {
   } finally {
     loading.value = false
     applyEditorLive()
+    // 空闲期预取 html2canvas：否则「本次会话第一次截图」要现场下载+解析 chunk
+    void nextTick(() => runWhenIdle(() => stageRef.value?.preloadThumbnail()))
   }
 })
 
@@ -216,43 +218,82 @@ const SHORTCUTS: { group: string; items: [string, string][] }[] = [
   },
 ]
 
-// ---- 自动保存（3s 防抖；保存前刷新首页缩略图，失败不阻断保存链路） ----
+// ---- 自动保存（3s 防抖）与缩略图后台生成：两条独立链路 ----
 
-/** 缩略图截取节流：html2canvas 整页渲染会占用主线程（连续编辑时每次自动保存都截 = 周期性卡顿），
- *  自动保存路径最快每 60s 截一次；手动保存/导出/分享/离开走 force 立即刷新 */
+/** 缩略图节流：html2canvas 整页渲染会把主线程堵数百毫秒，自动保存路径最快每 60s 截一次 */
 const THUMB_MIN_INTERVAL_MS = 60_000
 let lastThumbAt = 0
+/** 在途截图：并发去重，离开编辑器前可等待 */
+let thumbTask: Promise<void> | null = null
 
-async function saveWithThumbnail(force = false): Promise<boolean> {
-  // 截图是异步的：期间若自动保存定时器先触发，会先把「无缩略图」的 doc 落库，
-  // 随后本次 save() 因 dirty 已清而直接返回——缩略图永远进不了库（台账空图的根因之一）
+function runWhenIdle(task: () => void): void {
+  const ric = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number })
+    .requestIdleCallback
+  // timeout 兜底：后台标签页里 idle 回调可能长时间不触发
+  if (ric) ric(task, { timeout: 2000 })
+  else setTimeout(task, 120)
+}
+
+/**
+ * 后台补截首页缩略图——**绝不放进保存链路**：截图要整页 1:1 重排 + html2canvas 光栅化，
+ * 都在主线程上跑数百毫秒，这正是「点保存卡一下」的根因。
+ * 截完 setThumbnail 标脏，由 3s 防抖自动保存把缩略图带回库。
+ * force = 跳过节流（手动保存/离开编辑器时明确要新图）。
+ */
+function refreshThumbnail(force: boolean): Promise<void> {
+  if (thumbTask) return thumbTask
+  if (!force && Date.now() - lastThumbAt < THUMB_MIN_INTERVAL_MS) return Promise.resolve()
+  lastThumbAt = Date.now()
+  thumbTask = new Promise<void>((resolve) => {
+    runWhenIdle(() => {
+      void (async () => {
+        try {
+          const shot = await stageRef.value?.captureThumbnail()
+          if (shot) editor.setThumbnail(shot)
+        } catch {
+          /* 截图失败保留旧缩略图 */
+        } finally {
+          thumbTask = null
+          resolve()
+        }
+      })()
+    })
+  })
+  return thumbTask
+}
+
+/**
+ * 保存：先 PUT 落库（界面立刻回到「已保存」），缩略图事后空闲补截。
+ * force = 强制刷新缩略图；wait = 等缩略图落库（回到台账前要最新卡片图）。
+ */
+async function saveProject(opts: { force?: boolean; wait?: boolean } = {}): Promise<boolean> {
+  // 同一次变更只允许一条保存链路在跑：清掉在途定时器，避免紧接着再 PUT 一遍
   if (saveTimer) {
     clearTimeout(saveTimer)
     saveTimer = null
   }
-  if (force || Date.now() - lastThumbAt >= THUMB_MIN_INTERVAL_MS) {
-    lastThumbAt = Date.now()
-    try {
-      const shot = await stageRef.value?.captureThumbnail()
-      if (shot) editor.setThumbnail(shot)
-    } catch {
-      /* 截图失败保留旧缩略图 */
-    }
+  const ok = await editor.save()
+  if (!ok) return false
+  const thumb = refreshThumbnail(opts.force ?? false)
+  if (opts.wait) {
+    await thumb
+    if (editor.dirty) return editor.save() // 缩略图变了 → 补一次 PUT 落库
   }
-  return editor.save()
+  return true
 }
 
 watch(
   () => editor.dirtySeq,
   () => {
     if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => void saveWithThumbnail(), 3000)
+    saveTimer = setTimeout(() => void saveProject(), 3000)
   },
 )
 
 async function backToList(): Promise<void> {
   if (editor.dirty) {
-    const ok = await saveWithThumbnail(true)
+    // 回台账要看到最新卡片图：这里等截图落库（跳转前一次性开销，可接受）
+    const ok = await saveProject({ force: true, wait: true })
     if (!ok) {
       try {
         await ElMessageBox.confirm('当前有未保存的修改且保存失败（断网或冲突）。仍要离开吗？离开将丢失本地修改。', '未保存提醒', { type: 'warning' })
@@ -265,7 +306,9 @@ async function backToList(): Promise<void> {
 }
 
 function manualSave(): void {
-  saveWithThumbnail(true).then((ok) => {
+  // 不等缩略图：手动保存的反馈必须立刻到，缩略图空闲期补（仍走 60s 节流，
+  // 否则连点保存会反复触发整页 1:1 重排，画布会闪一下）
+  saveProject().then((ok) => {
     if (ok) ElMessage.success('已保存')
   })
 }
@@ -274,7 +317,7 @@ function manualSave(): void {
 async function openSimulator(): Promise<void> {
   if (!editor.projectId) return
   if (editor.dirty) {
-    const ok = await saveWithThumbnail(true)
+    const ok = await saveProject()
     if (!ok) ElMessage.warning('保存未成功，将以服务端已保存版本进行仿真')
   }
   void router.push({ path: '/simulator', query: { project: editor.projectId } })
@@ -407,7 +450,8 @@ async function confirmImport(): Promise<void> {
 /** 导出：先保存本地修改 → 走服务端脱敏接口（G7）→ 下载 JSON 文件 */
 async function exportJson(): Promise<void> {
   if (editor.dirty) {
-    const ok = await saveWithThumbnail(true)
+    // 导出走服务端脱敏接口，快照会剥掉 thumbnail，不需要为它截图
+    const ok = await saveProject()
     if (!ok) {
       ElMessage.warning('本地有未保存修改且保存失败（断网或冲突），请先处理再导出')
       return
@@ -447,7 +491,8 @@ async function clearCanvas(): Promise<void> {
 async function shareProject(): Promise<void> {
   // 先保存，保证分享快照包含最新修改
   if (editor.dirty) {
-    const ok = await saveWithThumbnail(true)
+    // 分享快照同样脱敏、不含 thumbnail，不必等截图
+    const ok = await saveProject()
     if (!ok) {
       ElMessage.warning('本地有未保存修改且保存失败，请先处理再分享')
       return

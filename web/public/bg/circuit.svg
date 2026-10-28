@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#060b12"/>
+      <stop offset="1" stop-color="#040810"/>
+    </linearGradient>
+    <linearGradient id="sweep" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#0f2b45" stop-opacity="0.34"/>
+      <stop offset="0.5" stop-color="#0b2036" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="nodeGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#3d9ad8" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#3d9ad8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.72">
+      <stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.55"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#base)"/>
+  <rect width="1920" height="1080" fill="url(#sweep)"/>
+  <g fill="none" stroke="#1d4a76" stroke-width="2" opacity="0.55">
+    <path d="M0 240h260l60 60h240l50-50h300"/>
+    <path d="M0 780h180l70-70h280l60 60h260"/>
+    <path d="M1920 320h-300l-60 60h-240l-50-50h-280"/>
+    <path d="M1920 860h-220l-70-70h-300l-60 60h-240"/>
+    <path d="M520 300v180l60 60v160"/>
+    <path d="M1400 780v-180l-60-60v-160"/>
+  </g>
+  <g fill="none" stroke="#2f7fb8" stroke-width="1" opacity="0.35">
+    <path d="M0 520h420l70 70h420"/>
+    <path d="M1920 560h-380l-80-80h-380"/>
+  </g>
+  <!-- 节点辉光 -->
+  <g>
+    <circle cx="560" cy="300" r="26" fill="url(#nodeGlow)"/>
+    <circle cx="560" cy="300" r="3.4" fill="#54a8dd"/>
+    <circle cx="1340" cy="460" r="26" fill="url(#nodeGlow)"/>
+    <circle cx="1340" cy="460" r="3.4" fill="#54a8dd"/>
+    <circle cx="880" cy="700" r="26" fill="url(#nodeGlow)"/>
+    <circle cx="880" cy="700" r="3.4" fill="#54a8dd"/>
+    <circle cx="1560" cy="790" r="26" fill="url(#nodeGlow)"/>
+    <circle cx="1560" cy="790" r="3.4" fill="#54a8dd"/>
+    <circle cx="320" cy="780" r="26" fill="url(#nodeGlow)"/>
+    <circle cx="320" cy="780" r="3.4" fill="#54a8dd"/>
+  </g>
+  <rect width="1920" height="1080" fill="url(#vignette)"/>
+</svg>

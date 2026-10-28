@@ -378,3 +378,57 @@ async def test_history_table_widget_type_accepted(client, auth_headers):
     })
     resp = await put_doc(client, auth_headers, pid, doc)
     assert resp.status_code == 200
+
+
+async def test_mock_sim_protocol_accepted_and_roundtrips(client, auth_headers):
+    """模拟数据源协议标注（模拟 WebSocket/…）：合法值可存取，非法值 422。"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["datasources"][0].update({
+        "type": "mock",
+        "config": {"defaultIntervalMs": 1000, "simProtocol": "websocket"},
+    })
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200, resp.text
+    got = (await client.get(f"/api/v1/projects/{pid}", headers=auth_headers)).json()["doc"]
+    assert got["datasources"][0]["config"]["simProtocol"] == "websocket"
+
+    doc["datasources"][0]["config"]["simProtocol"] = "carrier-pigeon"
+    resp = await put_doc(client, auth_headers, pid, doc, base_revision=2)
+    assert resp.status_code == 422
+
+
+async def test_page_background_image_roundtrips(client, auth_headers):
+    """页面背景图（预置 /bg/*.svg 或上传相对 URL）可存取，fit/opacity 原样回读。"""
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["pages"][0]["background"].update({
+        "image": "/bg/tech-grid.svg",
+        "imageFit": "contain",
+        "imageOpacity": 0.6,
+    })
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 200, resp.text
+    got = (await client.get(f"/api/v1/projects/{pid}", headers=auth_headers)).json()["doc"]
+    bg = got["pages"][0]["background"]
+    assert bg["image"] == "/bg/tech-grid.svg"
+    assert bg["imageFit"] == "contain"
+    assert bg["imageOpacity"] == 0.6
+
+
+async def test_page_background_image_fit_rejects_unknown_value(client, auth_headers):
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["pages"][0]["background"].update({"image": "/bg/tech-grid.svg", "imageFit": "zoom"})
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+    assert any(e["path"] == "pages[0].background.imageFit" for e in resp.json()["errors"])
+
+
+async def test_page_background_image_opacity_out_of_range_rejected(client, auth_headers):
+    pid = await _create(client, auth_headers)
+    doc = make_doc()
+    doc["pages"][0]["background"].update({"image": "/bg/tech-grid.svg", "imageOpacity": 1.5})
+    resp = await put_doc(client, auth_headers, pid, doc)
+    assert resp.status_code == 422
+    assert any(e["path"] == "pages[0].background.imageOpacity" for e in resp.json()["errors"])

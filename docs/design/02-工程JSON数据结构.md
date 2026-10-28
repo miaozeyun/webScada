@@ -101,7 +101,9 @@ export interface Page {
   order: number;                            // 多页切换顺序，越小越前
   background: {
     color: string;                          // 背景色
-    image?: string;                         // 背景图外链 URL（P0 不做资源上传）
+    image?: string | null;                  // 背景图 URL：上传返回 /api/v1/uploads/…、预置 /bg/… 或外链；空/缺省=无图
+    imageFit?: 'cover' | 'contain' | 'stretch';  // 铺设方式，缺省 cover（铺满裁切）
+    imageOpacity?: number;                  // 0–1，缺省 1；仅作用于背景图，不影响页面组件
   };
   screen: {
     designWidth: number;                    // 本页设计分辨率（可与 settings.designSize 不同）
@@ -403,7 +405,10 @@ export type DataSource =
   | {
         id: ID; name: string; type: 'mock';
         enabled?: boolean;          // 启用开关，默认 true；mock 数据生成的启停即由本字段控制（不设 projects.mock_enabled 列、不设独立 mock REST）
-        config: { defaultIntervalMs?: number }; // 变量未配 MockSpec 间隔时的缺省生成间隔，默认 1000
+        config: {
+          defaultIntervalMs?: number;         // 变量未配 MockSpec 间隔时的缺省生成间隔，默认 1000
+          simProtocol?: 'websocket' | 'rest' | 'mqtt' | 'modbus' | 'opcua' | null; // 协议标注（「模拟 WebSocket」等），仅界面显示，不改变生成方式；缺省/空=通用模拟
+        };
       }
   | {
         id: ID; name: string; type: 'modbus';   // M8 阶段 1 后半：服务端 collector 采集（浏览器无 TCP 能力，运行态经 WS 取值）

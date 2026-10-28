@@ -70,10 +70,11 @@ onMounted(refresh)
 type ViewMode = 'table' | 'card'
 const VIEW_STORAGE_KEY = 'webscada_projects_view'
 const viewMode = ref<ViewMode>(((): ViewMode => {
+  // 首次进入默认卡片视图（缩略图更直观）；用户手动切到表格后按其选择持久化
   try {
-    return localStorage.getItem(VIEW_STORAGE_KEY) === 'card' ? 'card' : 'table'
+    return localStorage.getItem(VIEW_STORAGE_KEY) === 'table' ? 'table' : 'card'
   } catch {
-    return 'table'
+    return 'card'
   }
 })())
 
@@ -832,19 +833,22 @@ function fmtTime(iso: string): string {
 
 /* ---- 卡片视图 ---- */
 .card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 14px;
   min-height: 240px;
-  align-content: start;
+  align-content: flex-start;
 }
 
 .card-empty {
-  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .project-card {
+  flex: 1 1 230px;
+  /* 工程数很少时防止单卡被拉成整行宽（缩略图失控放大）；末行不满时卡片仍拉伸填满 */
+  max-width: 460px;
   display: flex;
   flex-direction: column;
   background: var(--ws-panel);

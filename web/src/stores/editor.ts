@@ -862,6 +862,15 @@ export const useEditorStore = defineStore('editor', {
       this._markDirty()
     },
 
+    /** 页面背景（底色以外的图片/显示方式/透明度）：合并写入，显式 null 清除图片 */
+    updatePageBackground(patch: Partial<Page['background']>): void {
+      const page = this.currentPage
+      if (!page) return
+      this.beginChange('page-background')
+      page.background = { ...page.background, ...patch }
+      this._markDirty()
+    },
+
     // ---------------- 视口 ----------------
 
     setZoom(z: number): void {

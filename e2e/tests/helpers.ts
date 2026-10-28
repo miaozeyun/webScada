@@ -1,9 +1,13 @@
 import type { Page } from '@playwright/test'
 
-/** 登录（受控 el-input：JS 设值 + input/change 事件）→ 等 .el-table 就绪 */
-export async function login(page: Page): Promise<void> {
+/** 登录（受控 el-input：JS 设值 + input/change 事件）→ 切到指定视图并等就绪 */
+export async function login(page: Page, opts: { view?: 'table' | 'card' } = {}): Promise<void> {
+  const view = opts.view ?? 'table'
   await page.goto('/', { waitUntil: 'networkidle' })
-  if (!page.url().includes('/login')) return
+  if (!page.url().includes('/login')) {
+    await switchView(page, view)
+    return
+  }
   await jsSetInput(page, "input[type='text']", 'admin')
   await jsSetInput(page, "input[type='password']", '123456')
   // 偶发点击落在表单校验未就绪瞬间：点后未跳转则重试（最终仍必须见到台账）
@@ -16,7 +20,13 @@ export async function login(page: Page): Promise<void> {
       await page.waitForTimeout(500)
     }
   }
-  await page.waitForSelector('.el-table', { timeout: 15_000 })
+  await switchView(page, view)
+}
+
+/** 台账默认卡片视图；行级断言用例需显式切回表格（切换结果按 localStorage 持久化） */
+export async function switchView(page: Page, view: 'table' | 'card'): Promise<void> {
+  await page.locator(`button[aria-label="${view === 'table' ? '表格视图' : '卡片视图'}"]`).first().click()
+  await page.waitForSelector(view === 'table' ? '.el-table' : '.card-grid', { timeout: 15_000 })
 }
 
 /** 新建一个隔离工程并进入编辑器（避免用例间共享首行工程互相污染） */
