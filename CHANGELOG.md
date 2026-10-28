@@ -57,6 +57,9 @@ webScada 的所有显著变更记录在本文件。
 - **部署脚本 `Permission denied`**：`scripts/*.sh`、`deploy/*.sh` 在 Git 索引中误存为 `100644`，
   clone/pull 后 `deploy.sh` 调用 `./scripts/backup.sh` 直接失败中止升级。全部脚本改标 `100755`，
   脚本间互调统一经 `bash` 显式执行，`deploy.sh` 启动时自愈 `chmod +x scripts/*.sh`。
+- **`--admin-password` 对已有部署无效**：仅写 `.env`，而 `create_admin.py` 幂等不覆盖存量管理员，
+  登录仍用旧密码。改为升级路径下同时调用新增的 `server/scripts/reset_admin_password.py` 重置库内哈希；
+  口令下限放宽到 6 位（演示环境 `123456`，正式部署仍建议 ≥16 位随机值）。
 
 #### Changed
 

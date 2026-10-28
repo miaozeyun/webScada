@@ -36,11 +36,16 @@ REG_PREFIX=dockerpull.com/
 sudo ./deploy/deploy.sh                 # 首次部署：自动生成 .env 随机密钥并构建启动
 sudo ./deploy/deploy.sh --pull          # 升级：先 git pull --ff-only 再构建启动
 sudo ./deploy/deploy.sh -p 8088         # 指定对外 HTTP 端口
+sudo ./deploy/deploy.sh --admin-password 123456   # 指定管理员密码（升级时同时重置库内密码）
 ```
 
 脚本流程：环境校验 →（可选）拉代码 → 生成/校验 `.env` → 升级前备份 + 镜像快照 →
 构建 → 启动 → 健康校验；**健康检查不通过时自动回滚到部署前镜像**（数据库迁移不回滚）。
 首次部署会在输出中显示一次管理员初始密码。`--help` 查看全部选项。
+
+> `--admin-password` 在已有部署上会**同时重置库内密码**：`create_admin.py` 幂等（用户已存在则
+> 不覆盖），只改 `.env` 对存量管理员不生效。也可随时手动执行
+> `docker compose exec -T -e NEW_ADMIN_PASSWORD='新密码' server python scripts/reset_admin_password.py`。
 
 > 脚本在 Git 索引中已标记为可执行（`100755`），`git pull` 后直接 `./deploy/deploy.sh` 即可。
 > 若因 Windows 检出、zip/手工拷贝导致 `Permission denied`，脚本会自行 `chmod +x scripts/*.sh`，

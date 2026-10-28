@@ -89,8 +89,9 @@ webScada 一键部署 / 升级（应用层，不安装 Docker）
                          例: https://scada.example.com:8088
       --reg-prefix PFX    基础镜像前缀，如 m.daocloud.io/docker.io/
                          国内网络构建慢/失败时使用
-      --admin-password P  首次部署时指定管理员密码（不传则随机生成，
-                         仅允许字母数字与 _ . @ + -，8~64 位）
+      --admin-password P  指定管理员密码（6~64 位）。首次部署写入 .env；
+                        已有部署时同时重置库内密码（create_admin 幂等不覆盖，
+                        只改 .env 对已存在的管理员无效）
       --pull              部署前执行 git pull --ff-only（要求工作区干净）
       --no-cache          禁用构建缓存，全量重建
       --no-backup         升级前跳过数据库备份（不推荐）
@@ -263,8 +264,9 @@ step "2/7 配置 .env"
 [ -z "$ARG_PORT" ] || validate_port "$ARG_PORT" || die "--port 取值非法：$ARG_PORT"
 [ -z "$ARG_HTTPS_PORT" ] || validate_port "$ARG_HTTPS_PORT" || die "--https-port 取值非法：$ARG_HTTPS_PORT"
 if [ -n "$ARG_ADMIN_PASSWORD" ]; then
-  [[ "$ARG_ADMIN_PASSWORD" =~ ^[A-Za-z0-9_.@+-]{8,64}$ ]] \
-    || die "--admin-password 只允许字母数字与 _ . @ + -，长度 8~64"
+  # 演示环境允许 6 位短口令（123456）；正式部署建议 ≥16 位随机值
+  [[ "$ARG_ADMIN_PASSWORD" =~ ^[A-Za-z0-9_.@+-]{6,64}$ ]] \
+    || die "--admin-password 只允许字母数字与 _ . @ + -，长度 6~64"
 fi
 
 if [ ! -f "$ENV_FILE" ]; then
@@ -303,6 +305,7 @@ else
   [ -z "$ARG_HTTPS_PORT" ]  || env_set HTTPS_PORT "$ARG_HTTPS_PORT"
   [ -z "$ARG_PUBLIC_URL" ]  || env_set PUBLIC_BASE_URL "$ARG_PUBLIC_URL"
   [ -z "$ARG_REG_PREFIX" ]  || env_set REG_PREFIX "$ARG_REG_PREFIX"
+  [ -z "$ARG_ADMIN_PASSWORD" ] || env_set ADMIN_PASSWORD "$ARG_ADMIN_PASSWORD"
 fi
 
 # 必填项校验（compose 用 ${VAR:?} 硬性要求，空值要到 up 阶段才暴露，这里提前拦）
@@ -459,6 +462,17 @@ if [ "$stack_ok" -ne 1 ]; then
 fi
 
 ok "HTTP 健康检查通过：$HEALTH_URL"
+
+# --admin-password 在已有部署上必须落库：create_admin 幂等不覆盖，只改 .env 登录仍用旧密码
+if [ "$UPGRADE" -eq 1 ] && [ -n "$ARG_ADMIN_PASSWORD" ]; then
+  log "重置管理员密码（$(env_get ADMIN_USER) 已存在，仅改 .env 不生效）…"
+  if docker compose exec -T -e NEW_ADMIN_PASSWORD="$ARG_ADMIN_PASSWORD" server \
+       python scripts/reset_admin_password.py; then
+    ok "管理员密码已重置"
+  else
+    warn "管理员密码重置失败：容器内脚本执行异常（见上方输出）；可手动重试同一条命令"
+  fi
+fi
 
 # ============================================================
 # 7. 完成
