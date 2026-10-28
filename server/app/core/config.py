@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # ---- 管理员初始化（存量置 admin；其余用户经 users API 管理）----
     ADMIN_USER: str = "admin"
-    ADMIN_PASSWORD: str = "CHANGE_ME"
+    ADMIN_PASSWORD: str = "123456"         # 演示平台默认初始密码；正式部署经 .env 覆盖
 
     # ---- doc 体积阈值（G21）----
     DOC_WARN_BYTES: int = 1024 * 1024      # ≤1MB 编辑器 UI 告警（前端消费）

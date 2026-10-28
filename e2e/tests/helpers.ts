@@ -5,7 +5,7 @@ export async function login(page: Page): Promise<void> {
   await page.goto('/', { waitUntil: 'networkidle' })
   if (!page.url().includes('/login')) return
   await jsSetInput(page, "input[type='text']", 'admin')
-  await jsSetInput(page, "input[type='password']", 'admin12345')
+  await jsSetInput(page, "input[type='password']", '123456')
   // 偶发点击落在表单校验未就绪瞬间：点后未跳转则重试（最终仍必须见到台账）
   for (let i = 0; i < 3; i++) {
     await page.locator('button', { hasText: '进入控制台' }).first().click()

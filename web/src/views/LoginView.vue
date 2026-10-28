@@ -11,8 +11,10 @@ const auth = useAuthStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
-// 不预填用户名：避免向访客暴露有效账号名（admin 为默认管理员）
-const form = reactive({ username: '', password: '' })
+// 演示平台：直接预填管理员账号，访客无需输入即可进入（正式交付如需恢复需清空此处）
+const DEMO_USER = 'admin'
+const DEMO_PASSWORD = '123456'
+const form = reactive({ username: DEMO_USER, password: DEMO_PASSWORD })
 // 记住我（缺省勾选）：签发 7 天 refresh token，access 过期自动续期免重复登录
 const remember = ref(true)
 /** 构建期注入的版本号（vite define __APP_VERSION__，取 package.json） */
@@ -154,7 +156,7 @@ async function onSubmit(): Promise<void> {
 
       <section class="access">
         <h2>操作员登录</h2>
-        <p class="access-desc">使用平台账号继续管理工程。</p>
+        <p class="access-desc">演示账号 admin / 123456 已预填，直接进入即可。</p>
 
         <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @keyup.enter="onSubmit">
           <el-form-item label="用户名" prop="username">

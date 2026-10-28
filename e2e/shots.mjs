@@ -26,7 +26,7 @@ async function shot(name, wait = 1200) {
 // 登录
 await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' })
 await page.getByPlaceholder('用户名').fill('admin')
-await page.getByPlaceholder('密码').fill('admin12345')
+await page.getByPlaceholder('密码').fill('123456')
 await page.getByRole('button', { name: '进入控制台' }).click()
 await page.waitForURL(`${BASE}/projects`, { timeout: 15000 })
 
