@@ -39,7 +39,7 @@ fi
 echo "[upgrade] 4/5 启动…"
 if ! docker compose --no-build up -d; then
   echo "[upgrade] 启动失败（新编排/镜像不兼容？），自动回滚…" >&2
-  exec ./rollback.sh
+  exec bash ./rollback.sh
 fi
 
 echo "[upgrade] 5/5 健康校验…"
@@ -54,4 +54,4 @@ for _ in $(seq 1 24); do
 done
 
 echo "[upgrade] 新版本健康检查失败，自动回滚…" >&2
-exec ./rollback.sh
+exec bash ./rollback.sh

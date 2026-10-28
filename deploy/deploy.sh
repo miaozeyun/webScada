@@ -214,6 +214,10 @@ docker compose version >/dev/null 2>&1 \
 docker info >/dev/null 2>&1 \
   || die "无法访问 Docker 守护进程：请用 sudo 运行，或将当前用户加入 docker 组后重新登录"
 
+# 执行位自愈：Windows 检出 / 归档解压可能丢掉 100755（git 索引已是 755，但 core.filemode=false
+# 的机器与 tar/zip 解压路径不做保证）。脚本间互调一律经 bash 显式调用，这里再补齐磁盘位。
+chmod +x "$ROOT_DIR"/scripts/*.sh "$SCRIPT_DIR/deploy.sh" 2>/dev/null || true
+
 # 并发部署互斥（flock 不可用时跳过）
 if command -v flock >/dev/null 2>&1; then
   exec 9>"$LOCK_FILE"
@@ -350,7 +354,8 @@ fi
 if [ "$UPGRADE" -eq 1 ]; then
   if [ "$NO_BACKUP" -eq 0 ]; then
     log "调用 scripts/backup.sh 备份数据库 / 上传文件 / EMQX 数据…"
-    if ./scripts/backup.sh; then
+    # 显式经 bash 调用：文件执行位在 Windows 检出 / 归档解压后可能丢失（曾因 100644 索引位报 Permission denied）
+    if bash "$ROOT_DIR/scripts/backup.sh"; then
       ok "部署前备份完成（backups/）"
     else
       die "备份失败，已中止部署。确认无需备份可加 --no-backup 跳过"

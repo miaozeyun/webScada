@@ -42,8 +42,9 @@ sudo ./deploy/deploy.sh -p 8088         # 指定对外 HTTP 端口
 构建 → 启动 → 健康校验；**健康检查不通过时自动回滚到部署前镜像**（数据库迁移不回滚）。
 首次部署会在输出中显示一次管理员初始密码。`--help` 查看全部选项。
 
-> 仓库未跟踪文件执行位（`core.filemode=false`），clone 后若 `Permission denied`，
-> 改用 `sudo bash deploy/deploy.sh`，或先 `chmod +x deploy/deploy.sh`。
+> 脚本在 Git 索引中已标记为可执行（`100755`），`git pull` 后直接 `./deploy/deploy.sh` 即可。
+> 若因 Windows 检出、zip/手工拷贝导致 `Permission denied`，脚本会自行 `chmod +x scripts/*.sh`，
+> 也可手动 `chmod +x deploy/deploy.sh scripts/*.sh`，或直接 `bash deploy/deploy.sh`。
 
 脚本不负责：安装 Docker、配置防火墙、签发证书、配置 crontab——分别见 §1、§6 与
 [scripts/backup.sh](scripts/backup.sh) 头部注释。气隙环境的离线交付包见

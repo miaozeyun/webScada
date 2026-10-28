@@ -54,6 +54,9 @@ webScada 的所有显著变更记录在本文件。
 - **演示说明污染交付画面**：`demoNote` 节点在分享快照中剔除（需重新生成/保存演示工程后生效）。
 - **版本漂移**：`package.json` / `pyproject.toml` 统一为 `0.2.0`（与 `APP_VERSION` 一致）。
 - **viewer 可进编辑器**：`/editor`、`/simulator` 增加角色守卫，避免编辑到保存才 403。
+- **部署脚本 `Permission denied`**：`scripts/*.sh`、`deploy/*.sh` 在 Git 索引中误存为 `100644`，
+  clone/pull 后 `deploy.sh` 调用 `./scripts/backup.sh` 直接失败中止升级。全部脚本改标 `100755`，
+  脚本间互调统一经 `bash` 显式执行，`deploy.sh` 启动时自愈 `chmod +x scripts/*.sh`。
 
 #### Changed
 
