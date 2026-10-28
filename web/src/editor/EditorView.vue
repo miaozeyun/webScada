@@ -24,6 +24,8 @@ import {
   Unlock,
 } from '@element-plus/icons-vue'
 import { useEditorStore } from '@/stores/editor'
+import { useRuntimeStore } from '@/runtime/store'
+import { startEditorLive, stopEditorLive } from '@/runtime/editorLive'
 import { exportProject } from '@/api/projects'
 import ShareDialog from '@/editor/ShareDialog.vue'
 import { downloadJson, fileTimestamp } from '@/utils/download'
@@ -91,6 +93,37 @@ function onSplitDown(e: PointerEvent): void {
 let uninstallKeyboard: (() => void) | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
+// ---- 编辑态实时数据（绑定效果直接在画布可见） ----
+
+const runtime = useRuntimeStore()
+/** 开关持久化：默认开；数据跳动干扰布局时可一键关 */
+const liveOn = ref(localStorage.getItem('ws_editor_live') !== '0')
+let liveRestartTimer: number | undefined
+
+const LIVE_STATUS_TEXT: Record<string, string> = {
+  off: '未连接',
+  connecting: '连接中',
+  online: '已连接',
+  offline: '已断开',
+  error: '连接失败',
+}
+
+const liveTitle = computed(
+  () =>
+    `编辑画布实时数据：${liveOn.value ? LIVE_STATUS_TEXT[runtime.serverStatus] ?? runtime.serverStatus : '已关闭'}（点击${liveOn.value ? '关闭' : '开启'}）`,
+)
+
+function applyEditorLive(): void {
+  if (liveOn.value && editor.doc && editor.projectId) startEditorLive(editor.doc, editor.projectId)
+  else stopEditorLive()
+}
+
+function toggleEditorLive(): void {
+  liveOn.value = !liveOn.value
+  localStorage.setItem('ws_editor_live', liveOn.value ? '1' : '0')
+  applyEditorLive()
+}
+
 onMounted(async () => {
   // 覆盖层（预览/数据抽屉/帮助/导入）打开时画布快捷键整体让位（否则 Delete 会在看不见的画布上删组件）
   uninstallKeyboard = installKeyboard(
@@ -104,13 +137,39 @@ onMounted(async () => {
     loadError.value = '工程加载失败'
   } finally {
     loading.value = false
+    applyEditorLive()
   }
+})
+
+// 工程重载（导入/冲突重载替换 doc 引用）→ 重新启动
+watch(
+  () => editor.doc,
+  (doc, old) => {
+    if (doc !== old) applyEditorLive()
+  },
+)
+
+// 编辑脏变更（新增/改绑定需要重索引）：与自动保存同节奏防抖重启
+watch(
+  () => editor.dirtySeq,
+  () => {
+    if (!liveOn.value) return
+    window.clearTimeout(liveRestartTimer)
+    liveRestartTimer = window.setTimeout(applyEditorLive, 3000)
+  },
+)
+
+// 预览关闭：RuntimeStage 卸载会清共享 runtime store，重启编辑通道重建快照
+watch(previewVisible, (v) => {
+  if (!v && liveOn.value) applyEditorLive()
 })
 
 onBeforeUnmount(() => {
   uninstallKeyboard?.()
   window.removeEventListener('ws:help', openHelp)
   if (saveTimer) clearTimeout(saveTimer)
+  window.clearTimeout(liveRestartTimer)
+  stopEditorLive()
 })
 
 // ---- 快捷键帮助（? 键 / 状态栏提示可点开） ----
@@ -504,6 +563,14 @@ async function shareProject(): Promise<void> {
         <ThemePicker />
         <span class="tb-fixed-sep" aria-hidden="true"></span>
         <button class="tb-btn" type="button" title="数据源 / 变量 / 报警规则" :disabled="!editor.doc" @click="dataDrawerVisible = true">数据</button>
+        <button
+          class="tb-btn live-btn"
+          type="button"
+          :class="[liveOn ? `is-on ${runtime.serverStatus}` : '']"
+          :disabled="!editor.doc"
+          :title="liveTitle"
+          @click="toggleEditorLive"
+        >实时</button>
         <button class="tb-btn" type="button" :disabled="!editor.doc" @click="previewVisible = true">预览</button>
         <button
           class="tb-btn"
@@ -685,6 +752,37 @@ async function shareProject(): Promise<void> {
 }
 
 /* 工具条按钮：深底幽灵样式，图标位 28×28，文字位自适应；悬浮才浮出边界 */
+/* 实时数据开关：状态灯语义（连接中=警示黄、已连接=信号青、断开/失败=警示红），全令牌取色 */
+.live-btn.is-on {
+  position: relative;
+  padding-left: 14px;
+}
+
+.live-btn.is-on::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: var(--ws-text-3);
+}
+
+.live-btn.is-on.connecting::before {
+  background: var(--ws-warn-bright);
+}
+
+.live-btn.is-on.online::before {
+  background: var(--ws-ok-bright);
+}
+
+.live-btn.is-on.offline::before,
+.live-btn.is-on.error::before {
+  background: var(--ws-alert-bright);
+}
+
 .tb-btn {
   display: inline-flex;
   align-items: center;
