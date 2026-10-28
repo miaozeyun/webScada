@@ -19,6 +19,7 @@ import type {
   VariableDef,
 } from '@/types/doc'
 import { VIRTUAL_DATASOURCE_ID } from '@/types/doc'
+import { uuidV4 } from '@/utils/uuid'
 
 export const DS = 'ds_demo'
 
@@ -158,7 +159,7 @@ export function demoDoc(name: string, description: string, variables: VariableDe
   return {
     schemaVersion: 1,
     project: {
-      id: crypto.randomUUID(),
+      id: uuidV4(),
       name: `${name}（演示案例）`,
       description,
       author: null,

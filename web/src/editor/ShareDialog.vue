@@ -128,11 +128,40 @@ function absoluteUrl(item: ShareItem): string {
 }
 
 async function copy(text: string, okMsg = '链接已复制'): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text)
+  // navigator.clipboard 只在安全上下文（HTTPS / localhost）可用；局域网 http://<IP> 入口下为
+  // undefined，直接调用抛 TypeError。回落 execCommand 同步复制（已废弃但全场景可用）。
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      ElMessage.success(okMsg)
+      return
+    } catch {
+      /* 权限拒绝等：继续走 execCommand 兜底 */
+    }
+  }
+  if (copyFallback(text)) {
     ElMessage.success(okMsg)
+    return
+  }
+  ElMessageBox.alert(text, '复制失败，请手动复制', { confirmButtonText: '关闭' })
+}
+
+/** execCommand 兜底：临时 textarea + select，复制后立刻移除（不污染页面） */
+function copyFallback(text: string): boolean {
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.top = '-9999px'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
   } catch {
-    ElMessageBox.alert(text, '复制失败，请手动复制', { confirmButtonText: '关闭' })
+    return false
   }
 }
 

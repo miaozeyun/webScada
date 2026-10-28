@@ -4,6 +4,7 @@
  * 20 个 mock 变量（sine/square/random 混合，1s 级刷新），验证编辑器打开与运行态渲染性能。
  */
 import type { Binding, ComponentNode, ProjectDoc, VariableDef } from '@/types/doc'
+import { uuidV4 } from '@/utils/uuid'
 
 export function buildStressDoc(): ProjectDoc {
   const dsId = 'ds-stress'
@@ -140,7 +141,7 @@ export function buildStressDoc(): ProjectDoc {
   return {
     schemaVersion: 1,
     project: {
-      id: crypto.randomUUID(),
+      id: uuidV4(),
       name: `压测工程 1100 组件 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
       description: '性能测试：300 变量显示 + 200 矩形（20 闪烁）+ 100 流动条 + 100 开关 + 100 状态 + 100 状态灯 + 100 文本 + 100 进度条',
       author: null,

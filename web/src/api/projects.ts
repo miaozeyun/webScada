@@ -68,7 +68,10 @@ export const importProject = (rawDoc: ProjectDoc) => {
   const m = migrateDoc(rawDoc)
   if (!m.ok) {
     ElMessage.error(m.message)
-    return Promise.reject(new Error(m.message))
+    // 标记「已提示过」：调用方 catch 据此避免重复弹窗（本地失败也走同一约定）
+    const err = new Error(m.message) as Error & { handled?: boolean }
+    err.handled = true
+    return Promise.reject(err)
   }
   return http.post<ProjectDetail>('/projects/import', { doc: m.doc })
 }

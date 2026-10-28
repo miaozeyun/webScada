@@ -123,33 +123,50 @@ async function doGenDemo(key: string): Promise<void> {
   const c = DEMO_CASES.find((d) => d.key === key)
   if (!c) return
   demoLoading.value = key
+  let doc: ProjectDoc | undefined
   try {
-    const doc = c.build()
+    // build() 是本地纯函数：抛错不会走 http 拦截器，必须自己报，否则点了没反应
+    doc = c.build()
     const created = await importProject(doc)
     seedCaseHistory(created.doc ?? doc) // 预置近 6h 历史，图表打开即有曲线
     ElMessage.success(`案例「${c.name}」已生成`)
     refresh()
-  } catch {
-    /* 校验失败由拦截器弹出 422 详情 */
+  } catch (e) {
+    // 网络/校验类错误由 http 拦截器弹 422 详情，迁移失败由 importProject 弹（handled），
+    // 只有本地构造异常无人管——此前空 catch 导致「点了没反应」无从排查
+    const err = e as { isAxiosError?: boolean; handled?: boolean }
+    if (!err?.isAxiosError && !err?.handled) {
+      console.error('[demo] 案例构造失败', key, e)
+      ElMessage.error(`案例「${c.name}」生成失败：${(e as Error)?.message || '未知错误'}`)
+    }
   } finally {
     demoLoading.value = ''
   }
 }
 
 async function doGenAllDemos(): Promise<void> {
+  let failed = ''
   for (const c of DEMO_CASES) {
     demoLoading.value = c.key
     try {
       const doc = c.build()
       const created = await importProject(doc)
       seedCaseHistory(created.doc ?? doc)
-    } catch {
-      ElMessage.error(`案例「${c.name}」生成失败`)
+    } catch (e) {
+      console.error('[demo] 批量生成失败', c.key, e)
+      const err = e as { isAxiosError?: boolean; handled?: boolean }
+      // 已由拦截器/importProject 提示过的不再重复弹；本地构造异常要显式报
+      if (!err?.isAxiosError && !err?.handled) {
+        ElMessage.error(`案例「${c.name}」生成失败：${(e as Error)?.message || '未知错误'}`)
+      }
+      failed = c.name
       break
     }
   }
   demoLoading.value = ''
-  ElMessage.success('演示案例已生成')
+  // 原先无论成功失败都提示「已生成」，失败时给出误导性成功文案
+  if (failed) ElMessage.error(`案例「${failed}」生成失败，已中止`)
+  else ElMessage.success('演示案例已生成')
   refresh()
 }
 
@@ -163,12 +180,19 @@ async function doStress(): Promise<void> {
     return
   }
   stressing.value = true
+  let doc: ProjectDoc | undefined
   try {
-    await importProject(buildStressDoc())
+    doc = buildStressDoc()
+    await importProject(doc)
     ElMessage.success('压测工程已生成，可进入编辑器验证加载与运行性能')
     refresh()
-  } catch {
-    /* 校验失败由拦截器弹出 */
+  } catch (e) {
+    const err = e as { isAxiosError?: boolean; handled?: boolean }
+    // 网络/校验类由 http 拦截器弹，迁移失败由 importProject 弹（handled），只有本地构造异常无人管
+    if (!err?.isAxiosError && !err?.handled) {
+      console.error('[stress] 压测工程构造失败', e)
+      ElMessage.error(`压测工程生成失败：${(e as Error)?.message || '未知错误'}`)
+    }
   } finally {
     stressing.value = false
   }
