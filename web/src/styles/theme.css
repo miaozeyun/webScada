@@ -48,6 +48,8 @@
   --ws-inv-42: rgba(238, 244, 247, 0.42);
   --ws-inv-line: rgba(238, 244, 247, 0.22);
   --ws-inv-hover: rgba(238, 244, 247, 0.08);
+  /* 面板色 88% 透明：缩略图上的浮起控件底，让底图若隐若现又不失可读 */
+  --ws-panel-a88: rgba(255, 255, 255, 0.88);
   --ws-signal-a12: rgba(27, 167, 184, 0.12);
   --ws-signal-a18: rgba(27, 167, 184, 0.18);
   --ws-signal-a45: rgba(27, 167, 184, 0.45);
@@ -81,6 +83,8 @@
   --ws-shadow-panel-left: 3px 0 10px rgba(20, 33, 46, 0.06);
   --ws-shadow-panel-right: -3px 0 10px rgba(20, 33, 46, 0.06);
   --ws-shadow-float: 0 6px 18px rgba(20, 33, 46, 0.16), 0 1px 3px rgba(20, 33, 46, 0.12);
+  /* 卡片悬停：比 float 轻一档，只做「抬起来」的暗示，不抢信号色描边 */
+  --ws-shadow-card-hover: 0 6px 18px rgba(20, 33, 46, 0.1);
   --ws-panel-head-h: 34px;
   --ws-topbar-h: 46px;
   --ws-statusbar-h: 26px;

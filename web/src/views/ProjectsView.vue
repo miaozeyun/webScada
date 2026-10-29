@@ -968,7 +968,7 @@ function fmtTime(iso: string): string {
 
 .project-card:hover {
   border-color: var(--ws-signal);
-  box-shadow: 0 6px 18px rgba(20, 33, 46, 0.1);
+  box-shadow: var(--ws-shadow-card-hover);
   transform: translateY(-1px);
 }
 
@@ -980,7 +980,7 @@ function fmtTime(iso: string): string {
 
 .project-card.is-pinned:hover {
   border-color: var(--ws-signal);
-  box-shadow: inset 2px 0 0 var(--ws-signal), 0 6px 18px rgba(20, 33, 46, 0.1);
+  box-shadow: inset 2px 0 0 var(--ws-signal), var(--ws-shadow-card-hover);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1031,7 +1031,7 @@ function fmtTime(iso: string): string {
   padding: 0 6px;
   border: 1px solid var(--ws-steel-3);
   border-radius: var(--ws-radius);
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--ws-panel-a88);
   color: var(--ws-text-3);
   font-size: 11px;
   line-height: 1;

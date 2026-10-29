@@ -316,6 +316,7 @@ export function applyTheme(id: ThemeId): void {
     '--ws-inv-42': alpha(v['--ws-text-inverse'], 0.42),
     '--ws-inv-line': alpha(v['--ws-text-inverse'], 0.22),
     '--ws-inv-hover': alpha(v['--ws-text-inverse'], 0.08),
+    '--ws-panel-a88': alpha(v['--ws-panel'], 0.88),
     '--ws-signal-a12': alpha(v['--ws-signal-bright'], 0.12),
     '--ws-signal-a18': alpha(v['--ws-signal-bright'], 0.18),
     '--ws-signal-a45': alpha(v['--ws-signal-bright'], 0.45),
