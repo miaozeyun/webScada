@@ -1,0 +1,42 @@
+# webScada 官网静态站：独立 nginx 容器编排
+#
+# 与产品编排（根目录 docker-compose.yml）完全独立：
+#   - 本编排只管一个 nginx 容器，不碰 postgres/emqx/server，也不会占用 80/443
+#   - 站点文件以只读方式挂载宿主机 website/，git pull 后内容立刻生效，无需重建
+# 一键启动：./deploy/website/deploy.sh（默认宿主机端口 64304）
+
+name: webscada-site
+
+# 日志轮转基线：静态站日志量小，但同样不允许无限增长
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  site:
+    # 固定版本，避免 latest 漂移导致重启后行为变化；国内可配 REG_PREFIX 走镜像加速
+    #   REG_PREFIX=m.daocloud.io/docker.io/
+    image: ${REG_PREFIX:-docker.io/}library/nginx:1.27-alpine
+    container_name: webscada-site
+    ports:
+      # 宿主机端口可配，默认 64304（deploy.sh -p 可覆盖）
+      - "${SITE_PORT:-64304}:80"
+    volumes:
+      # 站点根目录：只读挂载，容器无法篡改宿主机文件
+      - ../../website:/usr/share/nginx/html:ro
+      # 覆盖镜像内置默认站点，改完需 docker compose restart site（或重跑 deploy.sh）
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      # nginx:alpine 自带 busybox wget；interval 取 10s，让 deploy.sh 的等待循环在 ~15s 内收敛
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    # 官方 entrypoint 需保留 setuid/setgid 把 worker 降权为 nginx 用户，故仅加 no-new-privileges
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    restart: unless-stopped

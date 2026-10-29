@@ -180,6 +180,22 @@ server {
 
 同步上线：`rsync -avz --delete website/ user@server:/var/www/webscada-site/`。
 
+### 方式三：独立 nginx 容器（一键，不碰产品编排）
+
+仓库自带一键脚本，把一个 nginx 容器跑起来托管本目录，宿主机端口默认 **64304**，
+与根目录 `docker-compose.yml` 的产品栈完全隔离（不占 80/443）：
+
+```bash
+./deploy/website/deploy.sh          # http://<服务器IP>:64304/
+./deploy/website/deploy.sh -p 8080  # 换端口
+./deploy/website/deploy.sh --help   # 全部选项
+```
+
+站点目录以只读方式挂载，`git pull` 后内容立刻生效；只有改 nginx.conf 才需要重跑脚本。
+脚本会先跑 `nginx -t` 校验配置再启动，写错不会把线上站点搞挂。
+纯 HTTP 方案，要 HTTPS 请走方式一或在前置反代上终止 TLS。详见
+[deploy/website/README.md](../deploy/website/README.md)。
+
 ## 收录提交
 
 - 搜索引擎：Google Search Console、百度搜索资源平台提交 `https://域名/sitemap.xml`
