@@ -1,12 +1,12 @@
 # 官网一键部署（独立 nginx 容器）
 
-把 `website/` 静态站用**一个 nginx 容器**跑起来，宿主机端口默认 **64304**。
+把 `website/` 静态站用**一个 nginx 容器**跑起来，宿主机端口默认 **39109**。
 与产品编排（根目录 `docker-compose.yml`）完全独立，不影响 80/443 上的组态系统。
 
 ## 一键启动
 
 ```bash
-./deploy/website/deploy.sh            # http://<服务器IP>:64304/
+./deploy/website/deploy.sh            # http://<服务器IP>:39109/
 ```
 
 脚本会依次做：环境校验 → 端口占用检查 → `nginx -t` 配置校验 → 拉镜像 → 启动容器 → 健康检查，

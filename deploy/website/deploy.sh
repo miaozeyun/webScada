@@ -6,7 +6,7 @@
 #       要 HTTPS 请走根目录主编排的方式一，或在前置反代上终止 TLS）
 #
 # 用法：
-#   ./deploy/website/deploy.sh                 # 默认宿主机端口 64304
+#   ./deploy/website/deploy.sh                 # 默认宿主机端口 39109
 #   ./deploy/website/deploy.sh -p 8080         # 指定宿主机端口
 #   ./deploy/website/deploy.sh --pull          # 先拉取最新 nginx 镜像再启动
 #   ./deploy/website/deploy.sh --down          # 停止并移除容器
@@ -22,7 +22,7 @@ SITE_DIR="$ROOT_DIR/website"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 ENV_FILE="$SCRIPT_DIR/.env"
 CONTAINER="webscada-site"
-DEFAULT_PORT=64304
+DEFAULT_PORT=39109
 DEFAULT_IMAGE="library/nginx:1.27-alpine"
 
 # ---- 颜色（非终端自动关闭）----
@@ -52,7 +52,7 @@ webScada 官网一键部署（独立 nginx 容器，不安装 Docker）
 用法: ./deploy/website/deploy.sh [选项]
 
 选项:
-  -p, --port PORT         宿主机对外端口（默认 64304）
+  -p, --port PORT         宿主机对外端口（默认 39109）
       --reg-prefix PFX    镜像前缀，如 m.daocloud.io/docker.io/
                           （默认读根目录 .env 的 REG_PREFIX，都没有则用 docker.io/）
       --pull              启动前强制拉取最新 nginx 镜像
@@ -61,7 +61,7 @@ webScada 官网一键部署（独立 nginx 容器，不安装 Docker）
   -h, --help              显示本帮助
 
 示例:
-  ./deploy/website/deploy.sh                       # http://<服务器IP>:64304
+  ./deploy/website/deploy.sh                       # http://<服务器IP>:39109
   ./deploy/website/deploy.sh -p 8080 --pull        # 换端口 + 先拉新镜像
 EOF
 }

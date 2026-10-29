@@ -182,11 +182,11 @@ server {
 
 ### 方式三：独立 nginx 容器（一键，不碰产品编排）
 
-仓库自带一键脚本，把一个 nginx 容器跑起来托管本目录，宿主机端口默认 **64304**，
+仓库自带一键脚本，把一个 nginx 容器跑起来托管本目录，宿主机端口默认 **39109**，
 与根目录 `docker-compose.yml` 的产品栈完全隔离（不占 80/443）：
 
 ```bash
-./deploy/website/deploy.sh          # http://<服务器IP>:64304/
+./deploy/website/deploy.sh          # http://<服务器IP>:39109/
 ./deploy/website/deploy.sh -p 8080  # 换端口
 ./deploy/website/deploy.sh --help   # 全部选项
 ```

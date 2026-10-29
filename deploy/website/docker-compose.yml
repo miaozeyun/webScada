@@ -3,7 +3,7 @@
 # 与产品编排（根目录 docker-compose.yml）完全独立：
 #   - 本编排只管一个 nginx 容器，不碰 postgres/emqx/server，也不会占用 80/443
 #   - 站点文件以只读方式挂载宿主机 website/，git pull 后内容立刻生效，无需重建
-# 一键启动：./deploy/website/deploy.sh（默认宿主机端口 64304）
+# 一键启动：./deploy/website/deploy.sh（默认宿主机端口 39109）
 
 name: webscada-site
 
@@ -21,8 +21,8 @@ services:
     image: ${REG_PREFIX:-docker.io/}library/nginx:1.27-alpine
     container_name: webscada-site
     ports:
-      # 宿主机端口可配，默认 64304（deploy.sh -p 可覆盖）
-      - "${SITE_PORT:-64304}:80"
+      # 宿主机端口可配，默认 39109（deploy.sh -p 可覆盖）
+      - "${SITE_PORT:-39109}:80"
     volumes:
       # 站点根目录：只读挂载，容器无法篡改宿主机文件
       - ../../website:/usr/share/nginx/html:ro
