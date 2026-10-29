@@ -8,7 +8,6 @@ __pycache__/
 .venv/
 
 # 本地环境与密钥（.env 不入库，模板见 .env.example）
-.env
 
 # IDE
 .idea/
