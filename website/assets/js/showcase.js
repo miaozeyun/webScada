@@ -266,6 +266,17 @@
     });
     play(i);
     startTimer();
+    /* 窄屏案例条是横向滚动：把当前卡滚进视野，否则高亮卡片在屏幕外，看起来“没跟着变” */
+    var track = cases[i].parentNode;
+    if (track && track.scrollWidth > track.clientWidth + 1) {
+      var cr = cases[i].getBoundingClientRect();
+      var tr = track.getBoundingClientRect();
+      if (cr.left < tr.left || cr.right > tr.right) {
+        var left = track.scrollLeft + (cr.left - tr.left) - (tr.width - cr.width) / 2;
+        if (track.scrollTo) track.scrollTo({ left: left, behavior: 'smooth' });
+        else track.scrollLeft = left;
+      }
+    }
     /* 任何一次切换后都补齐其余段，点哪张卡都不会白屏 */
     window.setTimeout(warmOthers, 800);
   }
