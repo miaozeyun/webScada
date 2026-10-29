@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <defs>
+    <linearGradient id="laBase" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#100b04"/>
+      <stop offset="0.5" stop-color="#0a0703"/>
+      <stop offset="1" stop-color="#050301"/>
+    </linearGradient>
+    <radialGradient id="laGlow" cx="0.5" cy="0.34" r="0.58">
+      <stop offset="0" stop-color="#f59e0b" stop-opacity="0.22"/>
+      <stop offset="0.45" stop-color="#b45309" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="laGreen" cx="0.86" cy="0.9" r="0.4">
+      <stop offset="0" stop-color="#22c55e" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="laVig" cx="0.5" cy="0.5" r="0.72">
+      <stop offset="0.52" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.66"/>
+    </radialGradient>
+    <pattern id="laHatch" width="28" height="28" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="7" height="28" fill="#f59e0b" opacity="0.035"/>
+    </pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#laBase)"/>
+  <rect width="1920" height="1080" fill="url(#laHatch)"/>
+  <rect width="1920" height="1080" fill="url(#laGlow)"/>
+  <rect width="1920" height="1080" fill="url(#laGreen)"/>
+  <g stroke="#f59e0b" fill="none">
+    <path d="M0 232 H1920" opacity="0.08"/>
+    <path d="M0 1000 H1920" opacity="0.06"/>
+    <path d="M960 0 V1080" opacity="0.05"/>
+    <path d="M0 540 H1920" opacity="0.04"/>
+  </g>
+  <g fill="#fbbf24" opacity="0.30">
+    <rect x="60" y="60" width="140" height="2"/>
+    <rect x="1720" y="60" width="140" height="2"/>
+    <rect x="60" y="1018" width="140" height="2"/>
+    <rect x="1720" y="1018" width="140" height="2"/>
+  </g>
+  <rect width="1920" height="1080" fill="url(#laVig)"/>
+</svg>

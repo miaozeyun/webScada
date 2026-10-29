@@ -29,6 +29,7 @@ from app.schemas.project import (
     ProjectListItem,
     ProjectListOut,
     ProjectOut,
+    ProjectPin,
     ProjectSaveOut,
     ProjectUpdate,
 )
@@ -43,6 +44,8 @@ def _to_out(project: Project, *, with_doc: bool) -> ProjectOut:
         name=project.name,
         description=project.description,
         revision=project.revision,
+        pinned=project.pinned,
+        readonly=project.readonly,
         createdAt=project.created_at,
         updatedAt=project.updated_at,
         # 所有出口脱敏（G6）
@@ -67,8 +70,8 @@ async def list_projects(
         size=size,
         items=[
             ProjectListItem(
-                id=str(p.id), name=p.name, description=p.description, revision=p.revision, updatedAt=p.updated_at,
-                thumbnail=thumbnails.get(p.id),
+                id=str(p.id), name=p.name, description=p.description, revision=p.revision, pinned=p.pinned,
+                readonly=p.readonly, updatedAt=p.updated_at, thumbnail=thumbnails.get(p.id),
             )
             for p in items
         ],
@@ -124,6 +127,27 @@ async def get_project(
     return _to_out(project, with_doc=True)
 
 
+@router.patch("/{project_id}/pin", response_model=ProjectOut)
+async def pin_project(
+    project_id: str,
+    body: ProjectPin,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ProjectOut:
+    """台账置顶开关（2026-10-29）：置顶工程在列表中恒排最前（pinned DESC, updated_at DESC）。
+
+    独立于 doc 与 revision 乐观锁——置顶/取消置顶不会触发 409，也不会改画面内容。
+    """
+    require_project_edit(user, project_id)  # viewer 403；operator/admin 可置顶
+    project = await project_service.set_pinned(db, project_id, body.pinned)
+    await audit_service.audit(
+        request, user, "project_save", target_type="project", target_id=str(project.id),
+        detail={"op": "pin", "pinned": body.pinned, "name": project.name},
+    )
+    return _to_out(project, with_doc=False)
+
+
 @router.get("/{project_id}/variables/values")
 async def get_variable_values(
     project_id: str,
@@ -157,6 +181,14 @@ async def update_project(
     from app.services import doc_service
 
     project = await project_service.get_project(db, project_id)
+    # 演示只读（2026-10-29）：旗舰演示工程允许在编辑器里体验修改，但保存一律拒绝，
+    # 保证客户演示画面不被改脏；要定制请「复制工程」后再编辑。
+    if project.readonly:
+        raise AppError(
+            "PROJECT_READONLY",
+            "演示工程只读：修改不会保存，请先复制工程再编辑",
+            403,
+        )
     warnings: list[str] = []
     try:
         # 先做一次结构校验收集告警（update_doc 内会再走完整流水线）
@@ -211,6 +243,7 @@ async def import_project(
     content_type = request.headers.get("content-type", "")
 
     doc_raw: dict | None = None
+    readonly = False
     if content_type.startswith("multipart/form-data"):
         form = await request.form()
         upload = form.get("file")
@@ -231,11 +264,12 @@ async def import_project(
         except Exception:
             raise AppError("validation_error", "JSON body 需为 {\"doc\": {...}}", 422) from None
         doc_raw = payload.doc
+        readonly = payload.readonly
 
     if not isinstance(doc_raw, dict):
         raise AppError("validation_error", "doc 必须为 JSON 对象", 422)
 
-    project = await project_service.import_project(db, user, doc_raw)
+    project = await project_service.import_project(db, user, doc_raw, readonly=readonly)
     await audit_service.audit(
         request, user, "project_save", target_type="project", target_id=str(project.id),
         detail={"op": "import", "name": project.name},

@@ -135,10 +135,21 @@ export function txt(
 
 // ---- 页面 / 工程 ----
 
-export function pg(id: string, name: string, w: number, h: number, components: ComponentNode[], o: { order?: number; lockPan?: boolean; bg?: string } = {}): Page {
+export function pg(
+  id: string,
+  name: string,
+  w: number,
+  h: number,
+  components: ComponentNode[],
+  o: { order?: number; lockPan?: boolean; bg?: string; bgImage?: string; bgOpacity?: number } = {},
+): Page {
   return {
     id, name, order: o.order ?? 0,
-    background: { color: o.bg ?? '#0b1220' },
+    background: {
+      color: o.bg ?? '#0b1220',
+      // 深色大屏可挂预置矢量背景（public/bg/*.svg，随构建发布、不占 doc 体积）
+      ...(o.bgImage ? { image: o.bgImage, imageFit: 'cover' as const, imageOpacity: o.bgOpacity ?? 1 } : {}),
+    },
     screen: { designWidth: w, designHeight: h, mode: 'fit-contain', lockPan: o.lockPan === true },
     components,
   }

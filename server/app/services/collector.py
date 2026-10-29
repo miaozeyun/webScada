@@ -221,8 +221,9 @@ class MockSource(BaseSource):
                 if var.defaultValue is not None:
                     self._ingest(var, var.defaultValue)  # 保持型初始值
                 continue
-            interval = spec.intervalMs if spec.kind == "random" else max(100, spec.periodMs / 24)
-            next_due[var.key] = loop.time() + interval / 1000
+            # 立即首帧：慢周期变量 interval=periodMs/24 可达数十秒（如 20min 周期 → 50s），
+            # 若等到首个 interval 才推，首屏/虚拟变量级联会长时间显示 0（2026-10-29 演示案例踩坑）
+            next_due[var.key] = loop.time()
         self._mark_ok()
         while True:
             now_loop = loop.time()

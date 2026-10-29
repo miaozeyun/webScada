@@ -18,6 +18,7 @@ from sqlalchemy import (
     CHAR,
     JSON,
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     Float,
@@ -61,6 +62,11 @@ class Project(Base):
     doc: Mapped[dict] = mapped_column(JSONVariant, nullable=False)
     # 乐观锁版本号（G2）：PUT 携带 baseRevision，不符 409；doc 内不冗余
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # 台账置顶（2026-10-29）：置顶工程恒排列表最前，跨账号/设备持久化
+    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # 演示只读（2026-10-29）：旗舰演示工程供客户体验，编辑态可改但 PUT 一律 403，
+    # 保证演示画面不被改脏；要改内容走「复制工程」（克隆出的新工程 readonly=false）
+    readonly: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -69,7 +75,11 @@ class Project(Base):
 
     owner: Mapped[User] = relationship(lazy="joined")
 
-    __table_args__ = (Index("idx_projects_owner", "owner_id"),)
+    __table_args__ = (
+        Index("idx_projects_owner", "owner_id"),
+        # 列表默认排序：pinned DESC, updated_at DESC（置顶恒在最前）
+        Index("idx_projects_pinned_updated", "pinned", text("updated_at DESC")),
+    )
 
 
 class ShareLink(Base):

@@ -13,15 +13,41 @@ import { buildTrajectoryDoc } from './trajectory'
 import { buildMobileDoc } from './mobile'
 import { buildMqttTestDoc } from './mqttTest'
 import { buildControlDoc } from './control'
+import { buildWindDoc } from './wind'
+import { buildDatacenterDoc } from './datacenter'
+import { buildLineDoc } from './line'
 
 export interface DemoCase {
   key: string
   name: string
   description: string
   build: () => ProjectDoc
+  /** 演示只读（2026-10-29）：旗舰案例生成后只读——编辑器可体验，改动不落库；定制走复制工程 */
+  readonly?: boolean
 }
 
 export const DEMO_CASES: DemoCase[] = [
+  {
+    key: 'wind',
+    name: '海上风电集控（旗舰视觉）',
+    description: '深海青主题：风速立方律驱动 6 台机组功率与叶轮变速，数字孪生阵列 + 并网/联锁三层下钻',
+    build: buildWindDoc,
+    readonly: true,
+  },
+  {
+    key: 'datacenter',
+    name: '数据中心基础设施（旗舰视觉）',
+    description: '靛紫霓虹主题：12 列机柜热力矩阵实时变色，冷热通道双温、PUE/COP 联动，UPS 2N 与应急制冷反控',
+    build: buildDatacenterDoc,
+    readonly: true,
+  },
+  {
+    key: 'line',
+    name: '智能制造产线（旗舰视觉）',
+    description: '琥珀产线主题：6 工位三态联动、线速驱动节拍/产量/能耗，OEE 下钻 + 线体模式/目标节拍/急停反控',
+    build: buildLineDoc,
+    readonly: true,
+  },
   {
     key: 'pv',
     name: '光伏电站集控',

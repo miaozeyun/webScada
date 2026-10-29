@@ -13,11 +13,15 @@ const value = computed(() => {
   return num.toLocaleString('zh-CN', { minimumFractionDigits: Number(d), maximumFractionDigits: Number(d) })
 })
 const unit = computed(() => String(props.nodeProps.unit ?? ''))
+/** 主题适配（2026-10-29）：深色大屏可按主题覆盖数字色 / 卡片底色 / 描边色 */
+const accent = computed(() => String(props.nodeProps.color ?? ''))
+const bg = computed(() => String(props.nodeProps.bg ?? ''))
+const border = computed(() => String(props.nodeProps.border ?? ''))
 </script>
 
 <template>
-  <div class="flip-counter">
-    <span class="digits">{{ value }}</span>
+  <div class="flip-counter" :style="{ background: bg || undefined, borderColor: border || undefined }">
+    <span class="digits" :style="{ color: accent || undefined }">{{ value }}</span>
     <span v-if="unit" class="unit">{{ unit }}</span>
   </div>
 </template>

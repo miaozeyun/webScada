@@ -27,6 +27,8 @@ scripts/recon_login.py
 node_modules/
 test-results/
 playwright-report/
+# 临时验收截图/脚本（tmp- 前缀，验完即弃，不入库）
+e2e/tmp-*
 
 # 本地 agent/skill 工具文件
 .agents/

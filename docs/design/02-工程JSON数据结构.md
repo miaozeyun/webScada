@@ -700,11 +700,14 @@ CREATE TABLE projects (
     description TEXT,
     doc         JSONB       NOT NULL,                -- ProjectDoc 全量；schemaVersion 迁移入口
     revision    INTEGER     NOT NULL DEFAULT 1,      -- 乐观锁自增；PUT 携带 baseRevision，不符 409 REVISION_CONFLICT，成功响应返回新 revision
+    pinned      BOOLEAN     NOT NULL DEFAULT false,  -- 台账置顶（工程级属性，不进 doc、不参与 revision；列表 pinned DESC, updated_at DESC）
+    readonly    BOOLEAN     NOT NULL DEFAULT false,  -- 演示只读（旗舰演示工程：编辑器可体验，PUT 403 PROJECT_READONLY；不进 doc、不参与 revision）
     owner_id    UUID        NOT NULL REFERENCES users(id),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()   -- 仅记录更新时间；乐观锁使用 revision 列
 );
 CREATE INDEX idx_projects_owner ON projects(owner_id);
+CREATE INDEX idx_projects_pinned_updated ON projects(pinned, updated_at DESC);
 
 -- 分享链接（快照方案：多链接、可过期、可撤销；无发布状态机、无 published_doc 列）
 CREATE TABLE share_links (
@@ -966,6 +969,10 @@ interface EventActionDef {
 | 案例六 · 反控指令集（双页） | 多档开关、confirm 开关、输入框指令、档位控转速、switchPage、showPopup/hidePopup/toggleVisible、右键菜单、条件弹框、悬停信息 |
 
 案例遵守与产品一致的口径：文案不提及具体商业产品；引用第三方数据（天气 open-meteo）实时获取。
+
+**旗舰案例只读（2026-10-29）**：海上风电 / 数据中心 / 智能制造产线三套旗舰案例导入时带 `readonly=true`，
+编辑器可体验拖拽与反控但不落库（保存按钮禁用，服务端 PUT 403 `PROJECT_READONLY`），
+保证客户演示画面不被改脏；定制走「复制工程」，克隆出的新工程可正常编辑保存。
 
 ### 7.10 关键实现约束（M7 踩坑留档）
 

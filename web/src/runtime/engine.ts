@@ -190,9 +190,6 @@ export class RuntimeEngine {
         this.applyBindings(v.id, v.defaultValue)
       }
     }
-    // 虚拟变量初值（依赖默认值先行求值）
-    this.recomputeAllVirtuals()
-
     this.runtime.running = true
     if (opts.server) {
       // M8 server 模式：浏览器直连数据源停用，值池由 WS 帧驱动
@@ -216,6 +213,9 @@ export class RuntimeEngine {
       startPersist()
       return
     }
+    // 本地模式：先按默认值求虚拟变量初值；server 模式的虚拟值由服务端 hub 权威下发，
+    // 此处不再本地预求值（否则首帧依赖未到会刷一片「未知变量」告警并写 0）
+    this.recomputeAllVirtuals()
     // 本地模式：_tick 引擎内推进（每秒 setValue → 虚拟变量级联/条件弹框重评）
     const tick = (): void => this.setValue(TICK_VAR, Math.floor(Date.now() / 1000))
     tick()

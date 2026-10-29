@@ -9,6 +9,10 @@ export interface ProjectListItem {
   name: string
   description: string | null
   revision: number
+  /** 台账置顶：恒排列表最前（工程级属性，跨账号/设备持久化） */
+  pinned: boolean
+  /** 演示只读：编辑器可体验修改，但不会保存（服务端 PUT 403） */
+  readonly: boolean
   updatedAt: string
   /** 首页缩略图（JPEG dataURL，卡片视图用；编辑器保存前截图写入） */
   thumbnail: string | null
@@ -50,6 +54,10 @@ export const getVariableValues = (id: string) =>
 
 export const deleteProject = (id: string) => http.delete<void>(`/projects/${id}`)
 
+/** 台账置顶开关：只改工程级标记，不动 doc/revision（不会触发 409 冲突） */
+export const setProjectPinned = (id: string, pinned: boolean) =>
+  http.patch<ProjectDetail>(`/projects/${id}/pin`, { pinned })
+
 /** 整体保存：全量 doc + baseRevision 乐观锁（G2，冲突 409） */
 export const updateProject = (id: string, doc: ProjectDoc, baseRevision: number) =>
   http.put<{ revision: number; updatedAt: string }>(`/projects/${id}`, { doc, baseRevision })
@@ -64,7 +72,7 @@ export const exportProject = (id: string) => http.get<ProjectDoc>(`/projects/${i
  * （服务端无迁移逻辑，N-1 窗口仅灰度缓冲）。失败经 ElMessage 弹出原因
  * （调用方 catch 块按「拦截器已提示」处理，不再重复弹窗）。
  */
-export const importProject = (rawDoc: ProjectDoc) => {
+export const importProject = (rawDoc: ProjectDoc, opts: { readonly?: boolean } = {}) => {
   const m = migrateDoc(rawDoc)
   if (!m.ok) {
     ElMessage.error(m.message)
@@ -73,5 +81,5 @@ export const importProject = (rawDoc: ProjectDoc) => {
     err.handled = true
     return Promise.reject(err)
   }
-  return http.post<ProjectDetail>('/projects/import', { doc: m.doc })
+  return http.post<ProjectDetail>('/projects/import', { doc: m.doc, readonly: opts.readonly === true })
 }

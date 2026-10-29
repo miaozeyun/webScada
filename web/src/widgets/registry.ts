@@ -438,6 +438,8 @@ register({
     },
     { key: 'compact', label: '紧凑模式（隐坐标轴）', type: 'switch', defaultValue: false },
     { key: 'live', label: '实时滚动（近 60 点，不等历史落库）', type: 'switch', defaultValue: false },
+    { key: 'color', label: '曲线色（空=信号青）', type: 'color', defaultValue: '' },
+    { key: 'areaColor', label: '面积填充色（空=默认）', type: 'color', defaultValue: '' },
   ],
   renderer: HistoryChartWidget,
 })
@@ -695,6 +697,7 @@ register({
     { key: 'max', label: '量程上限', type: 'number', defaultValue: 100 },
     { key: 'precision', label: '数值小数位', type: 'number', min: 0, max: 6, step: 1, defaultValue: 1 },
     { key: 'textColor', label: '数值颜色（深色大屏用浅色）', type: 'color', defaultValue: '#606266' },
+    { key: 'color', label: '指针/进度色（空=信号青）', type: 'color', defaultValue: '' },
   ],
   renderer: GaugeWidget,
 })
@@ -709,6 +712,7 @@ register({
   propsSchema: [
     { key: 'percent', label: '百分比', type: 'number', min: 0, max: 100, step: 1, defaultValue: 72 },
     { key: 'precision', label: '数值小数位', type: 'number', min: 0, max: 3, step: 1, defaultValue: 0 },
+    { key: 'color', label: '填充色（空=信号青）', type: 'color', defaultValue: '' },
   ],
   renderer: ProgressWidget,
 })
@@ -724,6 +728,9 @@ register({
     { key: 'value', label: '数值', type: 'text', defaultValue: '0' },
     { key: 'unit', label: '单位', type: 'text', defaultValue: '' },
     { key: 'decimals', label: '小数位（空=原样，数字=定位数+千分位）', type: 'number', min: 0, max: 6, step: 1, defaultValue: 2 },
+    { key: 'color', label: '数字颜色（空=主题信号色）', type: 'color', defaultValue: '' },
+    { key: 'bg', label: '卡片底色（支持渐变）', type: 'text', defaultValue: '' },
+    { key: 'border', label: '描边颜色', type: 'color', defaultValue: '' },
   ],
   renderer: FlipCounterWidget,
 })

@@ -97,7 +97,10 @@ async function refresh(): Promise<void> {
       serverDown.value = false
       const series = resp.series[key]
       if (series && series.length > 0) {
-        points.value = series
+        // 服务端可达但样本明显少于本地缓冲（工程刚启动 / historian 尚未积累）→ 取点数多的一侧，
+        // 避免「新建/演示工程打开历史图只有 1-2 个点」看起来像空图（本地 6h 分钟桶已由 seedCaseHistory 预置）
+        const local = query(variableId.value, Date.now() - rangeMs.value)
+        points.value = local.length > series.length ? local : series
         return
       }
       // 服务端可达但该区间无入库数据（历史刚启用/变量无采样）→ 本地缓冲兜底显示
@@ -148,6 +151,9 @@ onBeforeUnmount(() => {
 
 /** 紧凑模式（移动端小尺寸）：隐标题/坐标轴文字，边距最小化 */
 const compact = computed(() => props.nodeProps.compact === true)
+/** 主题适配（2026-10-29）：曲线色/面积色可配，缺省沿用信号青 */
+const accent = computed(() => String(props.nodeProps.color ?? '') || CHART.signal)
+const areaColor = computed(() => String(props.nodeProps.areaColor ?? '') || CHART.signalArea)
 
 const option = computed(() => ({
   title: compact.value
@@ -169,8 +175,8 @@ const option = computed(() => ({
       showSymbol: false,
       smooth: true,
       data: liveMode.value ? liveSeries.value : points.value,
-      lineStyle: { color: CHART.signal, width: 2 },
-      areaStyle: { color: CHART.signalArea },
+      lineStyle: { color: accent.value, width: 2 },
+      areaStyle: { color: areaColor.value },
     },
   ],
 }))

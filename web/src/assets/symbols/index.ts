@@ -29,6 +29,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   wtp: '水处理',
   power: '电力',
   instrument: '仪表',
+  energy: '新能源',
   misc: '其他',
   decor: '装饰',
 }
@@ -105,6 +106,8 @@ const NAME_MAP: Record<string, string> = {
   'instrument/pressure-gauge': '压力表',
   'instrument/thermometer': '温度计',
   'instrument/analyzer': '分析仪',
+  // 新能源
+  'energy/wind-rotor': '风机叶轮',
   // 其他
   'misc/fire-hydrant': '消防栓',
   'misc/extinguisher': '灭火器',

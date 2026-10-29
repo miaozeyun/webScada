@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, CopyDocument, Delete, Download, Grid, Menu, MoreFilled, Plus, Search, Upload, VideoPlay } from '@element-plus/icons-vue'
+import { ArrowDown, CopyDocument, Delete, Download, Grid, Menu, MoreFilled, Plus, Search, Star, Upload, VideoPlay } from '@element-plus/icons-vue'
 import { meApi } from '@/api/auth'
 import type { UserInfo } from '@/api/auth'
 import {
@@ -12,6 +12,7 @@ import {
   exportProject,
   importProject,
   listProjects,
+  setProjectPinned,
   type ProjectListItem,
 } from '@/api/projects'
 import { sanitizeDocForExport } from '@/utils/sanitize'
@@ -20,6 +21,7 @@ import { DEMO_CASES, seedCaseHistory } from '@/utils/demos'
 import { downloadJson, fileTimestamp } from '@/utils/download'
 import type { ProjectDoc } from '@/types/doc'
 import AppBar from '@/components/AppBar.vue'
+import PinIcon from '@/components/PinIcon.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -65,6 +67,23 @@ async function refresh(resetPage = false): Promise<void> {
 }
 
 onMounted(refresh)
+
+// ---- 置顶（2026-10-29）：工程级持久化属性，服务端按 pinned DESC, updated_at DESC 排序 ----
+const pinBusy = ref('')
+
+async function togglePin(row: ProjectListItem): Promise<void> {
+  if (pinBusy.value) return
+  pinBusy.value = row.id
+  const next = !row.pinned
+  try {
+    await setProjectPinned(row.id, next)
+    ElMessage.success(next ? '已置顶：该工程将始终排在列表最前' : '已取消置顶')
+    // 置顶项回第 1 页顶部；取消置顶后按更新时间重新排序（可能落到后面的页）
+    await refresh(true)
+  } finally {
+    pinBusy.value = ''
+  }
+}
 
 // ---- 视图模式：表格 / 卡片（首页缩略图），选择持久化 ----
 type ViewMode = 'table' | 'card'
@@ -128,7 +147,7 @@ async function doGenDemo(key: string): Promise<void> {
   try {
     // build() 是本地纯函数：抛错不会走 http 拦截器，必须自己报，否则点了没反应
     doc = c.build()
-    const created = await importProject(doc)
+    const created = await importProject(doc, { readonly: c.readonly })
     seedCaseHistory(created.doc ?? doc) // 预置近 6h 历史，图表打开即有曲线
     ElMessage.success(`案例「${c.name}」已生成`)
     refresh()
@@ -151,7 +170,7 @@ async function doGenAllDemos(): Promise<void> {
     demoLoading.value = c.key
     try {
       const doc = c.build()
-      const created = await importProject(doc)
+      const created = await importProject(doc, { readonly: c.readonly })
       seedCaseHistory(created.doc ?? doc)
     } catch (e) {
       console.error('[demo] 批量生成失败', c.key, e)
@@ -207,7 +226,8 @@ function onTool(cmd: string): void {
 
 /** 卡片「更多」下拉：复制 / 导出 / 删除（与表格行操作同源） */
 function onCardMore(cmd: string, row: ProjectListItem): void {
-  if (cmd === 'clone') openClone(row)
+  if (cmd === 'pin') void togglePin(row)
+  else if (cmd === 'clone') openClone(row)
   else if (cmd === 'export') void doExport(row)
   else if (cmd === 'alarms') router.push(`/projects/${row.id}/alarms`)
   else if (cmd === 'delete') void doDelete(row)
@@ -417,7 +437,13 @@ function fmtTime(iso: string): string {
           <el-table-column prop="name" label="工程名称" :min-width="isNarrow ? 150 : 210">
             <template #default="{ row }">
               <span class="name-cell">
-                <span class="project-name" :title="row.name">{{ row.name }}</span>
+                <span class="name-line">
+                  <span v-if="row.pinned" class="pin-tag" title="已置顶：恒排列表最前">
+                    <PinIcon :size="10" />置顶
+                  </span>
+                  <span class="project-name" :title="row.name">{{ row.name }}</span>
+                  <span v-if="row.readonly" class="readonly-tag" title="演示工程只读：编辑体验，改动不会保存">只读</span>
+                </span>
                 <!-- 悬停缩略图预览：画面缩略图（无图显示线稿占位），不占行高 -->
                 <span class="hover-preview">
                   <img v-if="row.thumbnail" :src="row.thumbnail" alt="" loading="lazy" decoding="async" />
@@ -442,8 +468,19 @@ function fmtTime(iso: string): string {
               <span class="time ws-readout">{{ fmtTime(row.updatedAt) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" :width="isNarrow ? 120 : 104" align="right">
+          <el-table-column label="操作" :width="isNarrow ? 148 : 132" align="right">
             <template #default="{ row }">
+              <el-button
+                link
+                size="small"
+                class="pin-btn"
+                :class="{ 'is-pinned': row.pinned }"
+                :loading="pinBusy === row.id"
+                :title="row.pinned ? '取消置顶' : '置顶（恒排列表最前）'"
+                @click.stop="togglePin(row)"
+              >
+                <PinIcon :size="13" />
+              </el-button>
               <el-button link type="primary" size="small" @click="router.push(`/editor/${row.id}`)">编辑</el-button>
               <el-dropdown trigger="click" @command="(cmd: string) => onCardMore(cmd, row)">
                 <el-button link size="small" class="more-btn" title="更多操作" @click.stop>
@@ -451,6 +488,7 @@ function fmtTime(iso: string): string {
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
+                    <el-dropdown-item command="pin" :icon="Star">{{ row.pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
                     <el-dropdown-item command="clone" :icon="CopyDocument">复制工程</el-dropdown-item>
                     <el-dropdown-item command="export" :icon="Download">导出 JSON</el-dropdown-item>
                     <el-dropdown-item command="alarms">报警记录</el-dropdown-item>
@@ -484,6 +522,7 @@ function fmtTime(iso: string): string {
             v-for="row in items"
             :key="row.id"
             class="project-card"
+            :class="{ 'is-pinned': row.pinned }"
             :title="`${row.name}（双击进入编辑器）`"
             @dblclick="router.push(`/editor/${row.id}`)"
           >
@@ -497,10 +536,21 @@ function fmtTime(iso: string): string {
                 </svg>
                 <span class="thumb-hint">保存后自动生成预览</span>
               </template>
+              <button
+                type="button"
+                class="card-pin"
+                :class="{ 'is-pinned': row.pinned }"
+                :title="row.pinned ? '取消置顶' : '置顶（恒排列表最前）'"
+                :aria-label="row.pinned ? '取消置顶' : '置顶'"
+                @click.stop="togglePin(row)"
+              >
+                <PinIcon :size="13" />
+                <span v-if="row.pinned">置顶</span>
+              </button>
               <span class="card-rev ws-readout">r{{ row.revision }}</span>
             </div>
             <div class="card-body">
-              <span class="card-name">{{ row.name }}</span>
+              <span class="card-name">{{ row.name }}<span v-if="row.readonly" class="readonly-tag" title="演示工程只读：编辑体验，改动不会保存">只读</span></span>
               <span class="card-desc">{{ row.description || '暂无描述' }}</span>
             </div>
             <div class="card-foot">
@@ -513,6 +563,7 @@ function fmtTime(iso: string): string {
                   </el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
+                      <el-dropdown-item command="pin">{{ row.pinned ? '取消置顶' : '置顶' }}</el-dropdown-item>
                       <el-dropdown-item command="clone">复制工程</el-dropdown-item>
                       <el-dropdown-item command="export">导出</el-dropdown-item>
                       <el-dropdown-item command="alarms">报警记录</el-dropdown-item>
@@ -736,13 +787,70 @@ function fmtTime(iso: string): string {
   display: none;
 }
 
+.name-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .project-name {
   display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
   color: var(--ws-text);
+}
+
+/* 已置顶标记：表格名称前的窄标签 */
+.pin-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 0 5px;
+  height: 17px;
+  border: 1px solid var(--ws-signal-a45);
+  border-radius: 999px;
+  background: var(--ws-signal-soft);
+  color: var(--ws-signal);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* 演示只读角标（2026-10-29）：与置顶角标同排；中性灰，不抢置顶的语义色 */
+.readonly-tag {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 0 5px;
+  height: 17px;
+  border: 1px solid var(--ws-steel-3);
+  border-radius: 999px;
+  background: var(--ws-steel-1);
+  color: var(--ws-text-2);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+/* 表格行置顶按钮 */
+.pin-btn {
+  color: var(--ws-text-3);
+  padding: 0 4px;
+}
+
+.pin-btn:hover {
+  color: var(--ws-signal);
+}
+
+.pin-btn.is-pinned {
+  color: var(--ws-signal);
 }
 
 /* 行悬停缩略图预览：浮在行上方，不占布局（纯 CSS，触屏无 hover 不出现） */
@@ -864,6 +972,17 @@ function fmtTime(iso: string): string {
   transform: translateY(-1px);
 }
 
+/* 置顶卡：信号色描边 + 左侧强调条，翻页也能一眼定位 */
+.project-card.is-pinned {
+  border-color: var(--ws-signal-a45);
+  box-shadow: inset 2px 0 0 var(--ws-signal), var(--ws-shadow-panel);
+}
+
+.project-card.is-pinned:hover {
+  border-color: var(--ws-signal);
+  box-shadow: inset 2px 0 0 var(--ws-signal), 0 6px 18px rgba(20, 33, 46, 0.1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .project-card,
   .project-card:hover {
@@ -897,6 +1016,41 @@ function fmtTime(iso: string): string {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* 卡片置顶按钮：缩略图左上角，未置顶半透明白底，已置顶墨色实底 */
+.card-pin {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--ws-steel-3);
+  border-radius: var(--ws-radius);
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--ws-text-3);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.86;
+  transition: opacity var(--ws-duration-fast) var(--ws-ease), color var(--ws-duration-fast) var(--ws-ease), background var(--ws-duration-fast) var(--ws-ease);
+}
+
+.card-pin:hover {
+  opacity: 1;
+  color: var(--ws-signal);
+  border-color: var(--ws-signal-a45);
+}
+
+.card-pin.is-pinned {
+  opacity: 1;
+  background: var(--ws-ink);
+  border-color: var(--ws-ink);
+  color: var(--ws-text-inverse);
 }
 
 .thumb-placeholder {

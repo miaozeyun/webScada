@@ -11,6 +11,8 @@ const max = computed(() => Number(props.nodeProps.max ?? 100))
 const precision = computed(() => Number(props.nodeProps.precision ?? 1))
 /** 文字色：深色大屏场景可配浅色（缺省沿用中性灰） */
 const textColor = computed(() => String(props.nodeProps.textColor ?? '#606266') || '#606266')
+/** 主题强调色（2026-10-29）：进度弧/指针/轴心，缺省沿用信号青 */
+const accent = computed(() => String(props.nodeProps.color ?? '') || CHART.signal)
 
 const option = computed(() => ({
   series: [
@@ -20,13 +22,13 @@ const option = computed(() => ({
       max: max.value,
       startAngle: 210,
       endAngle: -30,
-      progress: { show: true, width: 10, itemStyle: { color: CHART.signal } },
+      progress: { show: true, width: 10, itemStyle: { color: accent.value } },
       axisLine: { lineStyle: { width: 10, color: [[1, 'rgba(148,163,184,0.25)']] } },
       axisTick: { distance: -16, lineStyle: { color: CHART.axis } },
       splitLine: { distance: -20, length: 6, lineStyle: { color: CHART.axis } },
       axisLabel: { distance: 4, color: CHART.text, fontSize: 10 },
-      pointer: { itemStyle: { color: CHART.signal }, width: 4 },
-      anchor: { show: true, size: 10, itemStyle: { color: CHART.signal } },
+      pointer: { itemStyle: { color: accent.value }, width: 4 },
+      anchor: { show: true, size: 10, itemStyle: { color: accent.value } },
       detail: {
         valueAnimation: true,
         // 数值按 precision 取整（绑定注入的原始浮点不可直接展示）

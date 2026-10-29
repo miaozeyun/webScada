@@ -119,6 +119,8 @@ export const http = {
     instance.post(url, data, config) as unknown as Promise<T>,
   put: <T>(url: string, data?: unknown, config?: RequestOptions) =>
     instance.put(url, data, config) as unknown as Promise<T>,
+  patch: <T>(url: string, data?: unknown, config?: RequestOptions) =>
+    instance.patch(url, data, config) as unknown as Promise<T>,
   delete: <T>(url: string, config?: RequestOptions) =>
     instance.delete(url, config) as unknown as Promise<T>,
 }

@@ -76,32 +76,33 @@ function startMock(ds: Extract<DataSource, { type: 'mock' }>, vars: VariableDef[
       if (v.defaultValue !== null && v.defaultValue !== undefined) onRaw(v, v.defaultValue)
       continue
     }
-    const interval = spec.kind === 'random' ? spec.intervalMs : Math.max(100, spec.periodMs / 24)
-    timers.add(
-      setInterval(() => {
-        const t = Date.now() - t0
-        let raw: number
-        switch (spec.kind) {
-          case 'sine':
-            raw = spec.min + ((spec.max - spec.min) * (0.5 + 0.5 * Math.sin((2 * Math.PI * t) / spec.periodMs)))
-            break
-          case 'ramp': {
-            const p = (t % spec.periodMs) / spec.periodMs
-            raw = p < 0.5 ? spec.min + (spec.max - spec.min) * p * 2 : spec.max - (spec.max - spec.min) * (p - 0.5) * 2
-            break
-          }
-          case 'random':
-            raw = spec.min + Math.random() * (spec.max - spec.min)
-            break
-          case 'square': {
-            const p = (t % spec.periodMs) / spec.periodMs
-            raw = p < (spec.duty ?? 0.5) ? spec.onValue : spec.offValue
-            break
-          }
+    const interval = spec.kind === 'random' ? Math.max(100, spec.intervalMs) : Math.max(100, spec.periodMs / 24)
+    /** 单个采样帧：立即执行一次 + 定时执行（慢周期变量 period/24 可能数十秒，不能等首个 interval） */
+    const emit = (): void => {
+      const t = Date.now() - t0
+      let raw: number
+      switch (spec.kind) {
+        case 'sine':
+          raw = spec.min + ((spec.max - spec.min) * (0.5 + 0.5 * Math.sin((2 * Math.PI * t) / spec.periodMs)))
+          break
+        case 'ramp': {
+          const p = (t % spec.periodMs) / spec.periodMs
+          raw = p < 0.5 ? spec.min + (spec.max - spec.min) * p * 2 : spec.max - (spec.max - spec.min) * (p - 0.5) * 2
+          break
         }
-        onRaw(v, raw)
-      }, Math.max(100, interval)),
-    )
+        case 'random':
+          raw = spec.min + Math.random() * (spec.max - spec.min)
+          break
+        case 'square': {
+          const p = (t % spec.periodMs) / spec.periodMs
+          raw = p < (spec.duty ?? 0.5) ? spec.onValue : spec.offValue
+          break
+        }
+      }
+      onRaw(v, raw)
+    }
+    emit()
+    timers.add(setInterval(emit, interval))
   }
   return {
     stop: () => {

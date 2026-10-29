@@ -101,18 +101,40 @@ async def list_projects(
     base = select(Project).options(
         load_only(
             Project.id, Project.name, Project.description, Project.revision,
-            Project.owner_id, Project.updated_at,
+            Project.pinned, Project.readonly, Project.owner_id, Project.updated_at,
         )
     )
     if keyword:
         base = base.where(Project.name.ilike(f"%{keyword}%"))
     total = await db.scalar(select(func.count()).select_from(base.subquery())) or 0
+    # 置顶恒在最前：pinned DESC, updated_at DESC（分页在全局排序后切，置顶工程不会因翻页丢失）
     items = (
         await db.scalars(
-            base.order_by(Project.updated_at.desc()).offset((page - 1) * size).limit(size)
+            base.order_by(Project.pinned.desc(), Project.updated_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
         )
     ).all()
     return int(total), list(items)
+
+
+async def set_pinned(db: AsyncSession, project_id: str, pinned: bool) -> Project:
+    """台账置顶开关：只改 pinned，不触碰 doc/revision/updated_at。
+
+    - 不参与 revision 乐观锁：置顶不会把他人保存顶成 409；
+    - 显式把 updated_at 设为原值：Project.updated_at 配了 onupdate=now()，普通 ORM 赋值
+      会把「置顶」误当成内容更新，取消置顶后工程会错误地排到未置顶列表首位。
+    """
+    project = await get_project(db, project_id)
+    if project.pinned != pinned:
+        await db.execute(
+            update(Project)
+            .where(Project.id == project.id)
+            .values(pinned=pinned, updated_at=Project.updated_at)
+        )
+        await db.commit()
+        await db.refresh(project)
+    return project
 
 
 async def list_thumbnails(db: AsyncSession, ids: list[uuidlib.UUID]) -> dict[uuidlib.UUID, str | None]:
@@ -132,6 +154,9 @@ async def list_thumbnails(db: AsyncSession, ids: list[uuidlib.UUID]) -> dict[uui
 
 async def update_doc(db: AsyncSession, project: Project, doc_raw: dict, base_revision: int) -> Project:
     """整体保存：校验流水线 + 乐观锁 + 凭证治理，revision+1。doc_raw 会被就地修改。"""
+    # 演示只读（2026-10-29）：服务层再兜一道，防止绕过 API 层的调用点写入演示工程
+    if project.readonly:
+        raise AppError("PROJECT_READONLY", "演示工程只读：修改不会保存，请先复制工程再编辑", 403)
     doc_service.check_schema_version(doc_raw)
     doc_service.check_size(doc_raw)
 
@@ -202,7 +227,7 @@ async def update_doc(db: AsyncSession, project: Project, doc_raw: dict, base_rev
     return project
 
 
-async def import_project(db: AsyncSession, owner: User, doc_raw: dict) -> Project:
+async def import_project(db: AsyncSession, owner: User, doc_raw: dict, readonly: bool = False) -> Project:
     """导入总是新建工程（不覆盖、不去重）；凭证一律置空需重填（02 §4.3 规则③）。
     顺序遵循 02 §5.2：schemaVersion → 体积 → 结构 → 引用 → 凭证置空 → 重写 id → 入库
     （先校验后置空：非法凭证类型不会被置空洗白，而是按结构校验报 422 带字段路径）。"""
@@ -225,6 +250,7 @@ async def import_project(db: AsyncSession, owner: User, doc_raw: dict) -> Projec
         description=model.project.description,
         doc=doc_raw,
         revision=1,
+        readonly=readonly,
         owner_id=owner.id,
     )
     db.add(project)

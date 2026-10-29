@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <defs>
+    <linearGradient id="wfSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#04141d"/>
+      <stop offset="0.55" stop-color="#031018"/>
+      <stop offset="1" stop-color="#020a10"/>
+    </linearGradient>
+    <radialGradient id="wfHorizon" cx="0.5" cy="0.58" r="0.62">
+      <stop offset="0" stop-color="#0e7490" stop-opacity="0.30"/>
+      <stop offset="0.42" stop-color="#0a5468" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wfSea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b3a45" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#021016" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="wfVig" cx="0.5" cy="0.5" r="0.74">
+      <stop offset="0.52" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.66"/>
+    </radialGradient>
+    <pattern id="wfGrid" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M80 0H0V80" fill="none" stroke="#0f4c5c" stroke-width="0.8" opacity="0.22"/>
+    </pattern>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#wfSky)"/>
+  <rect width="1920" height="1080" fill="url(#wfGrid)"/>
+  <rect width="1920" height="1080" fill="url(#wfHorizon)"/>
+  <rect y="624" width="1920" height="456" fill="url(#wfSea)"/>
+  <g fill="none" stroke="#1a8da0" stroke-linecap="round">
+    <path d="M0 660 Q240 648 480 660 T960 660 T1440 660 T1920 660" opacity="0.20" stroke-width="1.4"/>
+    <path d="M0 706 Q260 692 520 706 T1040 706 T1560 706 T1920 702" opacity="0.14"/>
+    <path d="M0 762 Q280 746 560 762 T1120 762 T1680 758 T1920 760" opacity="0.10"/>
+    <path d="M0 834 Q320 816 640 834 T1280 834 T1920 830" opacity="0.07"/>
+    <path d="M0 924 Q360 904 720 924 T1440 924 T1920 920" opacity="0.05"/>
+  </g>
+  <g fill="#5eead4" opacity="0.5">
+    <circle cx="164" cy="132" r="1.3"/><circle cx="438" cy="88" r="1"/><circle cx="742" cy="156" r="1.2"/>
+    <circle cx="1088" cy="96" r="1"/><circle cx="1372" cy="148" r="1.4"/><circle cx="1708" cy="104" r="1.1"/>
+    <circle cx="286" cy="256" r="0.9"/><circle cx="906" cy="238" r="1"/><circle cx="1576" cy="276" r="0.9"/>
+  </g>
+  <g fill="none" stroke="#2dd4bf" opacity="0.12">
+    <circle cx="960" cy="618" r="420"/>
+    <circle cx="960" cy="618" r="620"/>
+  </g>
+  <rect y="618" width="1920" height="1.6" fill="#2dd4bf" opacity="0.22"/>
+  <rect width="1920" height="1080" fill="url(#wfVig)"/>
+</svg>

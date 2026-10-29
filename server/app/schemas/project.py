@@ -24,8 +24,15 @@ class ProjectClone(BaseModel):
     name: str = Field(min_length=1, max_length=128)
 
 
+class ProjectPin(BaseModel):
+    """台账置顶开关（工程级属性，不进 doc、不参与 revision 乐观锁）。"""
+    pinned: bool
+
+
 class ImportBody(BaseModel):
     doc: dict  # 导出文件内容原样（前端 FileReader 读文件后 POST JSON）
+    # 演示只读（2026-10-29）：仅「演示案例」生成链路传 true；普通导入/导出 round-trip 缺省可编辑
+    readonly: bool = False
 
 
 class ProjectOut(BaseModel):
@@ -34,6 +41,8 @@ class ProjectOut(BaseModel):
     name: str
     description: str | None
     revision: int
+    pinned: bool = False
+    readonly: bool = False
     createdAt: datetime
     updatedAt: datetime
     doc: dict | None = None
@@ -45,6 +54,8 @@ class ProjectListItem(BaseModel):
     name: str
     description: str | None
     revision: int
+    pinned: bool = False
+    readonly: bool = False
     updatedAt: datetime
     thumbnail: str | None = None
 

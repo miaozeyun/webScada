@@ -267,6 +267,8 @@ function refreshThumbnail(force: boolean): Promise<void> {
  * force = 强制刷新缩略图；wait = 等缩略图落库（回到台账前要最新卡片图）。
  */
 async function saveProject(opts: { force?: boolean; wait?: boolean } = {}): Promise<boolean> {
+  // 演示只读：保存链路整体旁路（不 PUT、不截图、不标脏），改动只在本次会话内有效
+  if (editor.readonly) return true
   // 同一次变更只允许一条保存链路在跑：清掉在途定时器，避免紧接着再 PUT 一遍
   if (saveTimer) {
     clearTimeout(saveTimer)
@@ -285,12 +287,18 @@ async function saveProject(opts: { force?: boolean; wait?: boolean } = {}): Prom
 watch(
   () => editor.dirtySeq,
   () => {
+    if (editor.readonly) return
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(() => void saveProject(), 3000)
   },
 )
 
 async function backToList(): Promise<void> {
+  // 演示只读：没有可落库的修改，直接返回（不再弹「未保存」确认干扰体验）
+  if (editor.readonly) {
+    router.push('/projects')
+    return
+  }
   if (editor.dirty) {
     // 回台账要看到最新卡片图：这里等截图落库（跳转前一次性开销，可接受）
     const ok = await saveProject({ force: true, wait: true })
@@ -306,6 +314,7 @@ async function backToList(): Promise<void> {
 }
 
 function manualSave(): void {
+  if (editor.readonly) return
   // 不等缩略图：手动保存的反馈必须立刻到，缩略图空闲期补（仍走 60s 节流，
   // 否则连点保存会反复触发整页 1:1 重排，画布会闪一下）
   saveProject().then((ok) => {
@@ -330,6 +339,9 @@ async function reloadAfterConflict(): Promise<void> {
 }
 
 const saveStatus = computed(() => {
+  if (editor.readonly) {
+    return { text: editor.dirty ? '演示工程·修改不保存' : '演示工程·只读', cls: 'readonly' }
+  }
   if (editor.saving) return { text: '保存中…', cls: 'saving' }
   if (editor.saveError === 'conflict') return { text: '版本冲突', cls: 'error' }
   if (editor.saveError === 'network') return { text: '保存失败（断网），本地未丢失', cls: 'error' }
@@ -444,11 +456,14 @@ async function confirmImport(): Promise<void> {
     return
   }
   importVisible.value = false
-  ElMessage.success('已导入，稍后自动保存到服务端')
+  ElMessage.success(editor.readonly ? '已导入到画布（演示工程只读，改动不会保存）' : '已导入，稍后自动保存到服务端')
 }
 
 /** 导出：先保存本地修改 → 走服务端脱敏接口（G7）→ 下载 JSON 文件 */
 async function exportJson(): Promise<void> {
+  if (editor.readonly && editor.dirty) {
+    ElMessage.info('演示工程只读：导出的是已保存的演示版本，本次修改不会包含')
+  }
   if (editor.dirty) {
     // 导出走服务端脱敏接口，快照会剥掉 thumbnail，不需要为它截图
     const ok = await saveProject()
@@ -489,6 +504,9 @@ async function clearCanvas(): Promise<void> {
 // ---- 分享（M6 / 2026-10-26 重做为发布管理对话框）----
 
 async function shareProject(): Promise<void> {
+  if (editor.readonly && editor.dirty) {
+    ElMessage.info('演示工程只读：分享使用已保存的演示版本，本次修改不会包含')
+  }
   // 先保存，保证分享快照包含最新修改
   if (editor.dirty) {
     // 分享快照同样脱敏、不含 thumbnail，不必等截图
@@ -520,6 +538,11 @@ async function shareProject(): Promise<void> {
           <span>工程</span>
         </button>
         <span class="project-name" :title="editor.projectName">{{ editor.projectName }}</span>
+        <span
+          v-if="editor.readonly"
+          class="tb-readonly"
+          title="演示工程只读：可随意体验编辑，但改动不会保存；需要定制请先「复制工程」"
+        >演示只读</span>
         <span class="tb-dirty" :class="saveStatus.cls" :title="saveStatus.text" aria-hidden="true"></span>
       </div>
 
@@ -631,7 +654,14 @@ async function shareProject(): Promise<void> {
         <span class="tb-fixed-sep" aria-hidden="true"></span>
 
         <el-button v-if="editor.saveError === 'conflict'" size="small" type="warning" plain :icon="RefreshRight" @click="reloadAfterConflict">载入最新</el-button>
-        <el-button class="save-btn" size="small" :loading="editor.saving" :disabled="!editor.dirty" title="立即保存（Ctrl+S）" @click="manualSave">保存</el-button>
+        <el-button
+          class="save-btn"
+          size="small"
+          :loading="editor.saving"
+          :disabled="editor.readonly || !editor.dirty"
+          :title="editor.readonly ? '演示工程只读：修改不会保存，请先复制工程再编辑' : '立即保存（Ctrl+S）'"
+          @click="manualSave"
+        >保存</el-button>
       </div>
     </header>
 
@@ -906,6 +936,20 @@ async function shareProject(): Promise<void> {
   color: var(--ws-inv-88);
 }
 
+/* 演示只读角标：和工程名同排，随时提醒「改动不会保存」 */
+.tb-readonly {
+  flex-shrink: 0;
+  padding: 0 6px;
+  height: 16px;
+  line-height: 16px;
+  border: 1px solid var(--ws-inv-line);
+  border-radius: 3px;
+  color: var(--ws-inv-60);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
 /* 工程名右侧的保存态小灯：不抢视觉，但状态随时可读 */
 .tb-dirty {
   width: 6px;
@@ -930,6 +974,11 @@ async function shareProject(): Promise<void> {
 .tb-dirty.error {
   background: var(--ws-alert-bright);
   box-shadow: 0 0 0 2px rgba(255, 157, 110, 0.2);
+}
+
+.tb-dirty.readonly {
+  background: var(--ws-inv-42);
+  box-shadow: none;
 }
 
 .toolbar :deep(.el-button--warning.is-plain) {
@@ -1193,6 +1242,7 @@ main {
 .sb-save.dirty,
 .sb-save.saving { color: var(--ws-warn-bright); }
 .sb-save.error { color: var(--ws-alert-bright); }
+.sb-save.readonly { color: var(--ws-inv-60); }
 
 .sb-net {
   display: inline-flex;

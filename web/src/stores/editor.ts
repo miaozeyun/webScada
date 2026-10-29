@@ -22,6 +22,8 @@ export const useEditorStore = defineStore('editor', {
   state: () => ({
     projectId: '' as string,
     projectName: '' as string,
+    /** 演示只读（2026-10-29）：编辑器可体验修改，但保存链路整体旁路（服务端 PUT 亦 403） */
+    readonly: false,
     revision: 0,
     doc: null as ProjectDoc | null,
     currentPageId: '' as string,
@@ -107,6 +109,7 @@ export const useEditorStore = defineStore('editor', {
       if (!detail.doc) throw new Error('工程 doc 为空（数据异常）')
       this.projectId = detail.id
       this.projectName = detail.name
+      this.readonly = detail.readonly === true
       this.revision = detail.revision
       this.doc = normalizeDoc(detail.doc) // 补全模板/历史工程缺省字段（bindings/locked/z 等）
       this.currentPageId = detail.doc.pages[0]?.id ?? ''
@@ -126,8 +129,10 @@ export const useEditorStore = defineStore('editor', {
       this.dirtySeq++
     },
 
-    /** 保存：PUT 全量 doc + baseRevision；失败保内存态（M1 验收：断网不丢编辑态） */
+    /** 保存：PUT 全量 doc + baseRevision；失败保内存态（M1 验收：断网不丢编辑态）。
+     *  演示只读工程整体旁路：不落库、不报错，dirty 保持为 true（状态栏显示只读提示）。 */
     async save(): Promise<boolean> {
+      if (this.readonly) return true
       if (!this.dirty || this.saving || !this.doc) return true
       this.saving = true
       try {

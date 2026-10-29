@@ -10,12 +10,14 @@ const precision = computed(() => Number(props.nodeProps.precision ?? 0))
 const percent = computed(() => Math.min(100, Math.max(0, Number(props.nodeProps.percent ?? 72))))
 
 const display = computed(() => percent.value.toFixed(precision.value))
+/** 主题适配（2026-10-29）：填充色可配（支持渐变），缺省沿用信号青 */
+const accent = computed(() => String(props.nodeProps.color ?? ''))
 </script>
 
 <template>
   <div class="progress-widget">
     <div class="bar">
-      <div class="fill" :style="{ width: `${percent}%` }" />
+      <div class="fill" :style="{ width: `${percent}%`, background: accent || undefined }" />
     </div>
     <span class="pct">{{ display }}%</span>
   </div>

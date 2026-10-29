@@ -18,6 +18,9 @@
   --ok:#3ddc97;         /* 正常绿 */
   --radius:10px;
   --maxw:1120px;
+  /* 首屏当前案例的主色（RGB 三元组，由 showcase.js 采样海报后写入）：光晕与页头色调用它 */
+  --sc-accent:62,224,255;
+  --sc-accent-soft:143,232,255;
   --sans:"HarmonyOS Sans SC","PingFang SC","Microsoft YaHei","Segoe UI",system-ui,-apple-system,sans-serif;
   --mono:ui-monospace,"Cascadia Code",Consolas,"JetBrains Mono",monospace;
 }
@@ -41,15 +44,19 @@ img,svg{max-width:100%}
 @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(62,224,255,.5)}50%{opacity:.55;box-shadow:0 0 8px 1px rgba(62,224,255,.35)}}
 
 /* ===== 页头 ===== */
-.site-header{position:sticky;top:0;z-index:50;background:rgba(10,19,34,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+/* 顶部首屏：暗色渐变兜底 + 一层当前案例主色的淡染，不做实心条；
+   页面滚动后才转为深色玻璃底，保证正文可读 */
+.site-header{position:sticky;top:0;z-index:50;background-color:transparent;background-image:linear-gradient(180deg,rgba(var(--sc-accent),.16),rgba(var(--sc-accent),.04) 66%,rgba(var(--sc-accent),0) 100%),linear-gradient(180deg,rgba(5,10,18,.88) 0%,rgba(5,10,18,.62) 62%,rgba(5,10,18,0) 100%);border-bottom:1px solid transparent;transition:background-color .3s ease,backdrop-filter .3s ease,border-color .3s ease}
+.site-header.is-scrolled{background-color:rgba(10,19,34,.45);background-image:linear-gradient(180deg,rgba(var(--sc-accent),.10),rgba(var(--sc-accent),.03) 70%,rgba(var(--sc-accent),0) 100%);-webkit-backdrop-filter:blur(12px) saturate(130%);backdrop-filter:blur(12px) saturate(130%);border-bottom-color:rgba(28,49,78,.5)}
+.site-header.nav-open{background-color:rgba(10,19,34,.96);background-image:none;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-bottom-color:rgba(28,49,78,.6)}
 .header-inner{display:flex;align-items:center;gap:28px;height:64px}
-.brand{display:flex;align-items:center;gap:10px;color:var(--ink);font-weight:700;font-size:18px;letter-spacing:.3px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--ink);font-weight:700;font-size:18px;letter-spacing:.3px;text-shadow:0 1px 12px rgba(5,10,18,.9)}
 .brand:hover{color:var(--ink)}
 .brand svg{width:30px;height:30px;display:block}
 .nav{margin-left:auto;display:flex;align-items:center;gap:4px}
 /* :not(.btn) 必须保留：否则 .nav a（0,1,1）会压过 .btn-primary（0,1,0），
    把按钮文字染成 muted 色、hover 背景变成半透明青，导航按钮几乎看不清 */
-.nav a:not(.btn){color:var(--muted);padding:8px 14px;border-radius:6px;font-size:15px}
+.nav a:not(.btn){color:#c3d4e6;padding:8px 14px;border-radius:6px;font-size:15px;text-shadow:0 1px 10px rgba(5,10,18,.9)}
 .nav a:not(.btn):hover{color:var(--ink);background:var(--cyan-soft)}
 .nav a:not(.btn)[aria-current="page"]{color:var(--cyan2)}
 .nav .btn{margin-left:8px}
@@ -100,6 +107,90 @@ h1{font-size:clamp(32px,4.4vw,50px);line-height:1.22;letter-spacing:.5px;margin:
 .a-pulse{animation:endpoint 2s ease-in-out infinite}
 @keyframes endpoint{0%,100%{r:3.5;opacity:1}50%{r:5;opacity:.6}}
 .a-fade{animation:fadein .9s .35s both}
+
+/* ===== Hero：置顶案例实况轮播（真实运行画面 · 视频全屏铺满，画面无遮挡） ===== */
+.showcase{position:relative;height:100svh;min-height:480px;overflow:hidden;background:#050b14;border-bottom:1px solid var(--line);isolation:isolate;margin-top:-64px}
+@supports not (height:100svh){.showcase{height:100vh}}
+.sc-stage{position:absolute;inset:0;z-index:0;background:#050b14;box-shadow:inset 0 0 220px rgba(var(--sc-accent),.12)}
+/* 播放画面上的淡光晕：颜色取自当前画面主色（--sc-accent），先压暗四周（暗角聚焦）。
+   暗角默认收敛；数据中心/产线的光晕在角部与底部，暗角相应减弱，避免把光吃掉 */
+.showcase::before{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;
+  background:radial-gradient(ellipse 50% 50% at 50% 50%,transparent 54%,rgba(2,6,12,.16) 78%,rgba(2,6,12,.40) 100%)}
+.showcase[data-glow="dc"]::before{background:radial-gradient(ellipse 50% 50% at 50% 50%,transparent 60%,rgba(2,6,12,.08) 84%,rgba(2,6,12,.20) 100%)}
+.showcase[data-glow="line"]::before{background:radial-gradient(ellipse 50% 50% at 50% 50%,transparent 58%,rgba(2,6,12,.10) 84%,rgba(2,6,12,.24) 100%)}
+/* 海上风电：上下两条地平线辉光 + 一圈柔边（海面反光） */
+.showcase::after{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;mix-blend-mode:screen;
+  background:
+    radial-gradient(ellipse 78% 46% at 50% -10%,rgba(var(--sc-accent),.20),transparent 66%),
+    radial-gradient(ellipse 92% 42% at 50% 110%,rgba(var(--sc-accent),.16),transparent 70%),
+    radial-gradient(ellipse 50% 50% at 50% 50%,transparent 60%,rgba(var(--sc-accent),.04) 80%,rgba(var(--sc-accent),.11) 93%,rgba(var(--sc-accent),.20) 100%);
+  animation:sc-glow 11s ease-in-out infinite alternate}
+/* 数据中心：左上 / 右下对角双角冷光（不铺整圈柔边，形态与海面明显不同） */
+.showcase[data-glow="dc"]::after{
+  background:
+    radial-gradient(ellipse 54% 78% at -8% -14%,rgba(var(--sc-accent),.34),transparent 62%),
+    radial-gradient(ellipse 54% 78% at 108% 114%,rgba(var(--sc-accent),.32),transparent 62%),
+    linear-gradient(115deg,rgba(var(--sc-accent),.09),transparent 40%,transparent 60%,rgba(var(--sc-accent),.09));
+  animation-duration:8s}
+/* 智能产线：底部炉火状暖光 + 两侧余晖 + 底部暖带（顶部不发光） */
+.showcase[data-glow="line"]::after{
+  background:
+    radial-gradient(ellipse 54% 36% at 50% 118%,rgba(var(--sc-accent),.36),transparent 62%),
+    radial-gradient(ellipse 26% 52% at 4% 106%,rgba(var(--sc-accent),.22),transparent 60%),
+    radial-gradient(ellipse 26% 52% at 96% 106%,rgba(var(--sc-accent),.22),transparent 60%),
+    linear-gradient(0deg,rgba(var(--sc-accent),.12),transparent 26%);
+  animation-duration:9.5s}
+@keyframes sc-glow{from{opacity:.55}to{opacity:1}}
+/* 切换不做双图交叉淡化（两张深色大屏半透明叠加会发灰、像白屏）：
+   旧图瞬时撤下，新图从暗底淡入 */
+.sc-slide{position:absolute;inset:0;opacity:0;will-change:opacity}
+.sc-slide.is-active{opacity:1;z-index:2;animation:sc-in .42s ease-out both}
+@keyframes sc-in{from{opacity:0;transform:scale(1.004)}to{opacity:1;transform:none}}
+.sc-poster,.sc-video{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover;background:#050b14}
+.sc-poster{transform-origin:56% 42%}
+.sc-slide.is-active .sc-poster{animation:sc-kb 24s ease-out both}
+@keyframes sc-kb{from{transform:scale(1.015)}to{transform:scale(1.085)}}
+/* 视频就绪后盖住海报；未就绪/不支持 VP9 时保留 Ken Burns 海报，画面仍在动 */
+.sc-video{opacity:0;transition:opacity .35s ease}
+.sc-slide.is-playing .sc-video{opacity:1}
+
+/* 案例切换条：透明浮层，距首屏底部 96px（避开画面下沿的图表与状态栏） */
+.sc-strip{position:absolute;left:0;right:0;bottom:96px;z-index:6;padding:0}
+.sc-deck-inner{display:flex;align-items:center;gap:18px}
+.sc-deck-label{flex:none;display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:6px;font-family:var(--mono);font-size:11.5px;letter-spacing:1.4px;color:rgb(var(--sc-accent-soft));white-space:nowrap;background:rgba(5,10,18,.72);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+/* 切换条上的状态点随案例主色变化（keyframes 内的 var 按当前元素解析） */
+.sc-deck-label .status-dot{background:rgb(var(--sc-accent-soft));animation:sc-pulse 2s ease-in-out infinite}
+@keyframes sc-pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(var(--sc-accent),.5)}50%{opacity:.55;box-shadow:0 0 8px 1px rgba(var(--sc-accent),.35)}}
+.sc-cases{flex:1;min-width:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.sc-case{display:block;text-align:left;font-family:var(--sans);cursor:pointer;padding:10px 13px 8px;border-radius:8px;color:var(--muted);background:rgba(8,16,28,.76);border:1px solid rgba(43,74,110,.6);-webkit-backdrop-filter:blur(14px) saturate(120%);backdrop-filter:blur(14px) saturate(120%);transition:border-color .2s ease,background .2s ease,transform .2s ease,box-shadow .2s ease}
+.sc-case:hover{border-color:rgba(var(--sc-accent),.45);background:rgba(12,23,41,.86);transform:translateY(-2px)}
+.sc-case.is-active{background:linear-gradient(180deg,rgba(var(--sc-accent),.16),rgba(var(--sc-accent),.02)),rgba(12,23,41,.94);border-color:rgba(var(--sc-accent),.66);box-shadow:0 0 0 1px rgba(var(--sc-accent),.18),0 12px 32px rgba(0,0,0,.35)}
+.sc-case-head{display:flex;align-items:center;gap:8px}
+.sc-idx{flex:none;font-family:var(--mono);font-size:11px;letter-spacing:1px;color:rgb(var(--sc-accent-soft))}
+.sc-name{font-size:14px;font-weight:700;color:#e6f0fa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-tag{flex:none;margin-left:auto;font-size:10.5px;letter-spacing:.5px;color:rgb(var(--sc-accent-soft));background:rgba(var(--sc-accent),.10);border:1px solid rgba(var(--sc-accent),.30);border-radius:3px;padding:1px 6px}
+.sc-desc{display:block;margin-top:4px;font-size:12px;line-height:1.5;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc-bar{display:block;height:2px;margin-top:8px;border-radius:2px;background:rgba(43,74,110,.55);overflow:hidden}
+.sc-bar i{display:block;width:0;height:100%;background:linear-gradient(90deg,rgba(var(--sc-accent),.55),rgb(var(--sc-accent-soft)))}
+@keyframes sc-progress{from{width:0}to{width:100%}}
+.sc-arrows{display:flex;gap:8px;flex:none}
+.sc-arrow{width:38px;height:38px;display:grid;place-items:center;cursor:pointer;border-radius:8px;color:var(--muted);background:rgba(8,16,28,.76);border:1px solid rgba(43,74,110,.6);-webkit-backdrop-filter:blur(14px) saturate(120%);backdrop-filter:blur(14px) saturate(120%);transition:border-color .2s ease,color .2s ease,background .2s ease}
+.sc-arrow svg{width:18px;height:18px}
+.sc-arrow:hover{border-color:rgba(var(--sc-accent),.55);color:rgb(var(--sc-accent-soft));background:rgba(12,23,41,.9)}
+
+/* 首屏文案带：视频之后独立成块，左对齐居中排版 */
+.hero-intro{position:relative;overflow:hidden;text-align:center;padding:68px 0 62px;background:var(--bg0);border-bottom:1px solid var(--line)}
+.hero-intro::before{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(62,224,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(62,224,255,.045) 1px,transparent 1px);background-size:44px 44px;-webkit-mask-image:radial-gradient(ellipse 70% 120% at 50% 0%,#000 20%,transparent 72%);mask-image:radial-gradient(ellipse 70% 120% at 50% 0%,#000 20%,transparent 72%)}
+.hero-intro .container{position:relative}
+.hero-intro h1{font-size:clamp(30px,3.8vw,46px);line-height:1.24;margin:18px 0 14px}
+.hero-intro .lede{max-width:40em;margin:0 auto;font-size:16.5px;color:var(--muted)}
+.hero-intro .hero-cta{display:flex;justify-content:center;gap:14px;margin-top:26px;flex-wrap:wrap}
+.hero-intro .hero-note{margin-top:16px;font-size:12.5px;color:var(--muted);font-family:var(--mono);letter-spacing:.5px}
+.hero-intro>*>*{animation:rise .55s cubic-bezier(.2,.7,.3,1) both}
+.hero-intro>*>*:nth-child(2){animation-delay:.06s}
+.hero-intro>*>*:nth-child(3){animation-delay:.13s}
+.hero-intro>*>*:nth-child(4){animation-delay:.2s}
+.hero-intro>*>*:nth-child(5){animation-delay:.27s}
 
 /* ===== 数据读数条 ===== */
 .stats{border-bottom:1px solid var(--line);background:var(--bg1)}
@@ -294,9 +385,33 @@ tbody td.yes{color:var(--ok)}
   .stat{border-left:none}
 }
 
+/* ===== 置顶轮播：响应式 ===== */
+@media (max-width:1100px){
+  /* 窄桌面：切换条标签独占一行，案例卡保持三列可读宽度 */
+  .sc-deck-inner{flex-wrap:wrap;gap:10px 18px}
+  .sc-deck-label{flex-basis:100%}
+}
+@media (max-width:900px){
+  /* 竖屏/窄屏：视频压缩为 16:10 块，切换条单列，文案带降低留白 */
+  .showcase{height:auto;min-height:0;margin-top:0}
+  .sc-stage{position:relative;inset:auto;aspect-ratio:16/9}
+  .sc-strip{position:static;padding:14px 0 16px;background:var(--bg1);border-bottom:1px solid var(--line)}
+  .sc-deck-inner{flex-direction:column;align-items:stretch;gap:10px}
+  /* 案例卡横向滑动，避免三张竖排占掉半屏 */
+  .sc-cases{display:flex;overflow-x:auto;gap:10px;padding-bottom:2px;scroll-snap-type:x mandatory;scrollbar-width:none}
+  .sc-cases::-webkit-scrollbar{height:0}
+  .sc-case{flex:0 0 78%;scroll-snap-align:start}
+  .sc-desc{white-space:normal}
+  .sc-arrows{display:none}
+  .hero-intro{padding:48px 0 44px}
+  .hero-intro .lede{font-size:15.5px}
+}
+
 /* ===== 动效总闸：尊重减少动态偏好 ===== */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none !important;transition:none !important}
   .hero-copy>*{opacity:1}
   .hero-art{opacity:1}
+  .hero-intro>*>*{opacity:1}
+  .showcase::after{animation:none;opacity:1}
 }
