@@ -1,0 +1,5 @@
+# 提交作者邮箱 → GitHub 账号邮箱映射。
+# 本地/远端均使用 Gitee 的 noreply 地址提交，GitHub 无法据此关联账号，
+# 导致仓库贡献者列表为空（此前的关联仅由 Co-Authored-By trailer 产生）。
+# 用 .mailmap 把历史提交统一归到 GitHub 账号，无需重写历史。
+miao_zeyun <30340007+miaozeyun@users.noreply.github.com> <miao_zeyun@noreply.gitee.com>
