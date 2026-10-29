@@ -34,6 +34,11 @@
 ## 运维要点
 
 - **改页面内容不用重启**：`website/` 是只读挂载，`git pull` 后刷新浏览器即生效。
+- **视频素材必须以 `application/octet-stream` 发出**：`nginx.conf` 里 `~* \.(webm|mp4|m4v)$` 单独一条
+  location 做了这件事，且必须排在 `.css|.js|...` 资源正则**之前**。原因：部分链路（客户端安全软件 /
+  运营商 / 机房前置）会把 `Content-Type: video/*` 的响应整段卡死——表现为 `HEAD` 正常但 `GET`
+  一个字节都不返回，首屏录屏永远停在 poster 上，看起来就是「画面里的数据不动」。浏览器对 `<video>`
+  按内容嗅探解码，改 MIME 不影响播放。改这条规则前先确认链路是否仍拦截 video MIME。
 - **只有改 `nginx.conf` 才需要重跑脚本**（或 `docker compose -f deploy/website/docker-compose.yml restart site`）。
 - **端口要放行**：云服务器安全组 + 主机防火墙，否则外网访问不到。
 - **本方案是纯 HTTP**。要 HTTPS：走主编排的 `SITE_DOMAIN` 方案（见 `website/README.md` 方式一），

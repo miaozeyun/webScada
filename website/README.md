@@ -163,6 +163,15 @@ server {
     location = /robots.txt  { add_header Cache-Control "no-cache"; }
     location = /sitemap.xml { add_header Cache-Control "no-cache"; }
 
+    # 视频素材必须用非 video/* 的 MIME 发：部分链路会卡死 Content-Type: video/* 的响应
+    # （HEAD 正常、GET 一字节不回），首屏录屏就永远停在 poster 上。浏览器按内容嗅探解码，
+    # 以 octet-stream 提供仍能正常播放。必须排在下面的资源正则之前（正则命中即停）。
+    location ~* \.(webm|mp4|m4v)$ {
+        types { }
+        default_type application/octet-stream;
+        expires 1h;
+    }
+
     # 资源文件名无内容哈希：用短缓存，改版后才能及时生效（不要设 immutable/30d）
     # expires 已同时输出 Expires 与 Cache-Control: max-age，勿再 add_header 重复声明
     location ~* \.(css|js|svg|png|jpe?g|webp|ico|woff2?)$ {

@@ -57,6 +57,17 @@ server {
     location = /robots.txt  { add_header Cache-Control "no-cache"; }
     location = /sitemap.xml { add_header Cache-Control "no-cache"; }
 
+    # 视频素材刻意用 application/octet-stream 发：部分链路（客户端安全软件 / 运营商 /
+    # 机房前置）会卡死 Content-Type: video/* 的响应——HEAD 正常但 GET 一个字节都不回，
+    # 浏览器里首屏录屏永远停在 poster 上。浏览器对 <video> 按内容嗅探解码，实测 webm
+    # 以 octet-stream 提供仍能正常播放。必须排在下面的资源正则之前（正则命中即停）。
+    location ~* \.(webm|mp4|m4v)$ {
+        types { }
+        default_type application/octet-stream;
+        expires 1h;
+        access_log off;
+    }
+
     # 资源无内容哈希：用 1h 短缓存 + 协商缓存，避免改版后旧 CSS/JS 长期滞留
     # （expires 已同时输出 Expires 与 Cache-Control: max-age，不要再 add_header 重复声明）
     location ~* \.(css|js|svg|png|jpe?g|webp|ico|woff2?)$ {
