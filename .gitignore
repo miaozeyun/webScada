@@ -7,7 +7,12 @@ __pycache__/
 .pytest_cache/
 .venv/
 
-# 本地环境与密钥（.env 不入库，模板见 .env.example）
+# 本地环境与密钥（含真实密钥，严禁入库；模板见 .env.example）
+.env
+.env.*
+!.env.example
+# 由 deploy/website/deploy.sh 自动生成的运行参数，不入库
+deploy/website/.env
 
 # IDE
 .idea/
@@ -45,6 +50,9 @@ backups/
 
 # 内部商业文档（评估/策略/压测结论，不随开源发布）
 docs/private/
+
+# 内部自媒体稿件与投放素材（不随开源发布）
+marketing/
 
 # 内部开发计划与规格（superpowers 工作流产物，不随开源发布）
 docs/superpowers/
